@@ -23,6 +23,9 @@ Anlage aus dem Export des eNet Servers – **kein Gerät muss neu eingelernt wer
   bisher.
 - **„Nur mithören“**, um die Bridge zuerst neben dem echten eNet Server zu betreiben – sie empfängt alles und
   sendet nichts. Umgestellt wird, wenn du so weit bist.
+- **Neue Anlage ohne eNet Server**: bei null anfangen und eNet-Aktoren und -Sender direkt aus Home Assistant
+  einlernen – z. B. um Gira/Jung-eNet-Wand- und Handsender als batteriebetriebene Funktaster in Home Assistant zu
+  nutzen, ohne je einen eNet Server zu kaufen.
 - **Lampen**: Schalt- und Dimmaktoren als `light`-Entitäten mit echter Rückmeldung (Statusmeldungen der Aktoren,
   Statusabfrage nach Befehlen).
 - **Sender** (Hand- und Wandsender): jede Taste als Ereignis-Entität – gedrückt/losgelassen mit Haltedauer, damit

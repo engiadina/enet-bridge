@@ -23,6 +23,9 @@ from the eNet Server’s export file – **no device has to be paired again**.
   before.
 - **Listen-only mode** to run the bridge next to the real eNet Server first – it receives everything and sends
   nothing. Switch over when you are ready.
+- **New installation without an eNet Server**: start from scratch and pair eNet actuators and transmitters directly
+  from Home Assistant – for example to use Gira/Jung eNet wall transmitters and hand-held transmitters as
+  battery-powered radio buttons in Home Assistant, without ever buying an eNet Server.
 - **Lights**: switching and dimming actuators as `light` entities with real state feedback (status messages of
   the actuators, status requests after commands).
 - **Transmitters** (hand-held and wall transmitters): every button as an event entity – pressed / released with
