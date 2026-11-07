@@ -4,6 +4,8 @@ Stand: 2026-11-07 (Integration 0.11.0, Firmware 0.8.11). Reihenfolge innerhalb d
 Priorität. Erledigtes wird hier gestrichen.
 
 ## Vor der ersten Veröffentlichung
+- Kompletter Test „Neue Anlage ohne eNet Server“: Integration als neue Anlage einrichten, einen Handsender
+  einlernen, Wippen belegen, Einzeltasten mit Aktion, Sender programmieren, Ereignisse in HA.
 - Bereinigte Protokoll-Beschreibung (Funk, Telegramme, Programmier-Rahmen, Szenen, Sender) als Doku.
 - Englische Oberfläche in HA testen, Begriffe in en.json vereinheitlichen (sender/transmitter, „teach in“).
 - Fotos des Aufbaus für docs/HARDWARE.md.
