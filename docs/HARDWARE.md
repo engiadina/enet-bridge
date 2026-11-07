@@ -22,8 +22,7 @@ The common green 8-pin modules sold as “CC1101 868 MHz” also work and were u
 
 - their crystal was off by ≈ 100 ppm (≈ 95 kHz at 868 MHz) – the bridge corrects this automatically;
 - the chip reported a different version (0x04 instead of 0x14), possibly a clone;
-- receive sensitivity was clearly worse than the eNet Server’s: in a real house, two actuators on the upper floor
-  were not received at all (0/12), while the server heard them;
+- the noise floor was about 7 dB higher than with the RC-CC1101-SPI-868 (see below);
 - the coil antenna usually supplied is for 433 MHz – replace it.
 
 With the RC-CC1101-SPI-868 the noise floor was 7 dB lower and the weakest decodable telegram ≈ −98 dBm. Use it if
