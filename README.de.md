@@ -159,8 +159,9 @@ zurückgesetzt.
 
 ## Entwicklung
 
-Firmware (PlatformIO), serielle Befehle und Testwerkzeuge: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md),
-[docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md) (Schnittstelle Bridge ↔ Host). Die Protokoll-Logik hat Host-Tests: `pio test -e native`. Geplantes: [docs/ROADMAP.md](docs/ROADMAP.md).
+Firmware: PlatformIO (`pio run -e esp32dev`; die Integration bringt den Build in `bridge_fw/` mit). Die
+Protokoll-Logik hat Host-Tests: `pio test -e native`. Schnittstelle Bridge ↔ Host (serielle JSON-Zeilen):
+[docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md).
 
 ## Lizenz
 

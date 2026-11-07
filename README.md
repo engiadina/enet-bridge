@@ -158,10 +158,9 @@ the serial port).
 
 ## Development
 
-Firmware (PlatformIO), serial commands and test tools are documented in German:
-[docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md), [docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md) (bridge ↔ host
-interface). Protocol logic has host tests:
-`pio test -e native`. Planned features: [docs/ROADMAP.md](docs/ROADMAP.md) (German).
+Firmware: PlatformIO (`pio run -e esp32dev`; the integration bundles the build in `bridge_fw/`). Protocol logic
+has host tests: `pio test -e native`. Bridge ↔ host interface (serial JSON lines, German):
+[docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md).
 
 ## License
 

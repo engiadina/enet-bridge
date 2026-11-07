@@ -112,7 +112,7 @@ Reference measurements (office test installation, same place, bridge firmware 0.
 | Actuators answering without antenna (of 4) | 1 | 2 |
 | All actuators with antenna | 4/4, first attempt | 4/4, first attempt |
 
-Diagnostics over the serial console (115200 baud, see [`ENTWICKLUNG.md`](ENTWICKLUNG.md), German): `d` shows the
+Diagnostics over the serial console (115200 baud): `d` shows the
 GDO lines, chip state, RSSI and channel occupancy, `s` the receive statistics, `r` the CC1101 registers.
 
 ## Why USB and not Wi-Fi
