@@ -1,0 +1,486 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "eNet-Bridge",
+        "description": "Woher kommt die Anlage?",
+        "menu_options": {
+          "export": "Aus einem Export des eNet Servers übernehmen (.iex)",
+          "neu": "Neue Anlage ohne eNet Server",
+          "datei": "Bestehende Anlagendatei (anlage.json)"
+        }
+      },
+      "export": {
+        "title": "eNet Server übernehmen",
+        "description": "Projekt im eNet Server (bzw. in der App) exportieren und die .iex-Datei hochladen. Domäne, Server-Kennung, Geräte und Szenen werden übernommen; umprogrammiert wird nichts.",
+        "data": {
+          "export": "Projektexport (.iex)",
+          "port": "Port der Bridge",
+          "server_aus": "Der eNet Server ist ausgeschaltet"
+        },
+        "data_description": {
+          "server_aus": "Solange der echte Server läuft: aus lassen. Die Bridge hört dann nur mit (Tasten, Lampenzustände), sendet nichts und programmiert nichts. Sobald der Server aus ist, an der Bridge „Nur mithören“ ausschalten."
+        }
+      },
+      "neu": {
+        "title": "Neue Anlage",
+        "description": "Die Bridge wird zum Server einer neuen eNet-Anlage (eigene Domäne und Server-Kennung). Geräte werden danach eingelernt.",
+        "data": {
+          "port": "Port der Bridge"
+        }
+      },
+      "datei": {
+        "title": "Anlagendatei",
+        "description": "Serieller Port der Bridge und Pfad zur Anlagendatei (anlage.json aus tools/iex.py). Sie wird einmal übernommen; danach verwaltet Home Assistant die Anlage.",
+        "data": {
+          "port": "Port der Bridge",
+          "anlage": "Anlage (JSON)"
+        }
+      },
+      "reconfigure": {
+        "title": "Port der Bridge",
+        "description": "Seriellen Port der eNet-Bridge wählen. Funkmodule anderer Integrationen (Thread/Zigbee/Z-Wave) werden nicht angeboten.",
+        "data": {
+          "port": "Port der Bridge"
+        }
+      }
+    },
+    "error": {
+      "port_missing": "Port nicht gefunden",
+      "anlage_missing": "Datei nicht gefunden",
+      "anlage_invalid": "Keine gültige Anlagendatei",
+      "export_invalid": "Kein gültiger Export des eNet Servers",
+      "export_encrypted": "Verschlüsselte Anlagen werden nicht unterstützt – Verschlüsselung vorher im eNet Server abschalten",
+      "port_fremd": "Das ist das Funkmodul einer anderen Integration (Thread/Zigbee/Z-Wave) – bitte den Port der Bridge wählen"
+    },
+    "abort": {
+      "already_configured": "Diese Anlage ist bereits eingerichtet",
+      "port_in_use": "Dieser Port wird schon von einer anderen eNet-Anlage genutzt",
+      "reconfigure_successful": "Port der Bridge geändert"
+    }
+  },
+  "entity": {
+    "switch": {
+      "server": {
+        "name": "Server-Funktionen"
+      },
+      "mithoeren": {
+        "name": "Nur mithören"
+      }
+    },
+    "binary_sensor": {
+      "real_server": {
+        "name": "Echter eNet Server aktiv"
+      },
+      "funkmodul": {
+        "name": "Funkmodul"
+      },
+      "batterie": {
+        "name": "Batteriestand",
+        "state": {
+          "off": "OK",
+          "on": "Schwach"
+        }
+      },
+      "sonnenschutz": {
+        "name": "Sonnenschutz"
+      },
+      "daemmerung": {
+        "name": "Dämmerung"
+      }
+    },
+    "event": {
+      "taste": {
+        "name": "Taste {nr}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "gedrueckt": "Gedrückt",
+              "losgelassen": "Losgelassen"
+            }
+          }
+        }
+      },
+      "wippe": {
+        "name": "Tasten {nr}/{nr2}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "links_gedrueckt": "Links gedrückt",
+              "links_losgelassen": "Links losgelassen",
+              "rechts_gedrueckt": "Rechts gedrückt",
+              "rechts_losgelassen": "Rechts losgelassen",
+              "beide_gedrueckt": "Beide gedrückt",
+              "beide_losgelassen": "Beide losgelassen"
+            }
+          }
+        }
+      },
+      "sonnenschutz_szene": {
+        "name": "Szene Sonnenschutz",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "Ein",
+              "aus": "Aus"
+            }
+          }
+        }
+      },
+      "daemmerung_szene": {
+        "name": "Szene Dämmerung",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "Ein",
+              "aus": "Aus"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "parameter_lesen": {
+        "name": "Parameter lesen"
+      },
+      "szene_speichern": {
+        "name": "{szene} speichern"
+      },
+      "sender_programmieren": {
+        "name": "Sender programmieren"
+      }
+    },
+    "sensor": {
+      "signal": {
+        "name": "Signal"
+      },
+      "letzte_meldung": {
+        "name": "Letzte Meldung"
+      },
+      "frequenzkorrektur": {
+        "name": "Frequenzkorrektur"
+      },
+      "programmierung": {
+        "name": "Programmierung",
+        "state": {
+          "bereit": "Bereit",
+          "szene": "Szene wird übertragen",
+          "aktor": "Aktor wird programmiert"
+        },
+        "state_attributes": {
+          "szene": {
+            "name": "Szene"
+          },
+          "geraete": {
+            "name": "Geräte"
+          }
+        }
+      },
+      "helligkeit": {
+        "name": "Helligkeit"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Bridge-Firmware"
+      }
+    },
+    "select": {
+      "wippe_betriebsart": {
+        "name": "Betriebsart",
+        "state": {
+          "wippe": "Wippe",
+          "tasten": "Zwei Einzeltasten"
+        }
+      },
+      "wippe_lampe": {
+        "name": "Lampe {lampe}"
+      },
+      "taste_aktion": {
+        "name": "Taste {nr}: Aktion"
+      }
+    }
+  },
+  "services": {
+    "release": {
+      "name": "Bridge freigeben",
+      "description": "Schließt den seriellen Port, z. B. zum Flashen der Firmware."
+    },
+    "reconnect": {
+      "name": "Bridge verbinden",
+      "description": "Öffnet den seriellen Port wieder."
+    },
+    "szene_anlegen": {
+      "name": "eNet-Szene anlegen",
+      "description": "Legt eine KNX-Szene in den Aktoren an (Verknüpfungen für Szenenaufruf und Sammelstatus). Mit „Lernen“ wird der aktuelle Zustand der Lampen zu den Szenenwerten.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name der Szene"
+        },
+        "entity_id": {
+          "name": "Lampen",
+          "description": "eNet-Lampen, die mitmachen"
+        },
+        "lernen": {
+          "name": "Lernen",
+          "description": "Aktuellen Zustand als Szenenwerte speichern"
+        }
+      }
+    },
+    "szene_loeschen": {
+      "name": "eNet-Szene löschen",
+      "description": "Entfernt die Szenen-Verknüpfungen aus allen Mitgliedern und löscht die Szene.",
+      "fields": {
+        "entity_id": {
+          "name": "Szene",
+          "description": "Zu löschende eNet-Szene"
+        }
+      }
+    },
+    "geraet_einlernen": {
+      "name": "Gerät einlernen",
+      "description": "Sucht ein eNet-Gerät im Lernmodus (Taste am Gerät drücken), nimmt es in die Anlage auf und kalibriert dabei bei Bedarf den Funk.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name des neuen Geräts (optional)."
+        }
+      }
+    },
+    "geraet_entfernen": {
+      "name": "Gerät entfernen",
+      "description": "Setzt ein eNet-Gerät in den Werkszustand zurück und nimmt es aus der Anlage.",
+      "fields": {
+        "device_id": {
+          "name": "Gerät",
+          "description": "Zu entfernendes eNet-Gerät."
+        }
+      }
+    },
+    "sender_programmieren": {
+      "name": "Sender programmieren",
+      "description": "Weckt einen Hand- oder Wandsender (Taste daran drücken) und schreibt seine komplette Belegung aus der Anlage neu: Betriebsart je Wippe, Wippe → Aktoren, Einzeltaste → Server-Taste.",
+      "fields": {
+        "device_id": {
+          "name": "Sender",
+          "description": "Zu programmierender eNet-Sender."
+        }
+      }
+    },
+    "verknuepfungen_lesen": {
+      "name": "Verknüpfungen lesen",
+      "description": "Liest die Link-Tabellen von Aktoren (ohne Auswahl: aller) und bewertet jeden Eintrag: Werkseintrag, Szene, Wippe, anderes Gerät, Alt-Verknüpfung oder fremdes Gerät. Alt- und fremde Verknüpfungen erscheinen unter Reparaturen. Liest nur, ändert nichts.",
+      "fields": {
+        "device_id": {
+          "name": "Aktoren",
+          "description": "Zu lesende eNet-Aktoren (leer: alle)."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "geraet": {
+      "initiate_flow": {
+        "user": "Gerät hinzufügen"
+      },
+      "entry_type": "eNet-Gerät",
+      "step": {
+        "user": {
+          "title": "eNet-Gerät hinzufügen",
+          "description": "Name und Bereich sind optional. Nach „Absenden“ das Gerät in den Lernmodus versetzen (Mini-Aktoren: Taste 4 s drücken; Sender: Lernknopf bzw. Tastenkombination). Die Suche läuft 2 Minuten; ein Sender wird gleich programmiert, seine Lern-LED hört dann auf zu blinken.",
+          "data": {
+            "name": "Name",
+            "raum": "Bereich"
+          }
+        }
+      },
+      "progress": {
+        "suchen": "Suche läuft – Gerät jetzt in den Lernmodus versetzen. Einlernen und Programmieren dauern bis zu 2 Minuten."
+      },
+      "abort": {
+        "eingelernt": "{name} ({typ}) als {ia} eingelernt.",
+        "fehlgeschlagen": "Einlernen fehlgeschlagen: {fehler}",
+        "nicht_geladen": "Die eNet-Anlage ist nicht geladen (Bridge angeschlossen?)."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "eNet-Anlage",
+        "menu_options": {
+          "sender": "Sender belegen",
+          "entfernen": "Gerät entfernen"
+        }
+      },
+      "entfernen": {
+        "title": "Gerät entfernen",
+        "description": "Welches Gerät soll aus der Anlage entfernt werden? Es wird dabei auf Werkszustand zurückgesetzt.",
+        "data": {
+          "geraet": "Gerät"
+        }
+      },
+      "bestaetigen": {
+        "title": "{name} entfernen?",
+        "description": "**{name}** ({typ}, {ia}) wird auf Werkszustand zurückgesetzt und aus der Anlage genommen. Danach reagiert es nicht mehr, bis es neu eingelernt wird (Name und Belegung werden gemerkt).\n\nMitbetroffen:\n{details}",
+        "data": {
+          "verstanden": "Ich habe verstanden – Gerät entfernen"
+        }
+      },
+      "sender": {
+        "title": "Sender belegen",
+        "description": "Welcher Hand- oder Wandsender soll neu belegt werden?",
+        "data": {
+          "geraet": "Sender"
+        }
+      },
+      "betriebsart": {
+        "title": "{name}: Wippen",
+        "description": "Betriebsart je Wippe (Wippe 1 = Tasten 1/2, Wippe 2 = Tasten 3/4 …).\n\n- **Wippe**: schaltet/dimmt die gewählten Lampen direkt, Rückmeldung von den Lampen.\n- **Einzeltasten**: jede Taste meldet sich bei der Bridge (grüne LED) und löst eine eNet-Szene, eine Bridge-Szene oder nur ein Ereignis für Automationen in Home Assistant aus.",
+        "data": {
+          "wippe_1": "Wippe 1 (Tasten 1/2)",
+          "wippe_2": "Wippe 2 (Tasten 3/4)",
+          "wippe_3": "Wippe 3 (Tasten 5/6)",
+          "wippe_4": "Wippe 4 (Tasten 7/8)"
+        }
+      },
+      "details": {
+        "title": "{name}: Belegung",
+        "description": "Lampen der Wippen bzw. Aktion jeder Einzeltaste. Ändern sich Betriebsart oder Lampen, wird der Sender danach programmiert (eine Taste daran drücken); eine geänderte Aktion braucht nur die Bridge.",
+        "data": {
+          "lampen_1": "Wippe 1: Lampen",
+          "lampen_2": "Wippe 2: Lampen",
+          "lampen_3": "Wippe 3: Lampen",
+          "lampen_4": "Wippe 4: Lampen",
+          "taste_1": "Taste 1",
+          "taste_2": "Taste 2",
+          "taste_3": "Taste 3",
+          "taste_4": "Taste 4",
+          "taste_5": "Taste 5",
+          "taste_6": "Taste 6",
+          "taste_7": "Taste 7",
+          "taste_8": "Taste 8"
+        }
+      }
+    },
+    "progress": {
+      "laeuft": "Gerät wird entfernt … (bei einem Sender jetzt eine Taste daran drücken)",
+      "programmieren": "Sender wird programmiert … jetzt eine Taste daran drücken (aufwecken) und den Sender etwa eine Minute in der Nähe lassen.",
+      "uebertragen": "Belegung wird an die Bridge übertragen …"
+    },
+    "error": {
+      "nicht_bestaetigt": "Bitte zuerst bestätigen."
+    },
+    "abort": {
+      "entfernt": "{name} wurde entfernt.",
+      "entfernt_offen": "{name} wurde aus der Anlage genommen. Offen: {offen}",
+      "fehlgeschlagen": "Entfernen fehlgeschlagen: {fehler}",
+      "nicht_geladen": "Die eNet-Anlage ist nicht geladen (Bridge angeschlossen?).",
+      "belegt": "{name}: Belegung übernommen (nur Bridge, Sender unverändert).",
+      "belegt_programmiert": "{name}: Sender programmiert und Belegung übernommen.",
+      "keine_sender": "In der Anlage gibt es keinen Sender."
+    }
+  },
+  "exceptions": {
+    "geraet_loeschen": {
+      "message": "eNet-Geräte bitte über „Konfigurieren → Gerät entfernen“ an der eNet-Anlage entfernen – dort wird das Gerät zurückgesetzt und alles Zugehörige aufgeräumt."
+    }
+  },
+  "issues": {
+    "antwortet_nicht": {
+      "title": "eNet: {name} antwortet nicht",
+      "description": "{name} ({ia}, Seriennummer {sn}) steht in der Anlage, antwortet aber nicht. Mögliche Ursachen: Gerät ohne Strom, außer Funkreichweite, ausgebaut oder getauscht (ein neues Gerät hat eine andere Seriennummer und muss neu eingelernt werden).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{name} antwortet nicht",
+            "menu_options": {
+              "erneut": "Erneut abfragen",
+              "entfernen": "Aus der Anlage nehmen"
+            }
+          },
+          "entfernen": {
+            "title": "{name} entfernen",
+            "description": "{name} wird aus der Anlage genommen, samt Entitäten, Szenen-Mitgliedschaften und Verweisen der Sender. Ist das Gerät noch vorhanden, wird es dabei in den Werkszustand versetzt."
+          }
+        },
+        "abort": {
+          "antwortet_weiter_nicht": "{name} antwortet weiterhin nicht.",
+          "erledigt": "Erledigt."
+        }
+      }
+    },
+    "szenen_mithoeren": {
+      "title": "eNet: Szenen werden nach dem Mithören umgewandelt",
+      "description": "Diese eNet-Szenen sind noch nicht bearbeitbar: {szenen}. Für die Umwandlung in Home-Assistant-Szenen müssen die Szenenwerte aus den Aktoren gelesen werden, und solange „Nur mithören“ an ist, sendet die Bridge nichts. Den echten eNet Server ausschalten und danach „Nur mithören“ an der Bridge ausschalten – die Szenen werden dann automatisch umgewandelt."
+    },
+    "szenen_nicht_umgewandelt": {
+      "title": "eNet: Szenen noch nicht übernommen",
+      "description": "Diese eNet-Szenen sind noch keine Home-Assistant-Szenen, weil nicht alle Szenenwerte aus den Aktoren lesbar waren: {szenen}. Die Übernahme wird bei jedem Start wiederholt; meist antwortet ein Mitglied nicht (siehe eigene Meldung)."
+    },
+    "szenen_links_fehlen": {
+      "title": "eNet: Szenen-Verknüpfungen fehlen",
+      "description": "In {kanaele} fehlen Verknüpfungen für die Szenen {szenen}. Diese Lampen reagieren nicht auf den eNet-Szenenaufruf (Home Assistant schaltet sie dann einzeln nach).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Szenen-Verknüpfungen anlegen",
+            "description": "Die fehlenden Verknüpfungen werden in die Aktoren geschrieben. Die Aktoren starten dabei kurz neu; eingeschaltete Lampen werden danach wieder eingeschaltet."
+          }
+        },
+        "abort": {
+          "nicht_repariert": "Nicht alles angelegt: {fehler}",
+          "erledigt": "Erledigt."
+        }
+      }
+    },
+    "unbekannter_sender": {
+      "title": "eNet: unbekannter Sender ({sn})",
+      "description": "Ein Sender mit der Seriennummer {sn} drückt Tasten, steht aber nicht in der Anlage (z. B. nach dem Export nachgerüstet). Hinzufügen: Einstellungen → Geräte & Dienste → eNet → „Gerät hinzufügen“."
+    },
+    "szene_wird_uebertragen": {
+      "title": "eNet: Szene {szene} wird übertragen – bitte warten",
+      "description": "Der eNet-Teil der Szene {szene} wird in die Aktoren geschrieben. Bis dahin läuft die Szene Lampe für Lampe über Home Assistant. Dieser Hinweis verschwindet von selbst."
+    },
+    "aktor_wird_programmiert": {
+      "title": "eNet: {geraete} wird programmiert – bitte warten",
+      "description": "{geraete} wird per Funk programmiert. Die Lampen gehen dabei kurz aus und werden danach wiederhergestellt. Dieser Hinweis verschwindet von selbst."
+    },
+    "links_auffaellig": {
+      "title": "eNet: {name} hat unerwartete Verknüpfungen",
+      "description": "In der Link-Tabelle von {name} ({ia}) stehen Einträge, die zu keiner Szene und keiner Wippe der Anlage passen:\n\n{eintraege}\n\nSolche Überbleibsel lassen die Lampe auf Tasten oder Telegramme reagieren, die sie nicht betreffen (z. B. beim Loslassen einer Server-Taste auf einen anderen Wert dimmen). Meist stammen sie aus früheren Belegungen im eNet Server.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Unerwartete Verknüpfungen in {name}",
+            "menu_options": {
+              "entfernen": "Verknüpfungen entfernen",
+              "behalten": "Behalten (nicht mehr melden)"
+            }
+          },
+          "entfernen": {
+            "title": "Verknüpfungen aus {name} entfernen",
+            "description": "Die Tabelle wird neu gelesen und die aufgeführten Einträge werden im Aktor gelöscht. Der Aktor startet dabei kurz neu; eine eingeschaltete Lampe wird danach wieder eingeschaltet. Nur entfernen, wenn kein Sender außerhalb dieser Anlage sie noch benutzt."
+          },
+          "behalten": {
+            "title": "Verknüpfungen in {name} behalten",
+            "description": "Die Einträge bleiben im Aktor und werden nicht mehr gemeldet. Neue unerwartete Einträge werden weiterhin gemeldet."
+          }
+        },
+        "abort": {
+          "nicht_entfernt": "Nicht alles entfernt: {fehler}",
+          "erledigt": "Erledigt."
+        }
+      }
+    }
+  },
+  "selector": {
+    "wippen_art": {
+      "options": {
+        "wippe": "Wippe (schaltet/dimmt Lampen direkt)",
+        "tasten": "Zwei Einzeltasten (Server-Tasten, grüne LED)"
+      }
+    }
+  }
+}

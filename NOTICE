@@ -1,0 +1,20 @@
+eNet Bridge for Home Assistant
+Copyright 2026 Guido Weckwerth
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), with the following exceptions:
+
+1. custom_components/enet_bridge/brand/ (icon and logo)
+   These files show the eNet logo, a trademark of Insta GmbH. They are not covered by the Apache License and
+   no rights to them are granted. They are included only to indicate which devices the integration works with.
+
+2. custom_components/enet_bridge/definitionen.json (device definitions)
+   Technical data needed to operate eNet devices (channels, group object offsets, parameter addresses,
+   encodings, value ranges, selection values, product numbers), converted into an own structure from the
+   device catalogue contained in the eNet Server's update file and checked and extended by own measurements.
+   It is provided for interoperability with existing eNet devices. The Apache License applies only to the
+   author's own contributions (structure, conversion, additions); no rights in the manufacturer's data are
+   claimed or granted.
+
+eNet, eNet SMART HOME, Gira and Jung are trademarks or registered trademarks of their respective owners
+(Insta GmbH, Gira Giersiepen GmbH & Co. KG, Albrecht Jung GmbH & Co. KG). This project is independent and not
+affiliated with, endorsed or reviewed by these companies.

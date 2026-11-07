@@ -1,0 +1,21 @@
+{
+  "domain": "enet_bridge",
+  "name": "eNet-Bridge",
+  "codeowners": [
+    "@engiadina"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "file_upload",
+    "logbook"
+  ],
+  "documentation": "https://github.com/engiadina/enet-bridge",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/engiadina/enet-bridge/issues",
+  "requirements": [
+    "pyserial>=3.5",
+    "esptool==5.6.0"
+  ],
+  "version": "0.11.1"
+}

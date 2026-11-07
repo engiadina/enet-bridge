@@ -1,0 +1,486 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "eNet bridge",
+        "description": "Where does the installation come from?",
+        "menu_options": {
+          "export": "Take over from an eNet Server export (.iex)",
+          "neu": "New installation without eNet Server",
+          "datei": "Existing installation file (anlage.json)"
+        }
+      },
+      "export": {
+        "title": "Take over eNet Server",
+        "description": "Export the project in the eNet Server (or app) and upload the .iex file. Domain, server identity, devices and scenes are taken over; nothing has to be reprogrammed.",
+        "data": {
+          "export": "Project export (.iex)",
+          "port": "Bridge port",
+          "server_aus": "The eNet Server is switched off"
+        },
+        "data_description": {
+          "server_aus": "While the real server is running: leave unchecked. The bridge then only listens (keys, lamp states), sends and programs nothing. Once the server is off, turn off \"Listen only\" on the bridge."
+        }
+      },
+      "neu": {
+        "title": "New installation",
+        "description": "The bridge becomes the server of a new eNet installation (own domain and server identity). Devices are added later by teaching them in.",
+        "data": {
+          "port": "Bridge port"
+        }
+      },
+      "datei": {
+        "title": "Installation file",
+        "description": "Serial port of the bridge and path to the installation file (anlage.json from tools/iex.py). It is imported once; afterwards Home Assistant keeps the installation.",
+        "data": {
+          "port": "Bridge port",
+          "anlage": "Installation (JSON)"
+        }
+      },
+      "reconfigure": {
+        "title": "Bridge port",
+        "description": "Choose the serial port of the eNet bridge. Radios of other integrations (Thread/Zigbee/Z-Wave) are not offered.",
+        "data": {
+          "port": "Bridge port"
+        }
+      }
+    },
+    "error": {
+      "port_missing": "Port not found",
+      "anlage_missing": "File not found",
+      "anlage_invalid": "Not a valid installation file",
+      "export_invalid": "Not a valid eNet Server export",
+      "export_encrypted": "Encrypted installations are not supported – switch off encryption in the eNet Server first",
+      "port_fremd": "This is the radio of another integration (Thread/Zigbee/Z-Wave) – please choose the bridge port"
+    },
+    "abort": {
+      "already_configured": "This installation is already set up",
+      "port_in_use": "This bridge port is already used by another eNet installation",
+      "reconfigure_successful": "Bridge port changed"
+    }
+  },
+  "entity": {
+    "switch": {
+      "server": {
+        "name": "Server functions"
+      },
+      "mithoeren": {
+        "name": "Listen only"
+      }
+    },
+    "binary_sensor": {
+      "real_server": {
+        "name": "Real eNet server active"
+      },
+      "funkmodul": {
+        "name": "Radio module"
+      },
+      "batterie": {
+        "name": "Battery",
+        "state": {
+          "off": "OK",
+          "on": "Low"
+        }
+      },
+      "sonnenschutz": {
+        "name": "Sun protection"
+      },
+      "daemmerung": {
+        "name": "Twilight"
+      }
+    },
+    "event": {
+      "taste": {
+        "name": "Button {nr}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "gedrueckt": "Pressed",
+              "losgelassen": "Released"
+            }
+          }
+        }
+      },
+      "wippe": {
+        "name": "Buttons {nr}/{nr2}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "links_gedrueckt": "Left pressed",
+              "links_losgelassen": "Left released",
+              "rechts_gedrueckt": "Right pressed",
+              "rechts_losgelassen": "Right released",
+              "beide_gedrueckt": "Both pressed",
+              "beide_losgelassen": "Both released"
+            }
+          }
+        }
+      },
+      "sonnenschutz_szene": {
+        "name": "Sun protection scene",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "On",
+              "aus": "Off"
+            }
+          }
+        }
+      },
+      "daemmerung_szene": {
+        "name": "Twilight scene",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "On",
+              "aus": "Off"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "parameter_lesen": {
+        "name": "Read parameters"
+      },
+      "szene_speichern": {
+        "name": "Save {szene}"
+      },
+      "sender_programmieren": {
+        "name": "Program sender"
+      }
+    },
+    "sensor": {
+      "signal": {
+        "name": "Signal"
+      },
+      "letzte_meldung": {
+        "name": "Last message"
+      },
+      "frequenzkorrektur": {
+        "name": "Frequency correction"
+      },
+      "programmierung": {
+        "name": "Programming",
+        "state": {
+          "bereit": "Ready",
+          "szene": "Transferring scene",
+          "aktor": "Programming actuator"
+        },
+        "state_attributes": {
+          "szene": {
+            "name": "Scene"
+          },
+          "geraete": {
+            "name": "Devices"
+          }
+        }
+      },
+      "helligkeit": {
+        "name": "Illuminance"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Bridge firmware"
+      }
+    },
+    "select": {
+      "wippe_betriebsart": {
+        "name": "Mode",
+        "state": {
+          "wippe": "Rocker",
+          "tasten": "Two single keys"
+        }
+      },
+      "wippe_lampe": {
+        "name": "Lamp {lampe}"
+      },
+      "taste_aktion": {
+        "name": "Key {nr}: action"
+      }
+    }
+  },
+  "services": {
+    "release": {
+      "name": "Release bridge",
+      "description": "Closes the serial port, e.g. for flashing firmware."
+    },
+    "reconnect": {
+      "name": "Reconnect bridge",
+      "description": "Reopens the serial port."
+    },
+    "szene_anlegen": {
+      "name": "Create eNet scene",
+      "description": "Creates a KNX scene in the actuators (links for scene call and summary status). With 'learn', the current state of the lights becomes the scene values.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the scene"
+        },
+        "entity_id": {
+          "name": "Lights",
+          "description": "eNet lights that take part"
+        },
+        "lernen": {
+          "name": "Learn",
+          "description": "Store the current state as scene values"
+        }
+      }
+    },
+    "szene_loeschen": {
+      "name": "Delete eNet scene",
+      "description": "Removes the scene links from all members and deletes the scene.",
+      "fields": {
+        "entity_id": {
+          "name": "Scene",
+          "description": "eNet scene to delete"
+        }
+      }
+    },
+    "geraet_einlernen": {
+      "name": "Teach in device",
+      "description": "Searches for an eNet device in learning mode (press the button on the device), takes it into the installation and calibrates the radio if necessary.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the new device (optional)."
+        }
+      }
+    },
+    "geraet_entfernen": {
+      "name": "Remove device",
+      "description": "Resets an eNet device to factory state and removes it from the installation.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "eNet device to remove."
+        }
+      }
+    },
+    "sender_programmieren": {
+      "name": "Program sender",
+      "description": "Wakes a hand-held or wall sender (press a key on it) and rewrites its complete configuration from the installation: mode of each rocker, rocker → actuators, single key → server key.",
+      "fields": {
+        "device_id": {
+          "name": "Sender",
+          "description": "eNet sender to program."
+        }
+      }
+    },
+    "verknuepfungen_lesen": {
+      "name": "Read links",
+      "description": "Reads the link tables of actuators (all, if none is selected) and rates every entry: factory entry, scene, rocker, other device, old link or foreign device. Old and foreign links are reported under Repairs. Only reads, changes nothing.",
+      "fields": {
+        "device_id": {
+          "name": "Actuators",
+          "description": "eNet actuators to read (empty: all)."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "geraet": {
+      "initiate_flow": {
+        "user": "Add device"
+      },
+      "entry_type": "eNet device",
+      "step": {
+        "user": {
+          "title": "Add eNet device",
+          "description": "Optionally enter a name and an area. After clicking Submit, put the device into learning mode (mini actuators: hold the button for 4 s; senders: learning button or key combination). The search runs for 2 minutes; a sender is programmed right away and its learning LED stops blinking.",
+          "data": {
+            "name": "Name",
+            "raum": "Area"
+          }
+        }
+      },
+      "progress": {
+        "suchen": "Searching – put the device into learning mode now. Teaching in and programming take up to 2 minutes."
+      },
+      "abort": {
+        "eingelernt": "{name} ({typ}) taught in as {ia}.",
+        "fehlgeschlagen": "Teaching in failed: {fehler}",
+        "nicht_geladen": "The eNet installation is not loaded (bridge connected?)."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "eNet installation",
+        "menu_options": {
+          "sender": "Configure sender",
+          "entfernen": "Remove device"
+        }
+      },
+      "entfernen": {
+        "title": "Remove device",
+        "description": "Which device should be removed from the installation? It is reset to factory state.",
+        "data": {
+          "geraet": "Device"
+        }
+      },
+      "bestaetigen": {
+        "title": "Remove {name}?",
+        "description": "**{name}** ({typ}, {ia}) is reset to factory state and removed from the installation. It no longer reacts until taught in again (name and configuration are remembered).\n\nAlso affected:\n{details}",
+        "data": {
+          "verstanden": "I understand – remove the device"
+        }
+      },
+      "sender": {
+        "title": "Configure sender",
+        "description": "Which hand-held or wall sender should be configured?",
+        "data": {
+          "geraet": "Sender"
+        }
+      },
+      "betriebsart": {
+        "title": "{name}: rockers",
+        "description": "Mode per rocker (rocker 1 = keys 1/2, rocker 2 = keys 3/4 …).\n\n- **Rocker**: switches/dims the selected lamps directly, feedback from the lamps.\n- **Single keys**: each key reports to the bridge (green LED) and triggers an eNet scene, a bridge scene or just an event for Home Assistant automations.",
+        "data": {
+          "wippe_1": "Rocker 1 (keys 1/2)",
+          "wippe_2": "Rocker 2 (keys 3/4)",
+          "wippe_3": "Rocker 3 (keys 5/6)",
+          "wippe_4": "Rocker 4 (keys 7/8)"
+        }
+      },
+      "details": {
+        "title": "{name}: assignment",
+        "description": "Lamps of the rockers or action of each single key. If mode or lamps change, the sender is programmed afterwards (press a key on it); a changed action only needs the bridge.",
+        "data": {
+          "lampen_1": "Rocker 1: lamps",
+          "lampen_2": "Rocker 2: lamps",
+          "lampen_3": "Rocker 3: lamps",
+          "lampen_4": "Rocker 4: lamps",
+          "taste_1": "Key 1",
+          "taste_2": "Key 2",
+          "taste_3": "Key 3",
+          "taste_4": "Key 4",
+          "taste_5": "Key 5",
+          "taste_6": "Key 6",
+          "taste_7": "Key 7",
+          "taste_8": "Key 8"
+        }
+      }
+    },
+    "progress": {
+      "laeuft": "Removing device … (for a sender, press a key on it now)",
+      "programmieren": "Programming sender … press a key on it now (wake up) and keep it nearby for about a minute.",
+      "uebertragen": "Transferring assignment to the bridge …"
+    },
+    "error": {
+      "nicht_bestaetigt": "Please confirm first."
+    },
+    "abort": {
+      "entfernt": "{name} has been removed.",
+      "entfernt_offen": "{name} has been removed from the installation. Open: {offen}",
+      "fehlgeschlagen": "Removing failed: {fehler}",
+      "nicht_geladen": "The eNet installation is not loaded (bridge connected?).",
+      "belegt": "{name}: assignment applied (bridge only, sender unchanged).",
+      "belegt_programmiert": "{name}: sender programmed and assignment applied.",
+      "keine_sender": "There is no sender in the installation."
+    }
+  },
+  "exceptions": {
+    "geraet_loeschen": {
+      "message": "Please remove eNet devices via “Configure → Remove device” on the eNet installation – the device is reset there and everything related is cleaned up."
+    }
+  },
+  "issues": {
+    "antwortet_nicht": {
+      "title": "eNet: {name} does not respond",
+      "description": "{name} ({ia}, serial {sn}) is part of the installation but does not respond. Possible causes: no power, out of radio range, removed or replaced (a new device has a different serial number and must be paired again).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{name} does not respond",
+            "menu_options": {
+              "erneut": "Query again",
+              "entfernen": "Remove from installation"
+            }
+          },
+          "entfernen": {
+            "title": "Remove {name}",
+            "description": "{name} is removed from the installation including entities, scene memberships and sender references. If the device is still present it is reset to factory state."
+          }
+        },
+        "abort": {
+          "antwortet_weiter_nicht": "{name} still does not respond.",
+          "erledigt": "Done."
+        }
+      }
+    },
+    "szenen_mithoeren": {
+      "title": "eNet: scenes are converted after listen-only mode",
+      "description": "These eNet scenes cannot be edited yet: {szenen}. To turn them into Home Assistant scenes, the scene values must be read from the actuators, and the bridge sends nothing while \"Listen only\" is on. Switch off the real eNet Server, then switch off \"Listen only\" on the bridge; the scenes are converted automatically."
+    },
+    "szenen_nicht_umgewandelt": {
+      "title": "eNet: scenes not converted yet",
+      "description": "These eNet scenes are not Home Assistant scenes yet because not all scene values could be read from the actuators: {szenen}. Conversion is retried on every start."
+    },
+    "szenen_links_fehlen": {
+      "title": "eNet: scene links missing",
+      "description": "{kanaele} lack links for the scenes {szenen}. These lamps do not react to the eNet scene call (Home Assistant switches them individually instead).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Create scene links",
+            "description": "The missing links are written to the actuators. The actuators restart briefly; lamps that were on are switched on again afterwards."
+          }
+        },
+        "abort": {
+          "nicht_repariert": "Not everything created: {fehler}",
+          "erledigt": "Done."
+        }
+      }
+    },
+    "unbekannter_sender": {
+      "title": "eNet: unknown sender ({sn})",
+      "description": "A sender with serial {sn} presses keys but is not part of the installation. Add it: Settings → Devices & services → eNet → \"Add device\"."
+    },
+    "szene_wird_uebertragen": {
+      "title": "eNet: scene {szene} is being transferred – please wait",
+      "description": "The eNet part of the scene {szene} is being written to the actuators. Until this is finished the scene runs lamp by lamp via Home Assistant. This notice disappears by itself."
+    },
+    "aktor_wird_programmiert": {
+      "title": "eNet: programming {geraete} – please wait",
+      "description": "{geraete} is being programmed by radio. Its lamps briefly go off and are restored afterwards. This notice disappears by itself."
+    },
+    "links_auffaellig": {
+      "title": "eNet: {name} has unexpected links",
+      "description": "The link table of {name} ({ia}) contains entries that match no scene and no rocker of the installation:\n\n{eintraege}\n\nSuch leftovers make the lamp react to buttons or telegrams it should ignore (for example dimming to another value when a server button is released). Usually they come from earlier assignments in the eNet Server.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Unexpected links in {name}",
+            "menu_options": {
+              "entfernen": "Remove links",
+              "behalten": "Keep (do not report again)"
+            }
+          },
+          "entfernen": {
+            "title": "Remove links from {name}",
+            "description": "The table is read again and the listed entries are deleted from the actuator. The actuator restarts briefly; a lamp that was on is switched on again afterwards. Only remove them if no transmitter outside this installation still uses them."
+          },
+          "behalten": {
+            "title": "Keep links in {name}",
+            "description": "The entries stay in the actuator and are no longer reported. New unexpected entries are still reported."
+          }
+        },
+        "abort": {
+          "nicht_entfernt": "Not everything removed: {fehler}",
+          "erledigt": "Done."
+        }
+      }
+    }
+  },
+  "selector": {
+    "wippen_art": {
+      "options": {
+        "wippe": "Rocker (switches/dims lights directly)",
+        "tasten": "Two single buttons (server buttons, green LED)"
+      }
+    }
+  }
+}

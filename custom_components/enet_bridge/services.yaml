@@ -1,0 +1,53 @@
+release:
+reconnect:
+verknuepfungen_lesen:
+  fields:
+    device_id:
+      selector:
+        device:
+          integration: enet_bridge
+          multiple: true
+szene_anlegen:
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: enet_bridge
+          domain: light
+          multiple: true
+    lernen:
+      default: true
+      selector:
+        boolean:
+szene_loeschen:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: enet_bridge
+          domain: scene
+geraet_einlernen:
+  fields:
+    name:
+      selector:
+        text:
+geraet_entfernen:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: enet_bridge
+sender_programmieren:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: enet_bridge

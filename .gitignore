@@ -1,0 +1,10 @@
+.pio/
+.vscode/
+*.jsonl
+*.iex
+*.iuf
+__pycache__/
+.DS_Store
+anlage*.json
+.venv/
+katalog/
