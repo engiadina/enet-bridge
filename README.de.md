@@ -167,6 +167,21 @@ zurückgesetzt.
   `enet_bridge.verknuepfungen_lesen` aufrufen und unter Reparaturen nach unerwarteten Verknüpfungen sehen.
 - Logs: *Einstellungen → System → Protokolle*, Filter `enet_bridge`.
 
+### Problem melden
+
+Bitte ein [Issue](https://github.com/engiadina/enet-bridge/issues/new/choose) anlegen und zwei Dateien anhängen:
+
+1. **Diagnosedaten:** *Einstellungen → Geräte & Dienste → eNet Bridge → ⋮ → Diagnosedaten herunterladen*. Enthält
+   Versionen, die Anlage (Geräte, Belegung der Wippen, Szenen), Ergebnisse der Link-Prüfung, Zustände und die
+   letzten 300 Nachrichten zwischen Home Assistant und Bridge. Domäne, alle Seriennummern, Namen, Räume und
+   Entitäts-IDs werden durch Platzhalter ersetzt (SN1, Name1 …) – mit ihnen könnte man deine Geräte per Funk
+   ansprechen.
+2. **Debug-Protokoll:** *⋮ → Debug-Protokollierung aktivieren*, Problem nachstellen, dann *⋮ → Debug-Protokollierung
+   deaktivieren* – Home Assistant lädt die Protokolldatei herunter.
+
+**Unbekannter Gerätetyp** (beim Einlernen „Gerätetyp unbekannt“): ebenfalls die Diagnosedaten anhängen – sie
+enthalten die Produktnummer, die das Gerät gemeldet hat, damit es unterstützt werden kann.
+
 ## Entwicklung
 
 Firmware: PlatformIO (`pio run -e esp32dev`; die Integration bringt den Build in `bridge_fw/` mit). Die

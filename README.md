@@ -166,6 +166,20 @@ the serial port).
   for it and look under Repairs for unexpected links.
 - Logs: *Settings → System → Logs*, filter `enet_bridge`.
 
+### Reporting a problem
+
+Please open an [issue](https://github.com/engiadina/enet-bridge/issues/new/choose) and attach two files:
+
+1. **Diagnostics:** *Settings → Devices & services → eNet Bridge → ⋮ → Download diagnostics*. Contains versions,
+   your installation (devices, rocker assignments, scenes), link check results, states and the last 300
+   messages between Home Assistant and the bridge. The domain, all serial numbers, names, rooms and entity IDs
+   are replaced by placeholders (SN1, Name1 …) – they would allow others to address your devices by radio.
+2. **Debug log:** *⋮ → Enable debug logging*, reproduce the problem, then *⋮ → Disable debug logging* – Home
+   Assistant downloads the log file.
+
+**Unknown device type** (pairing says “unknown type”): attach the diagnostics as well – they list the product
+number the device reported, so support can be added.
+
 ## Development
 
 Firmware: PlatformIO (`pio run -e esp32dev`; the integration bundles the build in `bridge_fw/`). Protocol logic

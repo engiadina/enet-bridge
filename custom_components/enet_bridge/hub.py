@@ -169,6 +169,7 @@ class Hub:
         self._letzte_sensorszene: tuple[Any, float] = (None, 0.0)
         self.batterie_schwach: dict[str, bool] = {}  # Sender-SN → Batterie schwach (aus dem RF-Info-Bit, ab FW 0.8.8)
         self._batterie_gewarnt: dict[str, float] = {}  # Sender-SN → time.monotonic() der letzten Log-Warnung
+        self.unbekannte_geraete: dict[str, dict[str, Any]] = {}  # SN → Produktnummer beim Einlernen (Diagnose)
         self.param_gruppen: list[ParamGruppe] = []
         for g in self.anlage.get("geraete", []):
             d = self.definitionen.get(g.get("typ", ""))

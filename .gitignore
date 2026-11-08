@@ -8,3 +8,4 @@ __pycache__/
 anlage*.json
 .venv/
 katalog/
+settings.local.json

@@ -11,6 +11,7 @@ import itertools
 import json
 import logging
 import threading
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -22,6 +23,8 @@ from .texte import tr
 _LOGGER = logging.getLogger(__name__)
 
 Listener = Callable[[dict[str, Any]], None]
+VERLAUF_MAX = 300  # letzte Nachrichten an/von der Bridge für „Diagnosedaten herunterladen“
+VERLAUF_ZEICHEN = 400  # je Eintrag höchstens so viele Zeichen (Konfigurations-Upload ist lang)
 
 
 class BridgeError(Exception):
@@ -48,6 +51,7 @@ class Bridge:
         self._ids = itertools.count(1)
         self._replies: dict[int, asyncio.Future] = {}
         self._results: dict[int, asyncio.Future] = {}
+        self.verlauf: deque[tuple[str, str, str]] = deque(maxlen=VERLAUF_MAX)  # (Zeit, ">"/"<", JSON-Zeile)
         self._listeners: list[Listener] = []
         self.connected = False
         self.info: dict[str, Any] = {}
@@ -139,7 +143,12 @@ class Bridge:
         self._listeners.append(listener)
         return lambda: self._listeners.remove(listener)
 
+    def _merken(self, richtung: str, obj: dict[str, Any]) -> None:
+        text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+        self.verlauf.append((datetime.now().isoformat(timespec="milliseconds"), richtung, text[:VERLAUF_ZEICHEN]))
+
     def _dispatch(self, msg: dict[str, Any]) -> None:
+        self._merken("<", msg)
         if "re" in msg:
             fut = self._replies.pop(msg["re"], None)
             if fut and not fut.done():
@@ -162,6 +171,7 @@ class Bridge:
         if len(line) > 512:
             raise BridgeError("line_too_long", tr("befehl_zu_lang"))
         self._ser.write(line)
+        self._merken(">", obj)
 
     def _nicht_mithoeren(self) -> None:
         if self.nur_hoeren:

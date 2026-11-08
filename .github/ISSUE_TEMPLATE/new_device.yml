@@ -1,0 +1,28 @@
+name: Unknown or unsupported device
+description: Pairing says "unknown type", or a device does not work yet
+labels: [device support]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Manufacturer, name and article number as printed on the device or packaging
+      placeholder: "Jung FM FS 1 S / Gira 5461 02"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens?
+      description: Error message during pairing, or what does not work after pairing
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Diagnostics and debug log
+      description: |
+        Please pair the device once with debug logging enabled, then download the diagnostics – they contain
+        the product number the device reported. Drag both files into this field.
+    validations:
+      required: true

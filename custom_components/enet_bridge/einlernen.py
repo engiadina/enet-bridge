@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .bridge import BridgeError
@@ -190,6 +191,8 @@ async def einlernen(hub: Hub, name: str | None = None) -> dict[str, Any]:
         produkt = r[21:].hex() if r is not None else None
         typ = _typ_fuer(hub, produkt) if produkt else None
         if typ is None:
+            # für „Diagnosedaten herunterladen“: Gerätetypen, die wir noch nicht kennen, bei Fehlerberichten sehen
+            hub.unbekannte_geraete[sn] = {"produkt": produkt, "zeit": datetime.now().isoformat(timespec="seconds")}
             raise BridgeError("unknown_type", tr("typ_unbekannt", sn=sn, produkt=produkt))
 
         # 3. Auswahl, Domäne, Adresse

@@ -1,0 +1,38 @@
+name: Problem report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please attach the **diagnostics** and, if possible, a **debug log**
+        (see README → Troubleshooting → Reporting a problem). Serial numbers, the domain, names and rooms are
+        replaced by placeholders in the diagnostics file.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead? Approximate time helps to find it in the log.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Integration, bridge firmware, Home Assistant (all three are also in the diagnostics file)
+      placeholder: "integration 0.12.11, firmware 0.8.12, Home Assistant 2026.11.0"
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Bridge hardware
+      options:
+        - ESP32 + CC1101 (as in docs/HARDWARE.md)
+        - ESP32-C6 + CC1101
+        - Other
+  - type: textarea
+    id: files
+    attributes:
+      label: Diagnostics and debug log
+      description: Drag the files into this field.
+    validations:
+      required: true
