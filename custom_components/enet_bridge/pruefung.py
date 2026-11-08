@@ -13,7 +13,9 @@ Einträge (Einstellungen → Reparaturen). Liest nur; repariert wird erst nach B
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from homeassistant.core import callback
@@ -40,6 +42,16 @@ class Pruefung:
         self.hass = hub.hass
         self.fehlende_links: dict[str, list[tuple[int, int]]] = {}  # Kanal → [(GA, GO)]
         self._unbekannt: set[str] = set()
+        # bis 0.12.11 stand die Seriennummer im Klartext in der Issue-ID – und HA hängt die IDs an jede Diagnose
+        reg = ir.async_get(self.hass)
+        for domain, issue_id in list(reg.issues):
+            if domain == DOMAIN and re.search(r"_[0-9a-f]{12}$", issue_id):
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    @staticmethod
+    def _id(praefix: str, sn: str) -> str:
+        """Issue-ID ohne Seriennummer im Klartext (die IDs stehen in „Diagnosedaten herunterladen“)."""
+        return f"{praefix}_{hashlib.sha256(sn.encode()).hexdigest()[:8]}"
 
     def _melden(self, issue_id: str, key: str, platzhalter: dict[str, str], fixable: bool = False,
                 daten: dict | None = None) -> None:
@@ -60,23 +72,23 @@ class Pruefung:
             if not kanaele:
                 continue  # Sender schlafen, sind nicht abfragbar
             if any(self.hub.zustand[k.key].known for k in kanaele):
-                self._erledigt(f"antwortet_nicht_{g['sn']}")
+                self._erledigt(self._id("antwortet_nicht", g["sn"]))
             else:
-                self._melden(f"antwortet_nicht_{g['sn']}", "antwortet_nicht",
+                self._melden(self._id("antwortet_nicht", g["sn"]), "antwortet_nicht",
                              {"name": g["name"], "ia": g["ia"], "sn": g["sn"]}, fixable=True, daten={"sn": g["sn"]})
 
     @callback
     def antwortet(self, ia: str) -> None:
         g = next((g for g in self.hub.anlage["geraete"] if g["ia"] == ia), None)
         if g is not None:
-            self._erledigt(f"antwortet_nicht_{g['sn']}")
+            self._erledigt(self._id("antwortet_nicht", g["sn"]))
 
     @callback
     def unbekannter_sender(self, sn: str) -> None:
         if not sn or sn in self._unbekannt or any(g["sn"] == sn for g in self.hub.anlage["geraete"]):
             return
         self._unbekannt.add(sn)
-        self._melden(f"unbekannter_sender_{sn}", "unbekannter_sender", {"sn": sn})
+        self._melden(self._id("unbekannter_sender", sn), "unbekannter_sender", {"sn": sn})
 
     # --- Szenen ----------------------------------------------------------------
     @callback
@@ -219,11 +231,11 @@ class Pruefung:
     def _links_melden(self, g: dict) -> None:
         auff = g.get("links", {}).get("auffaellig", [])
         if not auff:
-            self._erledigt(f"links_auffaellig_{g['sn']}")
+            self._erledigt(self._id("links_auffaellig", g["sn"]))
             return
         zeilen = [tr("link_zeile", ch=e["ch"], go=e["go"], ga=e["ga"], grund=tr(f"link_{e['grund']}", **e))
                   for e in auff]
-        self._melden(f"links_auffaellig_{g['sn']}", "links_auffaellig",
+        self._melden(self._id("links_auffaellig", g["sn"]), "links_auffaellig",
                      {"name": g["name"], "ia": g["ia"], "eintraege": "\n".join(f"- {z}" for z in zeilen)},
                      fixable=True, daten={"sn": g["sn"]})
 
