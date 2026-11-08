@@ -27,9 +27,12 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
     AreaSelector,
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     FileSelector,
     FileSelectorConfig,
     SelectOptionDict,
@@ -272,8 +275,11 @@ class EnetOptionen(OptionsFlow):
             for n, art in self._arten.items():
                 if art == "wippe":
                     ziele = [{"ia": k.split("/")[0], "ch": int(k.split("/")[1])} for k in user_input.get(f"lampen_{n}", [])]
-                    if ziele or n in alt:  # unbelegte Wippe ohne Lampen: nichts zu schreiben
-                        self._bel[n] = {"art": "wippe", "ziele": ziele}
+                    ha = list(user_input.get(f"ha_lampen_{n}", []))
+                    if ziele or ha or n in alt:  # unbelegte Wippe ohne Lampen: nichts zu schreiben
+                        vorher = alt.get(n, {}) if alt.get(n, {}).get("art") == "wippe" else {}
+                        self._bel[n] = {"art": "wippe", "ziele": ziele, "ha_ziele": ha,
+                                        "antwort_ga": vorher.get("antwort_ga")}
                 elif art == "tasten":
                     vorher = alt.get(n, {}).get("tasten", {}) if alt.get(n, {}).get("art") == "tasten" else {}
                     self._bel[n] = {"art": "tasten", "tasten": {k: dict(vorher.get(k, {})) for k in (2 * n - 1, 2 * n)}}
@@ -283,12 +289,16 @@ class EnetOptionen(OptionsFlow):
             return await self.async_step_uebernehmen()
         lampen = [SelectOptionDict(value=k.key, label=f"{k.geraet['name']} K{k.nr} ({k.key})") for k in hub.kanaele]
         aktionen = [SelectOptionDict(value=w, label=t) for w, t in sender.aktion_optionen(hub)]
+        eigene = [e.entity_id for e in er.async_entries_for_config_entry(er.async_get(self.hass), self.config_entry.entry_id)]
         felder = {}
         for n, art in self._arten.items():
             if art == "wippe":
                 jetzt = [f"{z['ia']}/{z['ch']}" for z in alt.get(n, {}).get("ziele", [])]
                 felder[vol.Optional(f"lampen_{n}", default=jetzt)] = SelectSelector(
                     SelectSelectorConfig(options=lampen, multiple=True))
+                # Lampen anderer Integrationen: HA schaltet/dimmt sie, die Bridge quittiert die Wippe
+                felder[vol.Optional(f"ha_lampen_{n}", default=alt.get(n, {}).get("ha_ziele", []))] = EntitySelector(
+                    EntitySelectorConfig(domain=["light", "switch"], multiple=True, exclude_entities=eigene))
             elif art == "tasten":
                 for k in (2 * n - 1, 2 * n):
                     felder[vol.Required(f"taste_{k}", default=sender.aktion_der_taste(hub, g, k))] = SelectSelector(

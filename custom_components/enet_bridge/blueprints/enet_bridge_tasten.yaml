@@ -1,0 +1,307 @@
+# Shipped with the eNet Bridge integration; it copies this file to blueprints/automation/enet_bridge/ once
+# (an existing file is never overwritten – edit a copy if you want to change it).
+blueprint:
+  name: eNet Bridge – transmitter single keys
+  description: >-
+    Assigns actions to the keys of a Gira/Jung eNet hand or wall transmitter whose rockers are programmed as
+    **single keys** with the action **"Report only"** in the eNet Bridge integration. The bridge answers every
+    press (green LED on the transmitter) and reports it as an event of the key entity. Short and long presses
+    are told apart on release (hold time). All actions are optional; unassigned gestures do nothing.
+
+    Weist den Tasten eines eNet-Hand- oder Wandsenders Aktionen zu, dessen Wippen in der Integration als
+    **Einzeltasten** mit der Aktion **„Nur melden“** programmiert sind. Kurz und lang werden beim Loslassen
+    unterschieden.
+  domain: automation
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    tasten:
+      name: Keys / Tasten
+      icon: mdi:gesture-tap-button
+      input:
+        taste_1:
+          name: Key 1 / Taste 1
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_2:
+          name: Key 2 / Taste 2
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_3:
+          name: Key 3 / Taste 3
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_4:
+          name: Key 4 / Taste 4
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_5:
+          name: Key 5 / Taste 5
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_6:
+          name: Key 6 / Taste 6
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_7:
+          name: Key 7 / Taste 7
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        taste_8:
+          name: Key 8 / Taste 8
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: enet_bridge
+                  domain: event
+        lang_ab_ms:
+          name: Long press from (ms) / Lang ab (ms)
+          default: 1000
+          selector:
+            number:
+              min: 300
+              max: 5000
+              step: 100
+              unit_of_measurement: ms
+              mode: slider
+    gesten_1:
+      name: Key 1 / Taste 1
+      icon: mdi:numeric-1-box-outline
+      collapsed: true
+      input:
+        t1_kurz:
+          name: Key 1 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t1_lang:
+          name: Key 1 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_2:
+      name: Key 2 / Taste 2
+      icon: mdi:numeric-2-box-outline
+      collapsed: true
+      input:
+        t2_kurz:
+          name: Key 2 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t2_lang:
+          name: Key 2 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_3:
+      name: Key 3 / Taste 3
+      icon: mdi:numeric-3-box-outline
+      collapsed: true
+      input:
+        t3_kurz:
+          name: Key 3 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t3_lang:
+          name: Key 3 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_4:
+      name: Key 4 / Taste 4
+      icon: mdi:numeric-4-box-outline
+      collapsed: true
+      input:
+        t4_kurz:
+          name: Key 4 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t4_lang:
+          name: Key 4 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_5:
+      name: Key 5 / Taste 5
+      icon: mdi:numeric-5-box-outline
+      collapsed: true
+      input:
+        t5_kurz:
+          name: Key 5 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t5_lang:
+          name: Key 5 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_6:
+      name: Key 6 / Taste 6
+      icon: mdi:numeric-6-box-outline
+      collapsed: true
+      input:
+        t6_kurz:
+          name: Key 6 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t6_lang:
+          name: Key 6 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_7:
+      name: Key 7 / Taste 7
+      icon: mdi:numeric-7-box-outline
+      collapsed: true
+      input:
+        t7_kurz:
+          name: Key 7 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t7_lang:
+          name: Key 7 – long / lang
+          default: []
+          selector:
+            action: {}
+    gesten_8:
+      name: Key 8 / Taste 8
+      icon: mdi:numeric-8-box-outline
+      collapsed: true
+      input:
+        t8_kurz:
+          name: Key 8 – short / kurz
+          default: []
+          selector:
+            action: {}
+        t8_lang:
+          name: Key 8 – long / lang
+          default: []
+          selector:
+            action: {}
+
+mode: queued
+max_exceeded: silent
+
+# Je Taste eine Ereignis-Entität; ausgewertet wird das Loslassen. Wechsel von/nach „nicht verfügbar“
+# (Neustart, Bridge getrennt) sind keine Tastendrücke. Nicht gewählte Tasten (leer) lösen nie aus.
+triggers:
+  - trigger: state
+    entity_id: !input taste_1
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "1"
+  - trigger: state
+    entity_id: !input taste_2
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "2"
+  - trigger: state
+    entity_id: !input taste_3
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "3"
+  - trigger: state
+    entity_id: !input taste_4
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "4"
+  - trigger: state
+    entity_id: !input taste_5
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "5"
+  - trigger: state
+    entity_id: !input taste_6
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "6"
+  - trigger: state
+    entity_id: !input taste_7
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "7"
+  - trigger: state
+    entity_id: !input taste_8
+    not_from: [unavailable, unknown]
+    not_to: [unavailable, unknown]
+    id: "8"
+variables:
+  lang_ab: !input lang_ab_ms
+  art: "{{ trigger.to_state.attributes.event_type | default('') }}"
+  geste: >-
+    {{ 'lang' if (trigger.to_state.attributes.hold_ms | default(0) | int) >= (lang_ab | int) else 'kurz' }}
+  ziel: "t{{ trigger.id }}_{{ geste }}"
+
+conditions:
+  - condition: template
+    value_template: "{{ art == 'losgelassen' }}"
+
+actions:
+  - choose:
+      - conditions: "{{ ziel == 't1_kurz' }}"
+        sequence: !input t1_kurz
+      - conditions: "{{ ziel == 't1_lang' }}"
+        sequence: !input t1_lang
+      - conditions: "{{ ziel == 't2_kurz' }}"
+        sequence: !input t2_kurz
+      - conditions: "{{ ziel == 't2_lang' }}"
+        sequence: !input t2_lang
+      - conditions: "{{ ziel == 't3_kurz' }}"
+        sequence: !input t3_kurz
+      - conditions: "{{ ziel == 't3_lang' }}"
+        sequence: !input t3_lang
+      - conditions: "{{ ziel == 't4_kurz' }}"
+        sequence: !input t4_kurz
+      - conditions: "{{ ziel == 't4_lang' }}"
+        sequence: !input t4_lang
+      - conditions: "{{ ziel == 't5_kurz' }}"
+        sequence: !input t5_kurz
+      - conditions: "{{ ziel == 't5_lang' }}"
+        sequence: !input t5_lang
+      - conditions: "{{ ziel == 't6_kurz' }}"
+        sequence: !input t6_kurz
+      - conditions: "{{ ziel == 't6_lang' }}"
+        sequence: !input t6_lang
+      - conditions: "{{ ziel == 't7_kurz' }}"
+        sequence: !input t7_kurz
+      - conditions: "{{ ziel == 't7_lang' }}"
+        sequence: !input t7_lang
+      - conditions: "{{ ziel == 't8_kurz' }}"
+        sequence: !input t8_kurz
+      - conditions: "{{ ziel == 't8_lang' }}"
+        sequence: !input t8_lang

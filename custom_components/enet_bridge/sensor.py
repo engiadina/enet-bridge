@@ -122,6 +122,7 @@ class Zaehler(EnetParamEntity, SensorEntity):
             self._attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
             self._attr_device_class = SensorDeviceClass.VOLTAGE
             self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_suggested_display_precision = 2  # sonst rundet HA 2,62 V auf „3 V“
 
     @property
     def native_value(self):

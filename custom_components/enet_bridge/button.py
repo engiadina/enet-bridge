@@ -23,8 +23,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     async_add_entities([ParamLesen(hub, g) for g in geraete.values()] +
                        [SzeneSpeichern(hub, s) for s in hub.szenen.szenen if s.art != "ha"] +
                        [SenderProgrammieren(hub, g) for g in sender_] +
+                       # auf den Wippen-Seiten nur, solange etwas vorgemerkt ist (Hauptseite: immer, z. B. nach Reset)
                        [SenderProgrammieren(hub, g, n) for g in sender_ if (w := sender.wippen_anzahl(hub, g)) > 1
-                        for n in range(1, w + 1)])
+                        and sender.vorgemerkt(g) for n in range(1, w + 1)])
 
 
 class ParamLesen(EnetEntity, ButtonEntity):
@@ -81,6 +82,15 @@ class SenderProgrammieren(EnetEntity, ButtonEntity):
         else:
             self._attr_unique_id = f"{geraet['sn']}_wippe{wippe}_sender_programmieren"
             self._attr_device_info = wippe_info(hub, geraet, wippe)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._listen(f"sender_aktiv_{self.geraet['sn']}")
+
+    @property
+    def available(self) -> bool:
+        # während des Programmierens gesperrt (ausgegraut), damit niemand ein zweites Mal drückt
+        return super().available and self.geraet["sn"] not in self.hub.sender_aktiv
 
     async def async_press(self) -> None:
         # Zweiter Druck (auch über den Knopf einer Wippen-Seite) während eines Laufs: ablehnen, nicht einreihen –

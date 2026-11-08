@@ -195,6 +195,8 @@ TEXTE: dict[str, tuple[str, str]] = {
     "akt_vorgemerkt": ("– Änderung vorgemerkt, zum Übernehmen „Sender programmieren“ drücken",
                        "– change noted, press “Program transmitter” to apply it"),
     "lampe_keine": ("Keine", "None"),
+    "lampe_ha": ("{name} (HA)", "{name} (HA)"),
+    "lampe_ha_eid": ("{name} (HA, {eid})", "{name} (HA, {eid})"),
     "lampe_mehrere": ("Mehrere (unter Konfigurieren → Sender belegen)", "Several (under Configure → Assign transmitter)"),
     "taste_fehler": ("{name} Taste {k}: {err}", "{name} button {k}: {err}"),
     "bridge_nicht_verbunden": ("Bridge nicht verbunden", "Bridge not connected"),

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_state_added_domain, async_track_state_removed_domain
 
-from . import EnetConfigEntry, sender, wippe_info
+from . import EnetConfigEntry, ha_wippe, sender, wippe_info
 from .bridge import BridgeError
+from .const import DOMAIN
 from .entity import EnetEntity, EnetParamEntity, param_entitaeten
 from .params import auswahl
 from .texte import tr
@@ -31,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
         neu += [WippeBetriebsart(hub, g, n) for n in range(1, sender.wippen_anzahl(hub, g) + 1)]
         neu += [WippeLampe(hub, g, n, i) for n in range(1, sender.wippen_anzahl(hub, g) + 1)
                 for i in range(1, sender.lampen_auswahlen(g, n) + 1)]
+        neu += [WippeAbdimmen(hub, g, n) for n, b in sorted(bel.items()) if b["art"] == "wippe" and ha_wippe.abdimmen_sinnvoll(hub, b)]
         neu += [TasteAktion(hub, g, k) for n, b in sorted(bel.items()) if b["art"] == "tasten"
                 for k in (2 * n - 1, 2 * n)]
     async_add_entities(neu)
@@ -92,8 +96,36 @@ class WippeBetriebsart(EnetEntity, SelectEntity):
 
 
 
+class WippeAbdimmen(EnetEntity, SelectEntity):
+    """Nur bei Wippen mit HA-Lampen: Schalter beim Abdimmen ausschalten (wie eNet-Schaltaktoren) oder anlassen.
+    Wirkt sofort (nur Home Assistant, nichts am Sender)."""
+
+    _attr_translation_key = "wippe_abdimmen"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = ["aus", "an"]
+
+    def __init__(self, hub, geraet, n: int) -> None:
+        super().__init__(hub)
+        self.geraet, self.n = geraet, n
+        self._attr_unique_id = f"{geraet['sn']}_wippe{n}_abdimmen"
+        self._attr_device_info = wippe_info(hub, geraet, n)
+
+    @property
+    def current_option(self) -> str:
+        return "an" if ha_wippe.abdimmen_an(self.geraet, self.n) else "aus"
+
+    async def async_select_option(self, option: str) -> None:
+        an = set(self.geraet.get("abdimmen_an", [])) - {str(self.n)} | ({str(self.n)} if option == "an" else set())
+        if an:
+            self.geraet["abdimmen_an"] = sorted(an)
+        else:
+            self.geraet.pop("abdimmen_an", None)
+        await self.hub.anlage_speichern()
+        self.async_write_ha_state()
+
+
 def _vorgemerkt(hub, geraet) -> None:
-    if any(geraet.get(k) for k in sender.VORMERKUNGEN):
+    if sender.vorgemerkt(geraet):
         sender.aktivitaet(hub, geraet, tr("akt_vorgemerkt"))
 
 
@@ -119,8 +151,25 @@ class WippeLampe(EnetEntity, SelectEntity):
         self._attr_translation_placeholders = {"lampe": str(i)}
         self._attr_device_info = wippe_info(hub, geraet, n)
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # HA liefert die Auswahlliste nur mit dem Zustand: kommt eine Lampe einer anderen Integration hinzu (z. B. ein
+        # neu eingebundener Shelly) oder fällt weg, Zustand neu schreiben – sonst fehlt sie bis zum Neuladen
+        self.async_on_remove(async_track_state_added_domain(self.hass, ha_wippe.DOMAENEN, self._lampen_geaendert))
+        self.async_on_remove(async_track_state_removed_domain(self.hass, ha_wippe.DOMAENEN, self._lampen_geaendert))
+
+    @callback
+    def _lampen_geaendert(self, _event: Event) -> None:
+        self.async_write_ha_state()
+
     def _kanaele(self) -> dict[str, str]:
-        return {f"{k.geraet['name']} K{k.nr} ({k.key})": k.key for k in self.hub.kanaele}
+        """Anzeige → Lampen-Schlüssel: eNet-Kanäle, dann Lichter/Schalter anderer Integrationen (HA schaltet)."""
+        ha = ha_lampen(self.hass)
+        namen = list(ha.values())
+        # kurz „Name (HA)“, damit die Auswahl auf die Karte passt; nur bei doppeltem Namen mit entity_id
+        return {**{f"{k.geraet['name']} K{k.nr} ({k.key})": k.key for k in self.hub.kanaele},
+                **{tr("lampe_ha_eid" if namen.count(name) > 1 else "lampe_ha", name=name, eid=eid): eid
+                   for eid, name in ha.items()}}
 
     @property
     def options(self) -> list[str]:
@@ -151,6 +200,17 @@ class WippeLampe(EnetEntity, SelectEntity):
         await self.hub.anlage_speichern()
         _vorgemerkt(self.hub, self.geraet)
         self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # Lampe 2 rückt ggf. auf
+
+
+def ha_lampen(hass: HomeAssistant) -> dict[str, str]:
+    """Lichter und Schalter, die nicht von dieser Integration stammen: entity_id → Name."""
+    reg = er.async_get(hass)
+    out = {}
+    for st in sorted(hass.states.async_all(ha_wippe.DOMAENEN), key=lambda st: st.name.lower()):
+        e = reg.async_get(st.entity_id)
+        if e is None or (e.platform != DOMAIN and not e.disabled and not e.hidden and e.entity_category is None):
+            out[st.entity_id] = st.name
+    return out
 
 
 class TasteAktion(EnetEntity, SelectEntity):

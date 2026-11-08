@@ -12,6 +12,7 @@ Einträge (Einstellungen → Reparaturen). Liest nur; repariert wird erst nach B
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -88,12 +89,20 @@ class Pruefung:
         if offen:
             self._melden(key, key, {"szenen": ", ".join(offen)})
 
+    async def _sender_abwarten(self) -> None:
+        """Die Prüfungen lesen nur und haben Zeit: während ein Sender programmiert wird, pausieren. Die Bridge
+        arbeitet Anfragen nacheinander ab – langsame Aktoren (bis 3 s je Link-Eintrag) bremsten sonst jeden
+        Befehl an den Sender (Programmieren direkt nach dem HA-Start dauerte Minuten)."""
+        while self.hub.sender_aktiv:
+            await asyncio.sleep(1)
+
     async def _links(self, k: Kanal, go: int) -> set[int] | None:
         """GAs unter der Server-SN, die in GO go dieses Kanals eingetragen sind (None: nicht lesbar)."""
         sn = self.hub.anlage["server"]["sn"]
         gas: set[int] = set()
         for idx in range(MAX_LINKS):
             for versuch in range(3):
+                await self._sender_abwarten()
                 try:
                     r = await self.hub.bridge.request("fp_read", ia=k.ia, obj=k.obj, pid=PID_LINKS,
                                                       data=f"0000{go:02x}{idx:02x}")
@@ -170,6 +179,7 @@ class Pruefung:
         for go in range(1, lt.MAX_GO + 1):
             for idx in range(lt.MAX_EINTRAEGE):
                 for versuch in range(3):
+                    await self._sender_abwarten()
                     try:
                         r = await self.hub.bridge.request("fp_read", ia=k.ia, obj=k.obj, pid=PID_LINKS,
                                                           data=f"0000{go:02x}{idx:02x}")

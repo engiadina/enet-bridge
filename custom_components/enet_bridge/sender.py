@@ -14,6 +14,9 @@ Einzeltaste k: PID E2 = Tastencode (vom Server vergeben; in der Anlage gespeiche
           aus dem Gerät übernommen – nach einem Werksreset steht dort ein Werkswert), Werks-GAs 6(k-1)+1…6k
           → GO 1…6, Server-SN + Antwort-GA → GO 1. Die Aktor-Seite einer Wippe (GA 50+3n → GO 1,
           51+3n → GO 19) bleibt hier unberührt.
+Wippe mit HA-Lampen (ha_ziele): zusätzlich Server-SN + Antwort-GA → GO 1. Die Wippe fragt dann (auch) die
+          Server-SN; die Bridge antwortet wie bei einer Server-Taste (grüne LED), HA schaltet/dimmt die Lampen
+          (ha_wippe.py). Welche HA-Lampen es sind, steht nur in der Anlage – Ändern braucht kein Programmieren.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.logbook import async_log_entry
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .bridge import BridgeError
 from .const import DOMAIN
@@ -44,14 +48,16 @@ WACH_HALTEN_S = 5.0
 
 
 def belegung(geraet: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    """Wippe n → {"art": "wippe", "ziele": [{ia, ch}]} bzw. {"art": "tasten", "tasten": {k: {antwort_ga}}}."""
+    """Wippe n → {"art": "wippe", "ziele": [{ia, ch}], "ha_ziele": [entity_id], "antwort_ga"} bzw.
+    {"art": "tasten", "tasten": {k: {antwort_ga}}}."""
     b: dict[int, dict[str, Any]] = {}
     for t in geraet.get("tasten", []):
         n = (t["nr"] + 1) // 2
         if t["art"] == "wippe":
             if "ziele" not in t:  # unbekannt ≠ leer: sonst würden bestehende Verknüpfungen gelöscht
                 raise BridgeError("bad_args", tr("wippe_ziele_unbekannt", name=geraet["name"], n=n))
-            b[n] = {"art": "wippe", "ziele": t["ziele"]}
+            b[n] = {"art": "wippe", "ziele": t["ziele"], "ha_ziele": list(t.get("ha_ziele", [])),
+                    "antwort_ga": t.get("antwort_ga")}
         else:
             b.setdefault(n, {"art": "tasten", "tasten": {}})["tasten"][t["nr"]] = {
                 "antwort_ga": t.get("antwort_ga"), "code": t.get("code")}
@@ -68,18 +74,30 @@ class Sender:
         self.srv = hub.anlage["server"]["sn"]
 
     # --- Bausteine ----------------------------------------------------------
+    async def _anfrage(self, art: str, beschreibung: str, **kw: Any) -> dict:
+        """Bridge-Anfrage an den Sender, mit Dauer im Debug-Log (Fehlersuche: Programmieren dauert lange)."""
+        t0 = time.monotonic()
+        try:
+            r = await self.hub.bridge.request(art, ia=self.ia, **kw)
+        except BridgeError as err:
+            _LOGGER.debug("%s %s: failed after %.1f s (%s)", self.g["name"], beschreibung, time.monotonic() - t0, err)
+            raise
+        _LOGGER.debug("%s %s: %.1f s, %s tries", self.g["name"], beschreibung, time.monotonic() - t0, r.get("tries"))
+        return r
+
     async def pr(self, obj: int, pid: int) -> bytes:
-        r = await self.hub.bridge.request("prop_read", ia=self.ia, obj=obj, pid=pid, start=1, count=1)
+        r = await self._anfrage("prop_read", f"read obj {obj} pid {pid:#x}", obj=obj, pid=pid, start=1, count=1)
         return bytes.fromhex(r.get("value", ""))
 
     async def pw(self, obj: int, pid: int, data: bytes, start: int = 1, count: int = 1) -> None:
         """count = Anzahl Elemente (Lade-Status 10 Byte und Zeitstempel 6 Byte sind je ein Element)."""
-        await self.hub.bridge.request("prop_write", ia=self.ia, obj=obj, pid=pid, start=start, count=count,
-                                      data=data.hex())
+        await self._anfrage("prop_write", f"write obj {obj} pid {pid:#x}", obj=obj, pid=pid, start=start,
+                            count=count, data=data.hex())
 
     async def link(self, obj: int, op: int, sn: str, ga: int, go: int) -> None:
         data = bytes([op, 0]) + bytes.fromhex(sn) + ga.to_bytes(2, "big") + go.to_bytes(2, "big")
-        await self.hub.bridge.request("fp_cmd", ia=self.ia, obj=obj, pid=PID_LINKS, data=data.hex())
+        await self._anfrage("fp_cmd", f"link obj {obj} op {op} {sn} ga {ga:#x} go {go}", obj=obj, pid=PID_LINKS,
+                            data=data.hex())
 
     async def restart(self, kanal: int) -> None:
         """A_Restart 06 c: Links des Kanals zurücksetzen (Antwort 0x3A1)."""
@@ -112,10 +130,14 @@ class Sender:
         f = frame(self.srv, False, True, SRV_IA, 0, 0x3E4, bytes.fromhex("c35148") + bytes.fromhex(self.sn)
                   + bytes.fromhex("0200000000"))
         snb = bytes.fromhex(self.sn)
-        ende = time.monotonic() + WECKEN_S
+        t0 = time.monotonic()
+        ende = t0 + WECKEN_S
+        versuche = 0
         while time.monotonic() < ende:
             await self.funk.senden(f)
+            versuche += 1
             if await self.funk.warten(lambda d: apci(d) == 0x3DB and d[4:10] == snb, 0.1) is not None:
+                _LOGGER.debug("%s awake after %.1f s (%d wake frames)", self.g["name"], time.monotonic() - t0, versuche)
                 return
         raise BridgeError("timeout", tr("nicht_aufgewacht", name=self.g["name"]))
 
@@ -123,6 +145,7 @@ class Sender:
         f = frame(self.dom, True, True, SRV_IA, 0, 0x3E4, bytes.fromhex("c351480405000000"))
         while True:
             await asyncio.sleep(WACH_HALTEN_S)
+            _LOGGER.debug("%s keep awake", self.g["name"])
             with contextlib.suppress(BridgeError):
                 await self.funk.senden(f)
 
@@ -187,9 +210,13 @@ class Sender:
                                      [(self.basis + 6 * (k - 1) + 1 + i, 1 + i) for i in range(6)],
                                      [(self.srv, antwort)])
             else:
+                links = self.status_links(b["ziele"])
+                if b.get("ha_ziele"):  # HA-Lampen: die Bridge (Server-SN) beantwortet die Statusabfrage
+                    if b.get("antwort_ga") is None:
+                        raise BridgeError("bad_args", tr("keine_antwort_ga", k=2 * n - 1))
+                    links.append((self.srv, b["antwort_ga"]))
                 await self.kanal(0x0B + n, (1, b"\x01\x01"), 2 * n - 1,
-                                 [(self.basis + 48 + 3 * n + 1 + i, 1 + i) for i in range(3)],
-                                 self.status_links(b["ziele"]))
+                                 [(self.basis + 48 + 3 * n + 1 + i, 1 + i) for i in range(3)], links)
         t = datetime.now()
         await self.pw(OBJ_GERAET, 0x39, bytes([t.year % 100, t.month, t.day, t.hour, t.minute, t.second]))
         lade = await self.pr(1, 6)
@@ -203,7 +230,10 @@ def tasten_aus(geraet: dict[str, Any], bel: dict[int, dict[str, Any]]) -> list[d
     for n in sorted(bel):
         b = bel[n]
         if b["art"] == "wippe":
-            out.append({"nr": 2 * n - 1, "art": "wippe", "offset": 48 + 3 * n, "obj": 0x0B + n, "ziele": b["ziele"]})
+            e = {"nr": 2 * n - 1, "art": "wippe", "offset": 48 + 3 * n, "obj": 0x0B + n, "ziele": b["ziele"]}
+            if b.get("ha_ziele"):
+                e["ha_ziele"], e["antwort_ga"] = list(b["ha_ziele"]), b.get("antwort_ga")
+            out.append(e)
         else:
             for k in (2 * n - 1, 2 * n):
                 t = b["tasten"].get(k, {})
@@ -218,20 +248,30 @@ def standard_belegung(geraet: dict[str, Any]) -> dict[int, dict[str, Any]]:
     return {1: {"art": "wippe", "ziele": []}}
 
 
-async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, basis: int) -> None:
+async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, basis: int,
+                       wippen: set[int] | None = None) -> None:
     """Aktor-Seite der Wippen abgleichen – nach der Link-Tabelle im Aktor, nicht nach der Anlage (die kennt nach
     Werksreset/Import nicht sicher die GA, die im Aktor steht). Soll je Ziel: Tastenwert-GA (Basis·256 + 50+3n)
-    → GO 1, Statusabfrage (+1) → GO 19. Alle Einträge dieses Senders mit anderer GA werden gelöscht."""
+    → GO 1, Statusabfrage (+1) → GO 19. Alle Einträge dieses Senders mit anderer GA werden gelöscht.
+    wippen: nur die Aktoren dieser Wippen (alt und neu) prüfen; None = alle. Das Lesen der Link-Tabellen kostet je
+    Eintrag bis 3 s (langsame Aktoren antworten erst im 5. Versuch) – unveränderte Wippen nicht anfassen."""
     soll: dict[tuple[str, int], set[tuple[int, int]]] = {}
+    pruefen: set[tuple[str, int]] = set()  # Aktoren an geänderten Wippen (alt oder neu)
     for bel, mit in ((alt, False), (neu, True)):
         for n, b in bel.items():
             if b["art"] != "wippe":
                 continue
             for z in b["ziele"]:
+                # Soll immer aus ALLEN Wippen: ein Aktor kann an mehreren Wippen dieses Senders hängen, sonst
+                # würden die Links der unveränderten Wippe gelöscht (so geschehen 2026-11-08, 0.12.9)
                 s = soll.setdefault((z["ia"], z["ch"]), set())
                 if mit:
                     s |= {(basis + 50 + 3 * n, 1), (basis + 51 + 3 * n, 19)}
+                if wippen is None or n in wippen:
+                    pruefen.add((z["ia"], z["ch"]))
     for (ia, ch), sollwert in sorted(soll.items()):
+        if (ia, ch) not in pruefen:
+            continue
         k = next((k for k in hub.kanaele if k.ia == ia and k.nr == ch), None)
         if k is None:
             _LOGGER.warning("%s: target %s/%s is not part of the installation", geraet["name"], ia, ch)
@@ -258,14 +298,26 @@ async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, b
                                        zweck=tr("zweck_verknuepfungen", name=geraet["name"]))
 
 
+def geaenderte_wippen(alt: dict[int, dict[str, Any]], neu: dict[int, dict[str, Any]]) -> set[int]:
+    """Wippen, deren Betriebsart oder eNet-Lampen sich ändern (HA-Lampen betreffen die Aktoren nicht)."""
+    def kennung(b: dict[str, Any] | None):
+        if b is None:
+            return None
+        return b["art"], frozenset((z["ia"], z["ch"]) for z in b.get("ziele") or [])
+    return {n for n in set(alt) | set(neu) if kennung(alt.get(n)) != kennung(neu.get(n))}
+
+
 async def _link_lesen(hub: Hub, k, go: int, idx: int, versuche: int = 3) -> bytes | None:
     """Eintrag idx der Link-Tabelle von GO go; None = Ende der Tabelle (nack mit rc 255). Andere Fehler
     (Funk) werden wiederholt – eine unvollständig gelesene Tabelle würde vorhandene Links neu anlegen (nack)."""
     for n in range(versuche):
+        t0 = time.monotonic()
         try:
             r = await hub.bridge.request("fp_read", ia=k.ia, obj=k.obj, pid=PID_LINKS, data=f"0000{go:02x}{idx:02x}")
+            _LOGGER.debug("%s link GO %d #%d: %.1f s, %s tries", k.key, go, idx, time.monotonic() - t0, r.get("tries"))
             return bytes.fromhex(r.get("value", ""))
         except BridgeError as err:
+            _LOGGER.debug("%s link GO %d #%d: %s after %.1f s", k.key, go, idx, err, time.monotonic() - t0)
             if err.err == "nack" and err.rc == 255:
                 return None
             if n + 1 == versuche:
@@ -294,24 +346,27 @@ def aktivitaet(hub: Hub, geraet: dict[str, Any], text: str) -> None:
 
 
 async def programmieren(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict[str, Any]] | None = None,
-                        nach_einlernen: bool = False) -> None:
+                        nach_einlernen: bool = False, alle_aktoren: bool = True) -> None:
     """Sender wecken (Benutzer drückt eine Taste), komplett neu programmieren, danach die Aktor-Seite der Wippen
     und die Server-Tasten der Bridge an Belegung und GA-Basis anpassen. Je Sender nur ein Lauf gleichzeitig."""
     if geraet["sn"] in hub.sender_aktiv:
         raise BridgeError("laeuft", tr("programmierung_laeuft"))
     hub.sender_aktiv.add(geraet["sn"])
+    async_dispatcher_send(hub.hass, hub.signal(f"sender_aktiv_{geraet['sn']}"))  # Knöpfe sperren
     try:
-        await _programmieren(hub, geraet, bel, nach_einlernen)
+        await _programmieren(hub, geraet, bel, nach_einlernen, alle_aktoren)
     except BridgeError as err:
         aktivitaet(hub, geraet, tr("akt_programmierung_fehlgeschlagen", err=err))
         raise
     finally:
         hub.sender_aktiv.discard(geraet["sn"])
+        async_dispatcher_send(hub.hass, hub.signal(f"sender_aktiv_{geraet['sn']}"))
 
 
 async def _programmieren(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict[str, Any]] | None,
-                         nach_einlernen: bool) -> None:
+                         nach_einlernen: bool, alle_aktoren: bool = True) -> None:
     alt = belegung(geraet)
+    alte_basis = geraet.get("ga_basis") if geraet.get("ga_basis_geprueft") else None
     bel = bel or alt
     aktivitaet(hub, geraet, tr("akt_eingelernt_taste") if nach_einlernen else tr("akt_sender_wecken"))
     async with hub.params.lock, Funk(hub) as funk:
@@ -320,7 +375,9 @@ async def _programmieren(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict[s
         aktivitaet(hub, geraet, tr("akt_sender_aktiv"))
         halten = hub.hass.async_create_background_task(s.wach_halten(), "enet Sender wach halten")
         try:
+            t0 = time.monotonic()
             await s.schreiben(bel)
+            _LOGGER.debug("%s: transmitter written in %.1f s", geraet["name"], time.monotonic() - t0)
         finally:
             halten.cancel()
             with contextlib.suppress(BridgeError):
@@ -332,7 +389,12 @@ async def _programmieren(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict[s
     if neue_tasten:
         await hub._config_abgleichen(hub.bridge.info)
     try:  # der Sender ist fertig; ein Fehler hier betrifft nur die Aktor-Seite der Wippen
-        await _aktor_links(hub, geraet, alt, bel, s.basis)
+        t0 = time.monotonic()
+        # alle Aktoren nur bei neuer GA-Basis (Werksreset) oder auf Wunsch (Knopf ohne Änderung = Reparatur)
+        wippen = None if alle_aktoren or alte_basis != s.basis >> 8 else geaenderte_wippen(alt, bel)
+        _LOGGER.debug("%s: actuator links for rockers %s", geraet["name"], "all" if wippen is None else sorted(wippen))
+        await _aktor_links(hub, geraet, alt, bel, s.basis, wippen)
+        _LOGGER.debug("%s: actuator links in %.1f s", geraet["name"], time.monotonic() - t0)
     except BridgeError as err:
         _LOGGER.warning("%s: actuator links not fully updated: %s", geraet["name"], err)
         aktivitaet(hub, geraet, tr("akt_links_unvollstaendig", err=err))
@@ -408,6 +470,8 @@ def muss_programmieren(geraet: dict[str, Any], bel: dict[int, dict[str, Any]]) -
         if b["art"] == "wippe" and sorted((z["ia"], z["ch"]) for z in a["ziele"]) != \
                 sorted((z["ia"], z["ch"]) for z in b["ziele"]):
             return True
+        if b["art"] == "wippe" and bool(a.get("ha_ziele")) != bool(b.get("ha_ziele")):
+            return True  # Antwort der Bridge (Server-SN → GO 1) kommt dazu oder fällt weg
         if b["art"] == "tasten" and any(t.get("antwort_ga") is None for t in a["tasten"].values()):
             return True
     return False
@@ -419,9 +483,16 @@ def neue_tasten_vorbereiten(hub: Hub, bel: dict[int, dict[str, Any]]) -> None:
     belegt |= {t["antwort_ga"] for g in hub.anlage["geraete"] for t in g.get("tasten", []) if t.get("antwort_ga")}
     belegt |= {t["antwort_ga"] for b in bel.values() if b["art"] == "tasten"
                for t in b["tasten"].values() if t.get("antwort_ga")}
+    belegt |= {b["antwort_ga"] for b in bel.values() if b["art"] == "wippe" and b.get("antwort_ga")}
     ga = ANTWORT_GA_AB
     for n in sorted(bel):
-        if bel[n]["art"] != "tasten":
+        b = bel[n]
+        if b["art"] == "wippe" and b.get("ha_ziele") and b.get("antwort_ga") is None:
+            while ga in belegt:
+                ga += 1
+            b["antwort_ga"] = ga
+            belegt.add(ga)
+        if b["art"] != "tasten":
             continue
         for k in (2 * n - 1, 2 * n):
             t = bel[n]["tasten"].setdefault(k, {})
@@ -469,6 +540,15 @@ def server_tasten_setzen(hub: Hub, geraet: dict[str, Any], aktionen: dict[int, s
         del szenen[n]
 
 
+def ha_ziele_uebernehmen(geraet: dict[str, Any], bel: dict[int, dict[str, Any]]) -> None:
+    """HA-Lampen der Wippen in die Anlage übernehmen, ohne den Sender zu programmieren (muss_programmieren:
+    nein – die Wippe hatte schon HA-Lampen, also die Antwort der Bridge)."""
+    for t in geraet.get("tasten", []):
+        b = bel.get((t["nr"] + 1) // 2)
+        if t["art"] == "wippe" and b and b["art"] == "wippe" and b.get("ha_ziele") and t.get("ha_ziele"):
+            t["ha_ziele"] = list(b["ha_ziele"])
+
+
 async def belegung_aendern(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict[str, Any]],
                            aktionen: dict[int, str]) -> bool:
     """Neue Belegung übernehmen: Sender programmieren (falls nötig, Benutzer muss eine Taste drücken), dann
@@ -476,8 +556,10 @@ async def belegung_aendern(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict
     programmiert = muss_programmieren(geraet, bel)
     if programmiert:
         neue_tasten_vorbereiten(hub, bel)
-        await programmieren(hub, geraet, bel)
+        await programmieren(hub, geraet, bel, alle_aktoren=False)
         vormerkungen_loeschen(geraet)
+    else:
+        ha_ziele_uebernehmen(geraet, bel)
     server_tasten_setzen(hub, geraet, aktionen)
     await hub.anlage_speichern()
     await hub._config_abgleichen(hub.bridge.info)
@@ -488,6 +570,11 @@ async def belegung_aendern(hub: Hub, geraet: dict[str, Any], bel: dict[int, dict
 BETRIEBSARTEN = ("wippe", "tasten")  # Wippe ohne Lampen = nicht benutzt (im Sender dasselbe)
 LAMPEN_SEITE = 2  # mehr Lampen je Wippe nur im Dialog „Sender belegen“; dann auf der Geräteseite gesperrt
 VORMERKUNGEN = ("geplant", "geplant_lampen")
+
+
+def vorgemerkt(geraet: dict[str, Any]) -> bool:
+    """Gibt es Änderungen, die erst mit „Sender programmieren“ wirksam werden?"""
+    return any(geraet.get(k) for k in VORMERKUNGEN)
 
 
 def vormerkungen_loeschen(geraet: dict[str, Any]) -> None:
@@ -517,14 +604,29 @@ def geplante_belegung(geraet: dict[str, Any]) -> dict[int, dict[str, Any]]:
     for nr, keys in geraet.get("geplant_lampen", {}).items():
         n = int(nr)
         if n not in bel or bel[n]["art"] == "wippe":
-            bel[n] = {"art": "wippe", "ziele": [{"ia": k.split("/")[0], "ch": int(k.split("/")[1])} for k in keys]}
+            ziele, ha = lampen_trennen(keys)
+            vorher = bel.get(n) or {}
+            bel[n] = {"art": "wippe", "ziele": ziele, "ha_ziele": ha, "antwort_ga": vorher.get("antwort_ga")}
     return bel
 
 
+def ist_ha_lampe(key: str) -> bool:
+    """Lampen-Schlüssel: eNet-Kanal „ia/ch“, HA-Entität „light.x“ / „switch.x“."""
+    return "/" not in key
+
+
+def lampen_trennen(keys: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Lampen-Schlüssel → (eNet-Ziele [{ia, ch}], HA-Entitäten)."""
+    ziele = [{"ia": k.split("/")[0], "ch": int(k.split("/")[1])} for k in keys if not ist_ha_lampe(k)]
+    return ziele, [k for k in keys if ist_ha_lampe(k)]
+
+
 def lampen_der_wippe(geraet: dict[str, Any], n: int) -> list[str]:
-    """Vorgemerkte, sonst programmierte Lampen (Kanal-Schlüssel „ia/ch“) der Wippe n."""
+    """Vorgemerkte, sonst programmierte Lampen der Wippe n: eNet-Kanäle „ia/ch“, dann HA-Entitäten."""
     b = geplante_belegung(geraet).get(n)
-    return [f"{z['ia']}/{z['ch']}" for z in b["ziele"]] if b and b["art"] == "wippe" else []
+    if not b or b["art"] != "wippe":
+        return []
+    return [f"{z['ia']}/{z['ch']}" for z in b["ziele"]] + list(b.get("ha_ziele", []))
 
 
 def lampen_auswahlen(geraet: dict[str, Any], n: int) -> int:
@@ -540,11 +642,18 @@ def komplex(geraet: dict[str, Any], n: int) -> bool:
 
 
 def lampen_vormerken(geraet: dict[str, Any], n: int, keys: list[str]) -> None:
-    """Lampen der Wippe n vormerken (gleich dem programmierten Stand: Vormerkung weg)."""
+    """Lampen der Wippe n vormerken (gleich dem programmierten Stand: Vormerkung weg). Ändern sich nur die
+    HA-Lampen und bleibt die Wippe dabei mit bzw. ohne HA-Lampen, gilt das sofort – der Sender bleibt gleich."""
     keys = list(dict.fromkeys(keys))
     geplant = geraet.setdefault("geplant_lampen", {})
     geplant.pop(str(n), None)
-    if sorted(lampen_der_wippe(geraet, n)) != sorted(keys):
+    ziele, ha = lampen_trennen(keys)
+    eintrag = next((t for t in geraet.get("tasten", []) if t["art"] == "wippe" and (t["nr"] + 1) // 2 == n), None)
+    if eintrag is not None and str(n) not in geraet.get("geplant", {}) and bool(ha) == bool(eintrag.get("ha_ziele")) \
+            and sorted((z["ia"], z["ch"]) for z in ziele) == sorted((z["ia"], z["ch"]) for z in eintrag["ziele"]):
+        if ha:
+            eintrag["ha_ziele"] = ha
+    elif sorted(lampen_der_wippe(geraet, n)) != sorted(keys):
         geplant[str(n)] = keys
     if not geplant:
         geraet.pop("geplant_lampen")
@@ -569,8 +678,9 @@ async def geplant_programmieren(hub: Hub, geraet: dict[str, Any]) -> None:
     """Knopf „Sender programmieren“: vorgemerkte Betriebsarten (und vorhandene Belegung) schreiben."""
     aktionen = aktionen_des_senders(hub, geraet)
     bel = geplante_belegung(geraet)
+    reparatur = not vorgemerkt(geraet)  # nichts geändert: alles prüfen, auch die Aktoren
     neue_tasten_vorbereiten(hub, bel)
-    await programmieren(hub, geraet, bel)
+    await programmieren(hub, geraet, bel, alle_aktoren=reparatur)
     vormerkungen_loeschen(geraet)
     server_tasten_setzen(hub, geraet, aktionen)  # GA-Basis kann sich geändert haben, Wippen fallen weg
     await hub.anlage_speichern()

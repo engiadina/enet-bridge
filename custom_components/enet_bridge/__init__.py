@@ -5,6 +5,7 @@ import functools
 import re
 import logging
 import os
+import shutil
 
 import voluptuous as vol
 
@@ -16,7 +17,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from . import einlernen, sender
+from . import einlernen, ha_wippe, sender
 from .bridge import Bridge, BridgeError, fremdes_funkmodul
 from .anlage import AnlageSpeicher
 from .const import CONF_ANLAGE, CONF_PORT, DEFAULT_DEFINITIONEN, DOMAIN, MANUFACTURER
@@ -57,6 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     definitionen = await hass.async_add_executor_job(
         lade_definitionen, os.path.join(os.path.dirname(__file__), "definitionen.json"))
     definitionen |= await hass.async_add_executor_job(lade_definitionen, pfad)
+    await hass.async_add_executor_job(_blueprints_anlegen, hass.config.path("blueprints", "automation", DOMAIN))
     hub = Hub(hass, entry.entry_id, Bridge(hass.loop, entry.data[CONF_PORT]), anlage, definitionen=definitionen,
               speicher=speicher)
     entry.runtime_data = hub
@@ -104,6 +106,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     return True
 
 
+def _blueprints_anlegen(ziel: str) -> None:
+    """Mitgelieferte Blueprints nach blueprints/automation/enet_bridge kopieren – nur fehlende, eine vorhandene
+    (ggf. vom Nutzer geänderte) Datei bleibt. HA liest Blueprints erst beim Öffnen der Liste, kein Neuladen nötig."""
+    quelle = os.path.join(os.path.dirname(__file__), "blueprints")
+    try:
+        for name in sorted(os.listdir(quelle)):
+            pfad = os.path.join(ziel, name)
+            if name.endswith(".yaml") and not os.path.exists(pfad):
+                os.makedirs(ziel, exist_ok=True)
+                shutil.copyfile(os.path.join(quelle, name), pfad)
+                _LOGGER.info("Blueprint %s installed", pfad)
+    except OSError as err:
+        _LOGGER.warning("Blueprints not installed: %s", err)
+
+
 def _verwaiste_tasten_entfernen(hass: HomeAssistant, hub: Hub) -> None:
     """Tasten-Entitäten (Ereignis, „Taste k: Aktion“, „Wippe n: Lampe i“) entfernen, die es nach dem Umbelegen nicht mehr gibt."""
     bleiben = {f"{t.geraet['sn']}_taste_{t.nr}" for t in hub.tasten}
@@ -120,13 +137,18 @@ def _verwaiste_tasten_entfernen(hass: HomeAssistant, hub: Hub) -> None:
                     for k in (2 * n - 1, 2 * n)}
         bleiben |= {f"{g['sn']}_wippe{n}_lampe{i}" for n in range(1, sender.wippen_anzahl(hub, g) + 1)
                     for i in range(1, sender.lampen_auswahlen(g, n) + 1)}
+        if sender.vorgemerkt(g):
+            bleiben |= {f"{g['sn']}_wippe{n}_sender_programmieren" for n in range(1, sender.wippen_anzahl(hub, g) + 1)}
+        bleiben |= {f"{g['sn']}_wippe{n}_abdimmen" for n, b in bel.items()
+                    if b["art"] == "wippe" and ha_wippe.abdimmen_sinnvoll(hub, b)}
     reg = er.async_get(hass)
     if alt := reg.async_get_entity_id("button", DOMAIN, f"{hub.entry_id}_kalibrieren"):
         reg.async_remove(alt)  # Knopf „Funk kalibrieren“ gibt es seit 0.9.6 nicht mehr (automatisch)
     for e in er.async_entries_for_config_entry(reg, hub.entry_id):
         uid = e.unique_id
         if e.domain == "event" and "_taste_" in uid or (
-                e.domain == "select" and re.fullmatch(r"[0-9a-f]+_(taste\d+_aktion|wippe\d+_lampe\d+)", uid)
+                e.domain == "button" and re.fullmatch(r"[0-9a-f]+_wippe\d+_sender_programmieren", uid)) or (
+                e.domain == "select" and re.fullmatch(r"[0-9a-f]+_(taste\d+_aktion|wippe\d+_lampe\d+|wippe\d+_abdimmen)", uid)
                 and uid.split("_")[0] not in unbekannt):
             if uid not in bleiben:
                 _LOGGER.info("Entity %s removed (button no longer assigned)", e.entity_id)

@@ -31,8 +31,10 @@ from the eNet Server’s export file – **no device has to be paired again**.
 - **Transmitters** (hand-held and wall transmitters): every button as an event entity – pressed / released with
   hold time, so short, long and double presses can be told apart in automations. Battery state per transmitter.
 - **Transmitter configuration from Home Assistant**: per rocker “rocker” (switches/dims lights directly) or
-  “two single buttons” (server buttons with green LED acknowledgement); lights per rocker; action per button
-  (report only, call a scene); “Program transmitter” writes it to the device.
+  “two single buttons” (server buttons with green LED acknowledgement); lights per rocker – eNet actuators or
+  lights/switches of any other Home Assistant integration (Hue, Zigbee, Matter …), switched and dimmed by Home
+  Assistant with green LED acknowledgement from the bridge; action per button (report only, call a scene);
+  “Program transmitter” writes it to the device.
 - **Scenes**: the Home Assistant scene is the original. Lights that are eNet actuators get the scene stored in
   the actuator as well, so a scene switches all of them at once with a single radio telegram. Scenes called from
   a transmitter are executed by the bridge itself – also when Home Assistant is busy.
@@ -131,7 +133,15 @@ conditions:
 Only buttons that ask for an answer get the green LED: single buttons (the bridge answers) and rockers linked to
 actuators (the actuator answers). A rocker without lights sends its value without asking – no LED. For HA-only
 buttons with LED, set the rocker to **two single buttons** with action **“Report only”** and press
-**“Program transmitter”** (then press a button on the transmitter to wake it up).
+**“Program transmitter”** (then press a button on the transmitter to wake it up). The integration installs the
+blueprint **“eNet Bridge – transmitter single keys”** (short/long press per key) under
+`blueprints/automation/enet_bridge/`.
+
+**Rocker with Home Assistant lights.** A rocker can also switch and dim lights of other integrations: choose them
+as “Lamp 1/2” on the transmitter's device page (or under *Configure → Configure sender*). Left button = on /
+brighter, right button = off / darker; hold to dim. Adding the first or removing the last HA light reprograms the
+transmitter; changing which HA lights are used takes effect immediately. The bridge acknowledges the rocker (green
+LED) only while no eNet Server is running; Home Assistant switches the lights either way.
 
 **Scenes.** Create and edit them as normal Home Assistant scenes. eNet lights in a scene get the scene values
 stored in the actuators (they restart briefly while being programmed – lights flicker once). Assign a scene to a

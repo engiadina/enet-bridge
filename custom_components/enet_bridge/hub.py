@@ -27,11 +27,13 @@ from .const import ART_DIMMEN, ART_SCHALTEN, ART_TASTE, ART_WIPPE, DOMAIN, SENSO
 from .anlage import AnlageSpeicher
 from .params import Param, ParamSpeicher, dpt9_dekodiere
 from .ha_szenen import HaSzenen
+from .ha_wippe import HaWippe
 from .pruefung import Pruefung
 from .szenen import SzenenVerwaltung
 from .texte import deutsch, tr
 
 _LOGGER = logging.getLogger(__name__)
+BATTERIE_WARNUNG_S = 3600  # Abstand der Log-Warnungen „Battery low“ je Gerät
 
 OSV_HALTEN_MS = 4000  # beide Wippentasten so lange: Dimmer speichert die Einschalthelligkeit
 SYNC_DELAY_S = 3.0  # nach dem Öffnen: ESP startet unter Linux neu, start-Ereignis abwarten
@@ -54,6 +56,16 @@ PID_LINKS = 63  # Link-Tabelle im Kanal-Objekt
 
 # GAs je Tastenart relativ zum Offset (docs/NOTES.md „Sender-Programmierung“)
 GA_SPAN = {ART_TASTE: 6, ART_WIPPE: 3}
+
+
+def wippe_als_server_taste(msg: dict[str, Any]) -> None:
+    """Wippe mit HA-Lampen fragt die Server-SN: die Firmware meldet das wie eine Server-Taste (Drücken =
+    Bit 0x4000). Bei der Wippe ist das Richtungsbit 0x4000/0x8000, die Haltedauer steht in den unteren 14 Bit."""
+    cmd = int(msg.get("cmd", "0") or "0", 16)
+    msg["richtung"] = "rechts" if cmd & 0xC000 == 0x8000 else "links"
+    msg["hold_ms"] = (cmd & 0x3FFF) * 10
+    msg["press"] = cmd & 0x3FFF == 0
+    msg.pop("code", None)
 
 
 @dataclass
@@ -156,6 +168,7 @@ class Hub:
         self.sensor_aktiv: dict[str, bool] = {}  # „SN/Kanal“ → Sonnenschutz bzw. Dämmerung aktiv (Szenentelegramm)
         self._letzte_sensorszene: tuple[Any, float] = (None, 0.0)
         self.batterie_schwach: dict[str, bool] = {}  # Sender-SN → Batterie schwach (aus dem RF-Info-Bit, ab FW 0.8.8)
+        self._batterie_gewarnt: dict[str, float] = {}  # Sender-SN → time.monotonic() der letzten Log-Warnung
         self.param_gruppen: list[ParamGruppe] = []
         for g in self.anlage.get("geraete", []):
             d = self.definitionen.get(g.get("typ", ""))
@@ -178,6 +191,7 @@ class Hub:
         self.szene_in_arbeit: str | None = None  # HA-Szene, deren eNet-Teil gerade übertragen wird
         self.szenen = SzenenVerwaltung(self)
         self.ha_szenen = HaSzenen(self)
+        self.ha_wippe = HaWippe(self)
         self.pruefung = Pruefung(self)
         self._letzte_taste: tuple[Any, float] = (None, 0.0)
         self.bridge.nur_hoeren = self.mithoeren
@@ -419,8 +433,10 @@ class Hub:
             return
         schwach = b == "weak"
         if self.batterie_schwach.get(sn) != schwach:
-            if schwach:
+            # Der Sonnensensor wechselt das Bit bei fast jedem Telegramm → höchstens eine Warnung pro Stunde je Gerät
+            if schwach and time.monotonic() - self._batterie_gewarnt.get(sn, -BATTERIE_WARNUNG_S) >= BATTERIE_WARNUNG_S:
                 _LOGGER.warning("Battery low: transmitter %s", sn)
+                self._batterie_gewarnt[sn] = time.monotonic()
             self.batterie_schwach[sn] = schwach
             async_dispatcher_send(self.hass, self.signal(f"batterie_{sn}"))
 
@@ -523,6 +539,7 @@ class Hub:
 
     async def async_stop(self) -> None:
         self.ha_szenen.stop()
+        self.ha_wippe.stop()
         if self._unsub:
             self._unsub()
         if self._sync_task:
@@ -845,7 +862,8 @@ class Hub:
                 return
             taste = self.taste_fuer(msg.get("sn", ""), int(msg.get("ga", -1))) \
                 or self._sender_basis_lernen(msg.get("sn", ""), int(msg.get("ga", -1)))
-            kennung = (msg.get("sn"), msg.get("ga"), msg.get("cmd"))
+            # seq (Statusabfragen): neuer Druck = neue seq, Wiederholung (Sender sah keine Antwort) = gleiche seq
+            kennung = (msg.get("sn"), msg.get("ga"), msg.get("cmd"), msg.get("seq"))
             jetzt = time.monotonic()
             if self._letzte_taste[0] == kennung and jetzt - self._letzte_taste[1] < WIEDERHOLUNG_S:
                 _LOGGER.debug("Repeated button telegram discarded: %s", msg)
@@ -855,7 +873,11 @@ class Hub:
                 _LOGGER.debug("Button press without assignment: %s", msg)
                 self.pruefung.unbekannter_sender(msg.get("sn", ""))
                 return
+            if taste.art == ART_WIPPE and msg.get("kind") == "server":
+                wippe_als_server_taste(msg)
             async_dispatcher_send(self.hass, self.signal(f"key_{taste.key}"), msg)
+            if taste.art == ART_WIPPE:
+                self.ha_wippe.tastendruck(taste, msg)
             self.ha_szenen.tastendruck(msg)
             self._einschalthelligkeit_pruefen(taste, msg)
         elif ev == "scene_done":

@@ -31,8 +31,10 @@ Anlage aus dem Export des eNet Servers – **kein Gerät muss neu eingelernt wer
 - **Sender** (Hand- und Wandsender): jede Taste als Ereignis-Entität – gedrückt/losgelassen mit Haltedauer, damit
   Automationen kurz, lang und Doppelklick unterscheiden können. Batteriezustand je Sender.
 - **Sender aus Home Assistant belegen**: je Wippe „Wippe“ (schaltet/dimmt Lampen direkt) oder „zwei
-  Einzeltasten“ (Server-Tasten mit grüner Quittungs-LED); Lampen je Wippe; Aktion je Taste (nur melden, Szene
-  aufrufen); „Sender programmieren“ schreibt es ins Gerät.
+  Einzeltasten“ (Server-Tasten mit grüner Quittungs-LED); Lampen je Wippe – eNet-Aktoren oder Lampen/Schalter
+  jeder anderen Home-Assistant-Integration (Hue, Zigbee, Matter …), die Home Assistant schaltet und dimmt, mit
+  grüner Quittung durch die Bridge; Aktion je Taste (nur melden, Szene aufrufen); „Sender programmieren“
+  schreibt es ins Gerät.
 - **Szenen**: Die Home-Assistant-Szene ist das Original. eNet-Lampen bekommen die Szene zusätzlich im Aktor
   gespeichert, dadurch schaltet eine Szene sie alle gleichzeitig mit einem einzigen Funktelegramm. Szenen auf
   Sender-Tasten führt die Bridge selbst aus – auch wenn Home Assistant gerade beschäftigt ist.
@@ -131,7 +133,15 @@ conditions:
 Grün quittiert wird nur, wenn der Sender eine Antwort erwartet: bei Einzeltasten (die Bridge antwortet) und bei
 Wippen mit Lampen (der Aktor antwortet). Eine Wippe ohne Lampen sendet ihren Wert, ohne zu fragen – keine LED.
 Für reine HA-Tasten mit LED die Wippe auf **zwei Einzeltasten** mit Aktion **„Nur melden“** stellen und
-**„Sender programmieren“** drücken (danach eine Taste am Sender drücken, um ihn zu wecken).
+**„Sender programmieren“** drücken (danach eine Taste am Sender drücken, um ihn zu wecken). Die Integration legt
+dafür den Blueprint **„eNet Bridge – transmitter single keys“** (kurz/lang je Taste) unter
+`blueprints/automation/enet_bridge/` an.
+
+**Wippe mit Home-Assistant-Lampen.** Eine Wippe kann auch Lampen anderer Integrationen schalten und dimmen: auf der
+Geräteseite des Senders als „Lampe 1/2“ wählen (oder unter *Konfigurieren → Sender belegen*). Linke Taste = ein /
+heller, rechte = aus / dunkler; halten dimmt. Kommt die erste HA-Lampe dazu oder fällt die letzte weg, wird der
+Sender programmiert; welche HA-Lampen es sind, gilt sofort. Die Bridge quittiert die Wippe (grüne LED) nur, solange
+kein eNet Server läuft; Home Assistant schaltet die Lampen in jedem Fall.
 
 **Szenen.** Ganz normal als Home-Assistant-Szenen anlegen und bearbeiten. eNet-Lampen einer Szene bekommen die
 Werte in den Aktoren gespeichert (die Aktoren starten dabei kurz neu – die Lampen flackern einmal). Einer
