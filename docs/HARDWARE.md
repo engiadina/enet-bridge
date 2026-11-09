@@ -64,8 +64,35 @@ The GPIOs are the same for every module (`src/config.h`); only the pin order on 
 | CSn | GPIO 5 | 6 | 8 |
 | Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
 
-The green module has no printed labels on all boards – measure before soldering (GND is the pad next to the
-antenna). Other modules may be wired differently.
+The green module has no pin labels – use the drawing below. Other modules may be wired differently.
+
+### Green “CC1101 868MHz Module” pinout
+
+About 15 × 17 mm. 8 pads in one row on the edge opposite the antenna, pitch about 2 mm (estimated from the photo –
+**not 2.54 mm**, so it does not fit a breadboard or perfboard directly; solder short wires). Three antenna pads on
+the opposite edge.
+
+```
+   component side up, antenna pads on top:
+
+                GND   ANT   GND
+          ┌──────●─────●─────●──────┐
+          │ CC1101 868MHz Module    │
+          │                         │
+          │   [CC1101]      ▭       │   (▭ = crystal)
+          │                         │
+          └─●──●──●──●──●──●──●──●──┘
+            8  7  6  5  4  3  2  1
+            CSn   GDO2  SCK   GND
+               GDO0  MISO  MOSI  VCC
+```
+
+Pin 1 (VCC) is on the **right** when the component side faces up and the antenna pads point away from you. Seen
+from the bottom side the order is mirrored. Check before soldering: pin 2 must be connected to the outer antenna
+pads (GND).
+
+Antenna: the 8.6 cm wire goes on the middle pad (ANT). With an SMA socket, solder the centre pin to the middle
+pad and the socket ground to the two outer pads, as short as possible.
 
 ### RC-CC1101-SPI-868 pinout
 
