@@ -7,6 +7,10 @@ the eNet radio protocol (KNX RF 1.1, 868 MHz), answers the transmitters’ serve
 every button press and every state change to Home Assistant. The integration imports your existing installation
 from the eNet Server’s export file – **no device has to be paired again**.
 
+**Never had an eNet Server?** You can also start from scratch: set up a new installation, pair eNet actuators
+and wall or hand-held transmitters with “+” in Home Assistant and configure everything there – no eNet Server
+needed at any time.
+
 *Deutsch: [README.de.md](README.de.md)*
 
 > **Work in progress – first public release.** The integration runs two real installations every
@@ -119,8 +123,9 @@ The setup asks where the installation comes from:
 - **Take over from an eNet Server export (.iex)** – export the project in the eNet Server web interface and
   upload the file. Leave **“The eNet Server is switched off”** unticked while the server is still running: the
   bridge then starts in **listen-only** mode.
-- **New installation without eNet Server** – a new domain and identity are generated; pair your devices
-  afterwards with “+”.
+- **New installation without eNet Server** – for installations that never had a server, or after it died
+  without an export. A new domain and identity are generated; put each device into learning mode and pair it
+  with “+” (one device at a time). Transmitters are programmed right after pairing.
 - **Existing installation file** (`anlage.json`, from `tools/iex.py`).
 
 Then choose the bridge’s serial port. If the ESP32 has no bridge firmware yet, install it with the update entity

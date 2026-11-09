@@ -7,6 +7,10 @@ spricht das eNet-Funkprotokoll (KNX RF 1.1, 868 MHz), beantwortet die Server-Tas
 und meldet jeden Tastendruck und jede Zustandsänderung an Home Assistant. Die Integration übernimmt die bestehende
 Anlage aus dem Export des eNet Servers – **kein Gerät muss neu eingelernt werden**.
 
+**Nie einen eNet Server gehabt?** Du kannst auch bei null anfangen: neue Anlage einrichten, eNet-Aktoren sowie
+Wand- und Handsender mit „+“ in Home Assistant einlernen und alles dort einstellen – ein eNet Server wird zu keiner
+Zeit gebraucht.
+
 *English: [README.md](README.md)*
 
 > **In Arbeit – erste öffentliche Version.** Die Integration läuft täglich in zwei echten Anlagen, die
@@ -119,7 +123,9 @@ Die Einrichtung fragt, woher die Anlage kommt:
 - **Aus einem Export des eNet Servers übernehmen (.iex)** – das Projekt in der Weboberfläche des eNet Servers
   exportieren und die Datei hochladen. Das Häkchen **„eNet Server ist ausgeschaltet“** weglassen, solange der
   Server noch läuft: Die Bridge startet dann mit **„Nur mithören“**.
-- **Neue Anlage ohne eNet Server** – Domäne und Kennung werden erzeugt, die Geräte danach mit „+“ einlernen.
+- **Neue Anlage ohne eNet Server** – für Anlagen, die nie einen Server hatten, oder wenn er ohne Export
+  ausgefallen ist. Domäne und Kennung werden erzeugt; jedes Gerät in den Lernmodus bringen und mit „+“ einlernen
+  (immer nur ein Gerät gleichzeitig). Sender werden direkt nach dem Einlernen programmiert.
 - **Bestehende Anlagendatei** (`anlage.json`, aus `tools/iex.py`).
 
 Danach den seriellen Port der Bridge wählen. Hat das ESP32 noch keine Bridge-Firmware, über die Update-Entität

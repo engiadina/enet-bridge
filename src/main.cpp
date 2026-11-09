@@ -24,7 +24,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.12";
+static const char* kFwVersion = "0.8.13";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);

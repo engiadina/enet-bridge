@@ -41,8 +41,9 @@ struct Writer {
 
 }  // namespace
 
+// Mindestlänge 22: Kopf (2) + Domäne/SN (12) + IA (2) + Anzahlen (4) + CRC (2) – leere Anlage gültig
 bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
-  if (len < 24 || blob[0] != 'E' || blob[1] != 0x03) return false;
+  if (len < 22 || blob[0] != 'E' || blob[1] != 0x03) return false;
   uint16_t crc = (uint16_t)(blob[len - 2] << 8 | blob[len - 1]);
   if (knxrf::crc16(blob, len - 2) != crc) return false;
   Reader r(blob, len - 2, 2);

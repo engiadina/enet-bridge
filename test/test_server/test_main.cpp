@@ -148,6 +148,17 @@ void test_config_roundtrip() {
   TEST_ASSERT_FALSE(enet::parseConfig(blob, n, d));
 }
 
+void test_config_empty() {  // neue Anlage ohne Geräte: nur Kopf + CRC (22 Byte)
+  enet::Config c = testanlageConfig(), d;
+  c.nChannels = c.nActions = c.nScenes = c.nKeys = 0;
+  uint8_t blob[64];
+  size_t n = enet::serializeConfig(c, blob, sizeof(blob));
+  TEST_ASSERT_EQUAL(22, n);
+  TEST_ASSERT_TRUE(enet::parseConfig(blob, n, d));
+  TEST_ASSERT_EQUAL(0, d.nChannels);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(kServerSN, d.serverSn, 6);
+}
+
 void test_disabled_does_not_answer() {
   FakeIo io;
   enet::Server s(io);
@@ -518,6 +529,7 @@ void test_real_server_reported() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_config_roundtrip);
+  RUN_TEST(test_config_empty);
   RUN_TEST(test_disabled_does_not_answer);
   RUN_TEST(test_key_answer_and_scene);
   RUN_TEST(test_key_report_only);
