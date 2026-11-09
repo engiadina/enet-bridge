@@ -2,7 +2,7 @@
 
 **Gira/Jung-eNet**-Funkgeräte direkt in Home Assistant nutzen – **ohne eNet Server**.
 
-Ein kleines USB-Funkmodem (ESP32 + CC1101, Teile für etwa 30 €) übernimmt die Aufgaben des eNet Servers: Es
+Ein kleines USB-Funkmodem (ESP32-C6 + CC1101, Teile für etwa 20–30 €) übernimmt die Aufgaben des eNet Servers: Es
 spricht das eNet-Funkprotokoll (KNX RF 1.1, 868 MHz), beantwortet die Server-Tasten der Sender, führt Szenen aus
 und meldet jeden Tastendruck und jede Zustandsänderung an Home Assistant. Die Integration übernimmt die bestehende
 Anlage aus dem Export des eNet Servers – **kein Gerät muss neu eingelernt werden**.
@@ -101,8 +101,16 @@ Verschlüsselte Anlagen (eNet Server 2.0 mit AES) werden nicht unterstützt.
 
 ## Hardware
 
-ESP32-DevKit + Radiocontrolli RC-CC1101-SPI-868 + SMA-Buchse + 868-MHz-Antenne, per USB am Home-Assistant-Rechner.
-Teileliste, Verdrahtung, Antenne und Messwerte: **[docs/HARDWARE.md](docs/HARDWARE.md)** (Englisch).
+Zwei Wege, beide per USB am Home-Assistant-Rechner und mit derselben Firmware:
+
+- **Selbst bauen:** Seeed **XIAO ESP32-C6** + CC1101-Modul für 868 MHz (7 Drähte) + 868-MHz-Antenne.
+- **Fertig kaufen:** **busware CUL32** (ESP32-C6 + CC1101 mit Antennenbuchse, ohne Löten) – gleiche Pinbelegung,
+  sollte laufen, am Gerät selbst aber noch nicht getestet.
+
+Der ursprüngliche Aufbau mit **ESP32-DevKit** (klassischer ESP32) **läuft aus**: Vorhandene Bridges funktionieren
+weiter und bekommen ihre Firmware weiterhin von der Integration, neue Funktionen entstehen aber nur noch für den
+ESP32-C6, und in einer späteren Version endet die Unterstützung. Teileliste, Verdrahtung, Antenne und Messwerte:
+**[docs/HARDWARE.md](docs/HARDWARE.md)** (Englisch).
 
 ## Installation
 
@@ -128,7 +136,7 @@ Die Einrichtung fragt, woher die Anlage kommt:
   (immer nur ein Gerät gleichzeitig). Sender werden direkt nach dem Einlernen programmiert.
 - **Bestehende Anlagendatei** (`anlage.json`, aus `tools/iex.py`).
 
-Danach den seriellen Port der Bridge wählen. Hat das ESP32 noch keine Bridge-Firmware, über die Update-Entität
+Danach den seriellen Port der Bridge wählen. Hat die Platine noch keine Bridge-Firmware, über die Update-Entität
 **„Bridge-Firmware“** installieren.
 
 ### Umstieg vom eNet Server

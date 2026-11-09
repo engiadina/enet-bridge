@@ -113,7 +113,9 @@ class SzenenVerwaltung:
 
     def status_abfragen(self, s: Szene) -> None:
         """Nach dem Aufruf melden alle Mitglieder gleichzeitig ihren Status – die Telegramme stoßen zusammen.
-        Deshalb wie der eNet Server (functionsToPollStatusAfterCallScene) nach der Rampe nachfragen."""
+        Deshalb wie der eNet Server (functionsToPollStatusAfterCallScene) nach der Rampe nachfragen – aber nur bei
+        Mitgliedern, die sich seit dem Aufruf nicht selbst gemeldet haben: Jede Abfrage belegt den Funk, und während
+        die Bridge sendet, hört sie nichts (2026-11-09: Tastendruck kurz nach einer Szene ging zweimal verloren)."""
         aufruf = time.monotonic()
         for key in s.mitglieder:
             self.letzter_aufruf[key] = aufruf
@@ -121,7 +123,7 @@ class SzenenVerwaltung:
         async def nachfragen() -> None:
             await asyncio.sleep(STATUS_NACH_S)
             for k in self.hub.kanaele:
-                if k.key in s.mitglieder:
+                if k.key in s.mitglieder and self.hub.zustand[k.key].gemeldet <= aufruf:
                     try:
                         await self.hub.bridge.request("poll", ia=k.ia, ch=k.nr)
                     except BridgeError as err:

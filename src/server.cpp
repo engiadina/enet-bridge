@@ -418,16 +418,34 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
       size_t n = knxrf::buildSumstatusInfo(cfg_.serverSn, sg.replyGA, 0xFF, sg.seq, 0, frame);
       if (n) io_.transmit(frame, n);
       e.answered = true;
-      // Szene nur beim Druecken. 0.8.10 rief sie auch beim Loslassen auf (wie der Server) – zurueckgenommen in
+      // Szene beim Druecken. 0.8.10 rief sie auch beim Loslassen auf (wie der Server) – zurueckgenommen in
       // 0.8.11: Das liess Lampen flackern, und ein einzelnes Loslassen ohne angekommenes Druecken (zweite Taste
       // beim Halten beruehrt) schaltete die falsche Szene. Der Anlass (Lampe dimmte beim Loslassen ab) waren
       // Alt-Links im Aktor, siehe NOTES „FW 0.8.10“.
-      if (e.keyIndex >= 0 && e.press) {
-        bool repeat = lastSeqValid_[e.keyIndex] && lastSeq_[e.keyIndex] == sg.seq;
-        lastSeq_[e.keyIndex] = sg.seq;
-        lastSeqValid_[e.keyIndex] = true;
-        int8_t sc = cfg_.keys[e.keyIndex].scene;
-        if (!repeat && sc >= 0) e.sceneStarted = runScene((uint8_t)sc);
+      // Ausnahme (0.8.16): Loslassen mit seq = letzte gesehene + 2 – dazwischen fehlt genau ein Telegramm, und das
+      // war das Druecken (Druecken N, Loslassen N+1, je Taste fortlaufend). Ging verloren, waehrend die Bridge
+      // sendete (Statusabfragen nach einer Szene, 2026-11-09). Ein Loslassen ohne Vorgeschichte (+1 oder nach dem
+      // Start) ruft weiterhin nichts auf.
+      if (e.keyIndex >= 0) {
+        const uint8_t i = (uint8_t)e.keyIndex;
+        bool start = false;
+        if (e.press) {
+          start = !(lastSeqValid_[i] && lastSeq_[i] == sg.seq);
+          lastSeq_[i] = sg.seq;
+          lastSeqValid_[i] = true;
+        } else {
+          start = lastAnyValid_[i] && (uint16_t)(sg.seq - lastAnySeq_[i]) == 2;
+          if (start) {  // das verlorene Druecken nachtragen: eine Wiederholung davon ist dann keine neue Szene
+            lastSeq_[i] = (uint16_t)(sg.seq - 1);
+            lastSeqValid_[i] = true;
+          }
+        }
+        if (!(lastAnyValid_[i] && lastAnySeq_[i] == sg.seq)) {
+          lastAnySeq_[i] = sg.seq;
+          lastAnyValid_[i] = true;
+        }
+        int8_t sc = cfg_.keys[i].scene;
+        if (start && sc >= 0) e.sceneStarted = runScene((uint8_t)sc);
       }
     }
     io_.onKey(e);

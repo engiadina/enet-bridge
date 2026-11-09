@@ -2,7 +2,7 @@
 
 Use your **Gira / Jung eNet** radio devices directly in Home Assistant – **without the eNet Server**.
 
-A small USB radio modem (ESP32 + CC1101, about 30 € in parts) takes over the job of the eNet Server: it speaks
+A small USB radio modem (ESP32-C6 + CC1101, about 20–30 € in parts) takes over the job of the eNet Server: it speaks
 the eNet radio protocol (KNX RF 1.1, 868 MHz), answers the transmitters’ server buttons, runs scenes and reports
 every button press and every state change to Home Assistant. The integration imports your existing installation
 from the eNet Server’s export file – **no device has to be paired again**.
@@ -101,8 +101,15 @@ detectors, energy sensors. Encrypted installations (eNet Server 2.0 with AES) ar
 
 ## Hardware
 
-ESP32 DevKit + Radiocontrolli RC-CC1101-SPI-868 + SMA connector + 868 MHz antenna, connected by USB to the
-Home Assistant host. Parts list, wiring, antenna and measurements: **[docs/HARDWARE.md](docs/HARDWARE.md)**.
+Two ways, both connected by USB to the Home Assistant host and running the same firmware:
+
+- **Build it yourself:** Seeed **XIAO ESP32-C6** + CC1101 868 MHz module (7 wires) + 868 MHz antenna.
+- **Ready-made:** **busware CUL32** (ESP32-C6 + CC1101 with antenna socket, no soldering) – same pin assignment,
+  support expected but not yet tested on the device itself.
+
+The original **ESP32 DevKit** (classic ESP32) build is **being phased out**: existing bridges keep working and still
+get their firmware from the integration, but new features are developed for the ESP32-C6 only, and support will
+end in a later version. Parts list, wiring, antenna and measurements: **[docs/HARDWARE.md](docs/HARDWARE.md)**.
 
 ## Installation
 
@@ -128,7 +135,7 @@ The setup asks where the installation comes from:
   with “+” (one device at a time). Transmitters are programmed right after pairing.
 - **Existing installation file** (`anlage.json`, from `tools/iex.py`).
 
-Then choose the bridge’s serial port. If the ESP32 has no bridge firmware yet, install it with the update entity
+Then choose the bridge’s serial port. If the board has no bridge firmware yet, install it with the update entity
 **“Bridge firmware”**.
 
 ### Switching over from the eNet Server

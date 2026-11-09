@@ -336,6 +336,9 @@ async def aufnehmen(hub: Hub, name: str | None = None, raum: str | None = None) 
         # Werksreset eines Aktors der Anlage: Szenen-Links und -Werte im Gerät sind weg – zurückschreiben
         hub.aktivitaet(tr("akt_szenen_wiederherstellen", name=g["name"]))
         fehler = await hub.pruefung.aktor_wiederherstellen(g["ia"])
+        from .sender import wippen_links_wiederherstellen
+
+        fehler += await wippen_links_wiederherstellen(hub, g["ia"])
         if fehler:
             _LOGGER.warning("Restoring scenes of %s: %s", g["name"], "; ".join(fehler))
     if raum:

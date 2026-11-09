@@ -204,6 +204,35 @@ void test_key_answer_and_scene() {
   TEST_ASSERT_FALSE(io.keys[3].sceneStarted);
 }
 
+// Druecken verloren (Bridge sendete gerade): Loslassen mit seq +2 zur letzten gesehenen ruft die Szene auf
+void test_key_missed_press() {
+  FakeIo io;
+  enet::Server s(io);
+  s.setConfig(testanlageConfig());
+  s.setEnabled(true);
+  // nach dem Start: einzelnes Loslassen ohne Vorgeschichte -> keine Szene
+  feed(s, kReleaseW1Oben, 1000);  // seq 0313
+  TEST_ASSERT_FALSE(io.keys[0].sceneStarted);
+  TEST_ASSERT_TRUE(io.keys[0].answered);
+  // Druecken 0314 verloren, Loslassen 0315 kommt an -> Szene
+  std::string rel = kReleaseW1Oben;
+  rel.replace(rel.find("00320000031308"), 14, "00320000031508");
+  feed(s, rel.c_str(), 2000);
+  TEST_ASSERT_TRUE(io.keys[1].sceneStarted);
+  // Wiederholung dieses Loslassens -> keine zweite Szene
+  feed(s, rel.c_str(), 2100);
+  TEST_ASSERT_FALSE(io.keys[2].sceneStarted);
+  // naechstes Paar normal: Druecken 0316 -> Szene, Loslassen 0317 -> keine
+  std::string pr = kPressW1Oben;
+  pr.replace(pr.find("00324000031208"), 14, "00324000031608");
+  std::string rel2 = kReleaseW1Oben;
+  rel2.replace(rel2.find("00320000031308"), 14, "00320000031708");
+  feed(s, pr.c_str(), 3000);
+  feed(s, rel2.c_str(), 3200);
+  TEST_ASSERT_TRUE(io.keys[3].sceneStarted);
+  TEST_ASSERT_FALSE(io.keys[4].sceneStarted);
+}
+
 void test_key_report_only() {
   FakeIo io;
   enet::Server s(io);
@@ -532,6 +561,7 @@ int main() {
   RUN_TEST(test_config_empty);
   RUN_TEST(test_disabled_does_not_answer);
   RUN_TEST(test_key_answer_and_scene);
+  RUN_TEST(test_key_missed_press);
   RUN_TEST(test_key_report_only);
   RUN_TEST(test_key_other_ga_base);
   RUN_TEST(test_retry_and_fail);

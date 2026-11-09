@@ -249,12 +249,13 @@ def standard_belegung(geraet: dict[str, Any]) -> dict[int, dict[str, Any]]:
 
 
 async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, basis: int,
-                       wippen: set[int] | None = None) -> None:
+                       wippen: set[int] | None = None, nur_ia: str | None = None) -> None:
     """Aktor-Seite der Wippen abgleichen – nach der Link-Tabelle im Aktor, nicht nach der Anlage (die kennt nach
     Werksreset/Import nicht sicher die GA, die im Aktor steht). Soll je Ziel: Tastenwert-GA (Basis·256 + 50+3n)
     → GO 1, Statusabfrage (+1) → GO 19. Alle Einträge dieses Senders mit anderer GA werden gelöscht.
     wippen: nur die Aktoren dieser Wippen (alt und neu) prüfen; None = alle. Das Lesen der Link-Tabellen kostet je
-    Eintrag bis 3 s (langsame Aktoren antworten erst im 5. Versuch) – unveränderte Wippen nicht anfassen."""
+    Eintrag bis 3 s (langsame Aktoren antworten erst im 5. Versuch) – unveränderte Wippen nicht anfassen.
+    nur_ia: nur dieses Gerät (wieder eingelernter Aktor nach Werksreset)."""
     soll: dict[tuple[str, int], set[tuple[int, int]]] = {}
     pruefen: set[tuple[str, int]] = set()  # Aktoren an geänderten Wippen (alt oder neu)
     for bel, mit in ((alt, False), (neu, True)):
@@ -270,7 +271,7 @@ async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, b
                 if wippen is None or n in wippen:
                     pruefen.add((z["ia"], z["ch"]))
     for (ia, ch), sollwert in sorted(soll.items()):
-        if (ia, ch) not in pruefen:
+        if (ia, ch) not in pruefen or (nur_ia is not None and ia != nur_ia):
             continue
         k = next((k for k in hub.kanaele if k.ia == ia and k.nr == ch), None)
         if k is None:
@@ -296,6 +297,27 @@ async def _aktor_links(hub: Hub, geraet: dict[str, Any], alt: dict, neu: dict, b
         _LOGGER.info("%s: actuator %s delete links %s, create %s", geraet["name"], k.key, sorted(weg), sorted(dazu))
         await hub.params.programmieren(k.ia, hub.geraet_obj(k.geraet), k.obj, schritte,
                                        zweck=tr("zweck_verknuepfungen", name=geraet["name"]))
+
+
+async def wippen_links_wiederherstellen(hub: Hub, ia: str) -> list[str]:
+    """Nach Werksreset + Wiedereinlernen eines Aktors: die Wippen-Links aller Sender, die auf ihn zeigen, wieder in
+    den Aktor schreiben (nur Aktor-Seite, kein Wecken der Sender). Sender mit noch nicht umgetragener GA-Basis
+    übergehen – deren Links setzt „Sender programmieren“. Liefert Fehlertexte."""
+    fehler = []
+    for g in hub.anlage["geraete"]:
+        if g.get("rolle") != "sender" or not g.get("ga_basis_geprueft", True):
+            continue
+        try:
+            bel = belegung(g)
+        except BridgeError:
+            continue
+        if not any(b["art"] == "wippe" and any(z["ia"] == ia for z in b["ziele"]) for b in bel.values()):
+            continue
+        try:
+            await _aktor_links(hub, g, bel, bel, g.get("ga_basis", 0) * 256, nur_ia=ia)
+        except BridgeError as err:
+            fehler.append(f"{g['name']}: {err}")
+    return fehler
 
 
 def geaenderte_wippen(alt: dict[int, dict[str, Any]], neu: dict[int, dict[str, Any]]) -> set[int]:

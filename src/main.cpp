@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.15";
+static const char* kFwVersion = "0.8.17";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -137,6 +137,22 @@ static bool setClock(const char* iso) {
 
 // ---------------------------------------------------------------------------
 // Senden
+// Funk-LED (PIN_LED, aktiv low): kurz an bei jedem gesendeten und jedem gueltigen empfangenen Telegramm
+static uint32_t ledAus = 0;
+static bool ledAn = false;
+static void ledBlitz() {
+  if (PIN_LED < 0) return;
+  digitalWrite(PIN_LED, LOW);
+  ledAn = true;
+  ledAus = millis() + 40;
+}
+static void ledPruefen(uint32_t now) {
+  if (PIN_LED >= 0 && ledAn && (int32_t)(now - ledAus) >= 0) {
+    digitalWrite(PIN_LED, HIGH);
+    ledAn = false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // false = nicht gesendet (Kanal belegt, Fehler)
 static bool sendTelegram(const uint8_t* data, size_t len) {
@@ -145,6 +161,7 @@ static bool sendTelegram(const uint8_t* data, size_t len) {
   if (!radioOk) return false;
   size_t n = knxrf::buildTxChips(data, len, chips, sizeof(chips), KNXRF_INVERT_CHIPS);
   if (!n) return false;
+  ledBlitz();
   CC1101::TxResult r = radio.transmit(chips, n);
   if (r == CC1101::TX_OK) ++statTx;
   if (r == CC1101::TX_BUSY) ++statTxBusy;
@@ -413,6 +430,7 @@ static void receiveFrame() {
   if (fixed > 0) ++statFixed;
 
   ++statOk;
+  ledBlitz();
   lastRssi = rssi;
   if (estN >= 1000) {  // gleitend: alte Werte halbieren
     estSum /= 2;
@@ -896,6 +914,10 @@ void setup() {
 #endif
   Serial.begin(SERIAL_BAUD);
   delay(300);
+  if (PIN_LED >= 0) {
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, HIGH);  // aus
+  }
   bridgeIo.server = &server;
   prefs.begin("enet", false);
   freqOffset = prefs.getChar("foff", CC1101_FREQ_OFFSET);
@@ -913,6 +935,7 @@ void setup() {
 
 void loop() {
   const uint32_t now = millis();
+  ledPruefen(now);
   checkRadio(now);
   if (radioOk) {
     if (radio.syncDetected()) {

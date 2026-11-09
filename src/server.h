@@ -180,6 +180,8 @@ class Server {
   ChannelState st_[kMaxChannels];
   uint16_t lastSeq_[kMaxKeys] = {};
   bool lastSeqValid_[kMaxKeys] = {};
+  uint16_t lastAnySeq_[kMaxKeys] = {};  // letzte seq der Taste ueberhaupt (Druecken oder Loslassen)
+  bool lastAnyValid_[kMaxKeys] = {};
   uint8_t sceneFailed_[kMaxScenes] = {};
   bool enabled_ = false;
   bool realServerSeen_ = false;

@@ -225,8 +225,11 @@ class HaSzenen:
 
     @callback
     def tastendruck(self, msg: dict[str, Any]) -> None:
-        """Server-Taste mit HA-Szene: die Bridge hat den eNet-Teil schon aufgerufen, HA schaltet den Rest."""
-        if msg.get("kind") != "server" or not msg.get("press"):
+        """Server-Taste mit HA-Szene: die Bridge hat den eNet-Teil schon aufgerufen, HA schaltet den Rest. Beim
+        Drücken – oder beim Loslassen, wenn die Bridge dort die Szene nachgeholt hat (Drücken nicht empfangen,
+        Firmware ab 0.8.16 meldet dann scene ≥ 0)."""
+        nachgeholt = not msg.get("press") and (msg.get("scene") if msg.get("scene") is not None else -1) >= 0
+        if msg.get("kind") != "server" or not (msg.get("press") or nachgeholt):
             return
         ga = int(msg.get("ga", -1)) & 0xFF
         t = next((t for t in self.hub.anlage.get("esp", {}).get("server_tasten", [])

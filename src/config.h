@@ -13,6 +13,7 @@
 #define PIN_CS    18   // (D10)
 #define PIN_GDO0   2   // (D2)
 #define PIN_GDO2  -1   // nicht angeschlossen
+#define PIN_LED   15   // XIAO: gelbe User-LED, aktiv low – blitzt bei Senden/Empfangen (CUL32: GPIO 15 frei)
 #else
 // ESP32-DevKit (VSPI)
 #define PIN_SCK   18
@@ -21,6 +22,7 @@
 #define PIN_CS     5
 #define PIN_GDO0   4   // IOCFG0 = 0x06: high ab Sync-Wort, low bei Paketende
 #define PIN_GDO2  16   // IOCFG2 = 0x0E: Carrier Sense (nur Diagnose)
+#define PIN_LED   -1   // DevKit: keine LED fuer Funkverkehr
 #endif
 
 // ---------------------------------------------------------------------------
