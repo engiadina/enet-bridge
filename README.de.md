@@ -70,6 +70,16 @@ eingebunden. Trotzdem hatte ich drei Hauptgründe:
   kalibriert.
 - Oberfläche auf Deutsch und Englisch.
 
+## Bildschirmfotos
+
+**Ein Dimmaktor** – Lampe, alle Geräteeinstellungen direkt aus dem Aktor gelesen, Diagnose:
+
+![Geräteseite eines eNet-Mini-Dimmaktors in Home Assistant](docs/bilder/ha-dimmaktor.png)
+
+**Eine Wippe eines Handsenders** – Betriebsart und Lampen in Home Assistant wählen, dann „Sender programmieren“:
+
+![Wippen-Einstellung eines eNet-Handsenders](docs/bilder/ha-wippe.png)
+
 ## Unterstützte Geräte
 
 Getestet in zwei Anlagen:

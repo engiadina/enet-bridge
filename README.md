@@ -68,6 +68,18 @@ I have an eNet Server myself. It works very well and is nicely integrated into H
 - Bridge firmware is installed and updated by the integration itself; the radio is calibrated automatically.
 - German and English user interface.
 
+## Screenshots
+
+**A dimming actuator** – light, all device settings read from the actuator, diagnostics:
+
+![Device page of an eNet mini dimmer in Home Assistant](docs/bilder/ha-dimmaktor.png)
+
+**A rocker of a hand-held transmitter** – mode and lights chosen in Home Assistant, then “Program transmitter”:
+
+![Rocker configuration of an eNet hand-held transmitter](docs/bilder/ha-wippe.png)
+
+*(German user interface; English is available as well.)*
+
 ## Supported devices
 
 Tested in two installations:
