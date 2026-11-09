@@ -147,7 +147,7 @@ Server-Tasten werden weiter beantwortet).
 
 | `cmd` | Felder | Antwort / Ergebnis |
 |---|---|---|
-| `hello` | `time` (optional, setzt die Uhr) | `product` (`"enet-bridge"`, ab 0.8.1), `fw`, `proto`, `id` (MAC der Platine, ab 0.8), `radio` {`ok`,`version`,`freq_offset`,`calibrated`,`freqest`,`freqest_n`}, `server` {`on`}, `config` {`crc`,`channels`,`scenes`,`keys`}, `queue` {`len`,`max`}, `uptime_s`, `procedure` (laufende Prozedur oder `null`) |
+| `hello` | `time` (optional, setzt die Uhr) | `product` (`"enet-bridge"`, ab 0.8.1), `fw`, `proto`, `chip` (`esp32`/`esp32c6`, ab 0.8.14; fehlt = `esp32`), `id` (MAC der Platine, ab 0.8), `radio` {`ok`,`version`,`freq_offset`,`calibrated`,`freqest`,`freqest_n`}, `server` {`on`}, `config` {`crc`,`channels`,`scenes`,`keys`}, `queue` {`len`,`max`}, `uptime_s`, `procedure` (laufende Prozedur oder `null`) |
 | `time` | `time` | setzt die Uhr (für Zeitstempel beim Programmieren) |
 | `stats` | – | Zähler: `rx_ok`, `crc_error`, `corrected` (Telegramme mit 1–3 korrigierten Chip-Paaren, ab 0.5.5), `invalid`, `overflow`, `tx`, `tx_busy` |
 | `server` | `on` (optional) | setzt bzw. liefert `on` (bleibt gespeichert) |
@@ -283,7 +283,8 @@ ESP  → result 9 ok
 ```
 
 ### 10.5 Firmware aktualisieren (über den Host-Rechner)
-Die Integration bringt die Firmware mit (`bridge_fw/`, erzeugt mit `tools/fw_bundle.sh`) und flasht selbst
+Die Integration bringt die Firmware je Chip mit (`bridge_fw/<chip>/`, erzeugt mit `tools/fw_bundle.sh`) und flasht
+selbst das Paket zum `chip` aus `hello` (leerer ESP: esptool erkennt den Chip)
 (esptool aus den requirements): automatisch, wenn `hello` als Bridge antwortet (`product` = `enet-bridge`,
 bei Firmware < 0.8.1 genügt `proto`) und die Version älter ist (einmal je Version und HA-Start); antwortet
 nach 3 Versuchen nichts, bietet die Update-Entität „Bridge-Firmware“ die Installation an (Bestätigung,

@@ -715,7 +715,9 @@ class Hub:
         async_dispatcher_send(self.hass, self.signal("bridge"))
         try:
             await self.hass.async_add_executor_job(self.bridge.release)
-            await self.hass.async_add_executor_job(firmware.flashen, self.bridge.port)
+            # Chip aus dem hello; leerer ESP (keine Bridge) → esptool erkennt ihn
+            chip = None if self.keine_bridge else self.bridge.info.get("chip", firmware.STANDARD_CHIP)
+            await self.hass.async_add_executor_job(firmware.flashen, self.bridge.port, chip)
             _LOGGER.warning("Bridge firmware %s installed", self.fw_bundle)
         except Exception as err:  # noqa: BLE001 – esptool wirft beliebige Fehler
             _LOGGER.error("Flashing the bridge failed: %s", err)

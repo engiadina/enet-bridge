@@ -101,7 +101,7 @@ bool CC1101::begin(int8_t freqOffset) {
   pinMode(cs_, OUTPUT);
   digitalWrite(cs_, HIGH);
   pinMode(gdo0_, INPUT);
-  pinMode(gdo2_, INPUT_PULLDOWN);  // offen = "Kanal frei"
+  if (gdo2_ >= 0) pinMode(gdo2_, INPUT_PULLDOWN);  // offen = "Kanal frei"
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, cs_);
 
   // Manueller Power-on-Reset laut Datenblatt
@@ -146,6 +146,8 @@ uint8_t CC1101::rxBytes() {
   return a & 0x7F;
 }
 
+bool CC1101::carrierSense() { return gdo2_ >= 0 ? digitalRead(gdo2_) : (readStatus(PKTSTATUS) & 0x40); }
+
 bool CC1101::rxOverflow() { return readStatus(RXBYTES) & 0x80; }
 
 void CC1101::readFifo(uint8_t* buf, uint8_t n) {
@@ -177,7 +179,7 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
 
   // Listen before talk: im RX auf freien Kanal warten
   uint32_t t0 = millis();
-  while (digitalRead(gdo2_)) {
+  while (carrierSense()) {
     if (millis() - t0 >= maxWaitMs) return TX_BUSY;
     delayMicroseconds(500);
   }

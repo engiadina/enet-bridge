@@ -14,17 +14,20 @@
 //   d              Diagnose: GDO-Leitungen, Zustand, RSSI/Carrier Sense ueber 6 s
 //   w <Reg> <Wert> CC1101-Register schreiben (Hex), nur zum Experimentieren
 //   send <Hex>     beliebiges Telegramm (ohne CRCs), LFN setzt die Bridge
+//   spi            Leitungstest ohne SPI: CSn von Hand, MISO mit Pull-up/-down (CS tief = 1/1: Chip nicht
+//                  bereit, Quarz laeuft nicht; CS hoch = 1/0: hochohmig, richtig)
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <SPI.h>
 
 #include "cc1101.h"
 #include "config.h"
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.13";
+static const char* kFwVersion = "0.8.15";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -438,11 +441,11 @@ static void diagnose() {
   radio.writeReg(CC1101::IOCFG0, 0x2F);  // fest 0
   radio.writeReg(CC1101::IOCFG2, 0x2F);
   delay(2);
-  int g0lo = digitalRead(PIN_GDO0), g2lo = digitalRead(PIN_GDO2);
+  int g0lo = digitalRead(PIN_GDO0), g2lo = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
   radio.writeReg(CC1101::IOCFG0, 0x6F);  // fest 1
   radio.writeReg(CC1101::IOCFG2, 0x6F);
   delay(2);
-  int g0hi = digitalRead(PIN_GDO0), g2hi = digitalRead(PIN_GDO2);
+  int g0hi = digitalRead(PIN_GDO0), g2hi = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
   radio.writeReg(CC1101::IOCFG0, 0x06);
   radio.writeReg(CC1101::IOCFG2, 0x0E);
   radio.startRx();
@@ -454,7 +457,7 @@ static void diagnose() {
     float r = radio.rssiDbm();
     if (r > rssiMax) rssiMax = r;
     if (r < rssiMin) rssiMin = r;
-    cs += digitalRead(PIN_GDO2);
+    cs += radio.carrierSense();
     delay(2);
   }
   JsonDocument d;
@@ -542,6 +545,7 @@ static void fillStatus(JsonDocument& d) {
   d["product"] = "enet-bridge";  // Kennung fuer den Host: hier antwortet eine Bridge (automatisches Update)
   d["fw"] = kFwVersion;
   d["proto"] = kProtoVersion;
+  d["chip"] = CONFIG_IDF_TARGET;  // "esp32", "esp32c6": welches Firmware-Paket der Host flasht
   d["id"] = bridgeId();
   JsonObject r = d["radio"].to<JsonObject>();
   fillRadio(r);
@@ -820,6 +824,33 @@ static void handleText(char* line) {
     d["addr"] = reg;
     d["value"] = radio.readReg(reg);
     emit(d);
+  } else if (!strcmp(cmd, "spi")) {  // Leitungstest ohne SPI: CSn von Hand, MISO mit Pull-up/-down lesen
+    SPI.end();
+    pinMode(PIN_CS, OUTPUT);
+    JsonDocument d;
+    d["ev"] = "spi_test";
+    const char* namen[] = {"cs_hoch_pullup", "cs_hoch_pulldown", "cs_tief_pullup", "cs_tief_pulldown"};
+    for (int i = 0; i < 4; ++i) {
+      digitalWrite(PIN_CS, i < 2 ? HIGH : LOW);
+      pinMode(PIN_MISO, (i % 2) ? INPUT_PULLDOWN : INPUT_PULLUP);
+      delay(5);
+      d[namen[i]] = digitalRead(PIN_MISO);  // CC1101: CS hoch = hochohmig (folgt dem Pull), CS tief = 0 (bereit)
+    }
+    digitalWrite(PIN_CS, HIGH);
+    pinMode(PIN_SCK, INPUT_PULLDOWN);
+    pinMode(PIN_MOSI, INPUT_PULLDOWN);
+    pinMode(PIN_GDO0, INPUT_PULLDOWN);
+    delay(2);
+    d["sck"] = digitalRead(PIN_SCK);
+    d["mosi"] = digitalRead(PIN_MOSI);
+    d["gdo0"] = digitalRead(PIN_GDO0);
+    d["gdo2"] = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
+    radioOk = radio.begin(freqOffset);  // SPI wieder aufnehmen
+    radioVersion = radioOk ? radio.version() : 0;
+    d["radio_ok"] = radioOk;
+    d["version"] = radio.version();
+    emit(d);
+    if (radioOk) radio.startRx();
   } else if (!strcmp(cmd, "send")) {
     uint8_t frame[64];
     size_t n = parseHex(a1, frame, sizeof(frame));
@@ -859,6 +890,10 @@ void setup() {
   // Mehrere Befehle auf einmal (z. B. „alle Lampen an“) muessen auch waehrend Senden/Empfangen (bis ~50 ms
   // blockiert) Platz haben; Standard 256 Byte lief ueber
   Serial.setRxBufferSize(4096);
+#if ARDUINO_USB_CDC_ON_BOOT  // native USB (z. B. XIAO ESP32-C6): Ereignisse puffern, ohne Host nicht blockieren
+  Serial.setTxBufferSize(4096);
+  Serial.setTxTimeoutMs(0);
+#endif
   Serial.begin(SERIAL_BAUD);
   delay(300);
   bridgeIo.server = &server;

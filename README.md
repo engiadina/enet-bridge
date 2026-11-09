@@ -218,7 +218,7 @@ number the device reported, so support can be added.
 
 ## Development
 
-Firmware: PlatformIO (`pio run -e esp32dev`; the integration bundles the build in `bridge_fw/`). Protocol logic
+Firmware: PlatformIO (`pio run -e esp32dev`, XIAO ESP32-C6: `-e xiao_esp32c6`; `tools/fw_bundle.sh` bundles both in `bridge_fw/`). Protocol logic
 has host tests: `pio test -e native`. Bridge ↔ host interface (serial JSON lines, German):
 [docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md).
 

@@ -9,3 +9,9 @@ anlage*.json
 .venv/
 katalog/
 settings.local.json
+# pioarduino (XIAO ESP32-C6) legt diese beim Bauen an
+src/idf_component.yml
+src/idf_component.yml.orig
+dependencies.lock
+managed_components/
+.gitignore.optional

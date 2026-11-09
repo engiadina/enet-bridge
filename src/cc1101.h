@@ -25,7 +25,7 @@ class CC1101 {
     SFRX = 0x3A, SFTX = 0x3B, SNOP = 0x3D
   };
 
-  CC1101(uint8_t cs, uint8_t gdo0, uint8_t gdo2) : cs_(cs), gdo0_(gdo0), gdo2_(gdo2) {}
+  CC1101(uint8_t cs, uint8_t gdo0, int8_t gdo2) : cs_(cs), gdo0_(gdo0), gdo2_(gdo2) {}  // gdo2 -1: ohne
 
   bool begin(int8_t freqOffset);          // Reset + KNX-RF-Konfiguration
   void startRx();                         // IDLE, FIFO leeren, RX
@@ -39,11 +39,13 @@ class CC1101 {
   void setFreqOffset(int8_t freqOffset);  // FSCTRL0 im Betrieb aendern (IDLE, kalibrieren, RX)
   uint8_t version() { return readStatus(VERSION); }
   uint8_t marcState() { return readStatus(MARCSTATE) & 0x1F; }
+  bool carrierSense();                    // Kanal belegt (GDO2 bzw. PKTSTATUS.CS, Bit 6)
   void dumpRegisters(Print& out);
 
   enum TxResult : uint8_t { TX_OK, TX_BUSY, TX_UNDERFLOW, TX_TIMEOUT, TX_TOO_LONG };
   // Sendet einen fertigen Chip-Strom (Praeambel + Sync + Manchester, siehe knxrf::buildTxChips).
-  // Wartet vorher bis maxWaitMs auf freien Kanal (Carrier Sense an GDO2). Danach IDLE -> startRx().
+  // Wartet vorher bis maxWaitMs auf freien Kanal (Carrier Sense an GDO2, ohne GDO2 aus PKTSTATUS).
+  // Danach IDLE -> startRx().
   TxResult transmit(const uint8_t* chips, size_t len, uint16_t maxWaitMs = 30);
 
   void strobe(uint8_t s);
@@ -56,6 +58,7 @@ class CC1101 {
   void select();
   void deselect();
   void idle();
-  uint8_t cs_, gdo0_, gdo2_;
+  uint8_t cs_, gdo0_;
+  int8_t gdo2_;
   SPISettings spi_{4000000, MSBFIRST, SPI_MODE0};
 };

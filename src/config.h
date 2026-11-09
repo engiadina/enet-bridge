@@ -1,15 +1,27 @@
 #pragma once
 
 // ---------------------------------------------------------------------------
-// Verkabelung ESP32-DevKit <-> CC1101 (VSPI)
-//   CC1101 VCC -> 3V3 (NICHT 5 V!), GND -> GND
+// Verkabelung <-> CC1101; CC1101 VCC -> 3V3 (NICHT 5 V!), GND -> GND
 // ---------------------------------------------------------------------------
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+// ESP32-C6: Belegung des busware CUL32 – eine Firmware fuer CUL32 und Seeed XIAO ESP32-C6 (XIAO-Pin in Klammern).
+// GDO2 wird nicht gebraucht (Carrier Sense ueber PKTSTATUS): beim CUL32 GPIO 3, beim XIAO nicht herausgefuehrt
+// (dort Antennenschalter 2,4 GHz). Frei lassen: Strapping 8/9/15.
+#define PIN_SCK   19   // (D8)
+#define PIN_MISO  20   // (D9)
+#define PIN_MOSI  21   // (D3)
+#define PIN_CS    18   // (D10)
+#define PIN_GDO0   2   // (D2)
+#define PIN_GDO2  -1   // nicht angeschlossen
+#else
+// ESP32-DevKit (VSPI)
 #define PIN_SCK   18
 #define PIN_MISO  19
 #define PIN_MOSI  23
 #define PIN_CS     5
 #define PIN_GDO0   4   // IOCFG0 = 0x06: high ab Sync-Wort, low bei Paketende
 #define PIN_GDO2  16   // IOCFG2 = 0x0E: Carrier Sense (nur Diagnose)
+#endif
 
 // ---------------------------------------------------------------------------
 // Funk

@@ -330,7 +330,14 @@ async def entfernen(hub: Hub, geraet: dict[str, Any]) -> dict[str, Any]:
 async def aufnehmen(hub: Hub, name: str | None = None, raum: str | None = None) -> dict[str, Any]:
     """Einlernen komplett (Dienst und „+ Gerät hinzufügen“): suchen, aufnehmen, Raum setzen; ein Sender wird gleich
     programmiert (im Lernmodus wach) und entlassen – seine Lern-LED hört auf zu blinken = eingelernt."""
+    bekannt = {x["sn"] for x in hub.anlage["geraete"]}
     g = await einlernen(hub, name)
+    if g["rolle"] == "aktor" and g["sn"] in bekannt:
+        # Werksreset eines Aktors der Anlage: Szenen-Links und -Werte im Gerät sind weg – zurückschreiben
+        hub.aktivitaet(tr("akt_szenen_wiederherstellen", name=g["name"]))
+        fehler = await hub.pruefung.aktor_wiederherstellen(g["ia"])
+        if fehler:
+            _LOGGER.warning("Restoring scenes of %s: %s", g["name"], "; ".join(fehler))
     if raum:
         g["raum"] = raum  # Vorschlag für den HA-Bereich beim Anlegen des Geräts
         await hub.anlage_speichern()

@@ -308,6 +308,33 @@ class SzenenVerwaltung:
             s.mitglieder = [m for m in s.mitglieder if not m.startswith(f"{ia}/")]
         await self._speichern()
 
+    async def werte_wiederherstellen(self, ia: str) -> list[str]:
+        """Szenenwerte eines Aktors aus dem Szenen-Speicher zurückschreiben, wo das Gerät abweicht – nach einem
+        Werksreset (Wiedereinlernen) bzw. nach dem Reparieren fehlender Szenen-Links: Der Aktor speichert die Werte
+        selbst, der Aufruf ist nur ein Gruppentelegramm. Liefert Fehlertexte."""
+        kanaele = {k.key: k for k in self.hub.kanaele}
+        fehler = []
+        for s in self.szenen:
+            for key in s.mitglieder:
+                w = s.werte.get(key)
+                if not key.startswith(f"{ia}/") or key not in kanaele or w is None:
+                    continue
+                k = kanaele[key]
+                try:
+                    r = await self.hub.bridge.request("prop_read", ia=k.ia, obj=k.obj, pid=79,
+                                                      start=SCV_START + s.nr, count=1)
+                    gelesen = bytes.fromhex(r.get("value", "") or "00")[0]
+                    if wert_gleich(gelesen, w):
+                        continue
+                    _LOGGER.warning("Scene %s, %s: device has value %s instead of %s – writing it",
+                                    s.name, key, gelesen, w)
+                    await self.hub.params.roh_schreiben(k.ia, self.hub.geraet_obj(k.geraet), k.obj,
+                                                        SCV_START + s.nr, bytes([w]),
+                                                        zweck=tr("zweck_szenenwert", name=s.name))
+                except BridgeError as err:
+                    fehler.append(f"{s.name}, {k.geraet['name']} K{k.nr}: {err}")
+        return fehler
+
     async def _links(self, k: Kanal, s: Szene, anlegen: bool) -> None:
         """Beide Links der Szene in einem Kanal anlegen bzw. löschen (im Programmier-Rahmen)."""
         andere = [x for x in self.szenen if x is not s and k.key in x.mitglieder]

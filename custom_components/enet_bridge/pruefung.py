@@ -131,12 +131,19 @@ class Pruefung:
 
     async def links_pruefen(self) -> None:
         """Szenen-Links aller Mitglieder von HA-Szenen lesen und fehlende melden."""
+        fehlend = await self._fehlende_links()
+        self._fehlende_melden(fehlend)
+
+    async def _fehlende_links(self, ia: str | None = None) -> dict[str, list[tuple[int, int]]]:
+        """Fehlende Szenen-Links je Kanal (ia: nur dieses Gerät)."""
         kanaele = {k.key: k for k in self.hub.kanaele}
         bedarf: dict[str, set[tuple[int, int]]] = {}
         for s in self.hub.szenen.szenen:
             if s.art != "ha":
                 continue
             for key in s.mitglieder:
+                if ia is not None and not key.startswith(f"{ia}/"):
+                    continue
                 if key in kanaele and key not in s.offen:
                     bedarf.setdefault(key, set()).add((s.ga, GO_SZENE))
                     if s.ga_status is not None:
@@ -151,6 +158,10 @@ class Pruefung:
                 fehlt = [(ga, g) for ga, g in soll if g == go and ga not in vorhanden]
                 if fehlt:
                     fehlend.setdefault(key, []).extend(fehlt)
+        return fehlend
+
+    def _fehlende_melden(self, fehlend: dict[str, list[tuple[int, int]]]) -> None:
+        kanaele = {k.key: k for k in self.hub.kanaele}
         self.fehlende_links = fehlend
         if fehlend:
             namen = sorted({f"{kanaele[key].geraet['name']} K{kanaele[key].nr}" for key in fehlend})
@@ -181,7 +192,32 @@ class Pruefung:
                                                     zweck=tr("zweck_szenen_links"))
             except BridgeError as err:
                 fehler.append(f"{k.geraet['name']} K{k.nr}: {err}")
+        # fehlten Links, ist meist das Gerät zurückgesetzt – dann fehlen auch seine Szenenwerte
+        for ia in sorted({kanaele[key].ia for key in self.fehlende_links if key in kanaele}):
+            fehler += await self.hub.szenen.werte_wiederherstellen(ia)
         await self.links_pruefen()
+        return fehler
+
+    async def aktor_wiederherstellen(self, ia: str) -> list[str]:
+        """Szenen eines wieder eingelernten Aktors (Werksreset) zurück ins Gerät: fehlende Links, dann Werte."""
+        fehlend = await self._fehlende_links(ia)
+        kanaele = {k.key: k for k in self.hub.kanaele}
+        fehler = []
+        for key, links in fehlend.items():
+            k = kanaele[key]
+
+            async def schritte(k=k, links=links) -> None:
+                sn = self.hub.anlage["server"]["sn"]
+                for ga, go in links:
+                    data = bytes([0, 0]) + bytes.fromhex(sn) + ga.to_bytes(2, "big") + go.to_bytes(2, "big")
+                    await self.hub.bridge.request("fp_cmd", ia=k.ia, obj=k.obj, pid=PID_LINKS, data=data.hex())
+
+            try:
+                await self.hub.params.programmieren(k.ia, self.hub.geraet_obj(k.geraet), k.obj, schritte,
+                                                    zweck=tr("zweck_szenen_links"))
+            except BridgeError as err:
+                fehler.append(f"{k.geraet['name']} K{k.nr}: {err}")
+        fehler += await self.hub.szenen.werte_wiederherstellen(ia)
         return fehler
 
     # --- Link-Tabellen (Verknüpfungen) -------------------------------------------

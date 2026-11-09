@@ -52,17 +52,25 @@ you can.
 
 The GPIOs are the same for every module (`src/config.h`); only the pin order on the module differs.
 
-| Signal | ESP32 DevKit | RC-CC1101-SPI-868 pin | green 8-pin module pin |
-|---|---|---|---|
-| VCC (**3.3 V, never 5 V**) | 3V3 | 12 | 1 |
-| GND | GND | 7, 8, 9 (connect all three) | 2 |
-| MOSI / SI | GPIO 23 | 1 | 3 |
-| SCK / SCLK | GPIO 18 | 2 | 4 |
-| MISO / SO | GPIO 19 | 3 | 5 |
-| GDO2 (carrier sense, diagnostics) | GPIO 16 | 4 | 6 |
-| GDO0 (sync / end of packet) | GPIO 4 | 5 | 7 |
-| CSn | GPIO 5 | 6 | 8 |
-| Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
+| Signal | ESP32 DevKit | XIAO ESP32-C6 (experimental) | RC-CC1101-SPI-868 pin | green 8-pin module pin |
+|---|---|---|---|---|
+| VCC (**3.3 V, never 5 V**) | 3V3 | 3V3 | 12 | 1 |
+| GND | GND | GND | 7, 8, 9 (connect all three) | 2 |
+| MOSI / SI | GPIO 23 | D3 (GPIO 21) | 1 | 3 |
+| SCK / SCLK | GPIO 18 | D8 (GPIO 19) | 2 | 4 |
+| MISO / SO | GPIO 19 | D9 (GPIO 20) | 3 | 5 |
+| GDO2 (carrier sense, diagnostics) | GPIO 16 | not needed | 4 | 6 |
+| GDO0 (sync / end of packet) | GPIO 4 | D2 (GPIO 2) | 5 | 7 |
+| CSn | GPIO 5 | D10 (GPIO 18) | 6 | 8 |
+| Antenna | – | – | 10 (ANT, 50 Ω) | antenna pad |
+
+**Seeed XIAO ESP32-C6 (experimental, not yet tested with eNet devices):** much smaller than the DevKit. Its only
+USB-C socket is the chip’s native USB, which shows up as `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…`.
+The integration recognises the chip and flashes the matching firmware. The ESP32-C6 firmware uses the pin
+assignment of the ready-made **busware CUL32** (ESP32-C6 + CC1101), so the same firmware is meant to run on both.
+GDO2 is not needed on the C6 – the firmware reads carrier sense from a CC1101 status register. The XIAO’s own antenna (or u.FL socket) is
+for 2.4 GHz only and is not used – eNet still runs through the CC1101 and its 868 MHz antenna. The C6 is the
+basis for a later connection via Thread instead of USB.
 
 The green module has no pin labels – use the drawing below. Other modules may be wired differently.
 
