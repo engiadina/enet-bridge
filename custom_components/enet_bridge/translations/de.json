@@ -205,6 +205,18 @@
       },
       "taste_aktion": {
         "name": "Taste {nr}: Aktion"
+      },
+      "sonnenschutz_ein_aktion": {
+        "name": "Sonnenschutz ein: Szene"
+      },
+      "sonnenschutz_aus_aktion": {
+        "name": "Sonnenschutz aus: Szene"
+      },
+      "daemmerung_ein_aktion": {
+        "name": "Dämmerung ein: Szene"
+      },
+      "daemmerung_aus_aktion": {
+        "name": "Dämmerung aus: Szene"
       }
     }
   },

@@ -68,6 +68,11 @@ def wippe_als_server_taste(msg: dict[str, Any]) -> None:
     msg.pop("code", None)
 
 
+def sensor_aktion_key(kanal: int, ein: bool) -> str:
+    """Schlüssel in geraet["sensor_aktionen"]: „1_ein“ Sonnenschutz ein … „2_aus“ Dämmerung aus."""
+    return f"{kanal}_{'ein' if ein else 'aus'}"
+
+
 @dataclass
 class Kanal:
     """Aktor-Kanal aus anlage.json."""
@@ -489,6 +494,34 @@ class Hub:
         _LOGGER.debug("Sun sensor %s ch%d: scene %d (%s)", sn, kanal, szene, "ein" if ein else "aus")
         async_dispatcher_send(self.hass, self.signal(f"sensor_aktiv_{sn}"))
         async_dispatcher_send(self.hass, self.signal(f"sensor_szene_{sn}_{kanal}"), {"ein": ein, "szene": szene})
+        g = next((g for g in self.anlage["geraete"] if g["sn"] == sn), {})
+        aktion = g.get("sensor_aktionen", {}).get(sensor_aktion_key(kanal, ein))
+        if aktion and not self.mithoeren:
+            self.hass.async_create_background_task(self._sensor_aktion(g, kanal, ein, aktion), "enet Sensoraktion")
+
+    async def _sensor_aktion(self, g: dict, kanal: int, ein: bool, aktion: str) -> None:
+        """Gewählte Szene des Sonnensensors aufrufen (Auswahl auf der Geräteseite). HA-Szene über scene.turn_on –
+        ihr eNet-Teil geht dabei als Szenentelegramm (HaSzenen); eNet-Szene direkt als Szenentelegramm."""
+        art, _, wert = aktion.partition(":")
+        name = f"{g.get('name', g['sn'])} K{kanal} {'ein' if ein else 'aus'}"
+        try:
+            if art == "ha":
+                eid = next((st.entity_id for st in self.hass.states.async_all("scene")
+                            if str(st.attributes.get("id")) == wert), None)
+                if eid is None:
+                    _LOGGER.warning("%s: scene %s not found", name, wert)
+                    return
+                _LOGGER.debug("%s → %s", name, eid)
+                await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=True)
+            elif art == "enet":
+                s = next((s for s in self.szenen.szenen if str(s.id) == wert), None)
+                if s is None:
+                    _LOGGER.warning("%s: eNet scene %s not found", name, wert)
+                    return
+                _LOGGER.debug("%s → eNet scene %s", name, s.name)
+                await self.szenen.aufrufen(s)
+        except Exception as err:  # noqa: BLE001 – Fehler der Szene nur melden, Sensor-Auswertung läuft weiter
+            _LOGGER.warning("%s: scene failed: %s", name, err)
 
     def _sender_basis_lernen(self, sn: str, ga: int) -> Taste | None:
         """Tastendruck passt nicht zur bekannten GA-Basis: Sender schlafen (Link-Tabelle nicht lesbar), also

@@ -1,6 +1,6 @@
 """Auswahl-Parameter der Aktoren (Betriebsart, Lastart, Verhalten bei Netzwiederkehr …).
 Sender: Betriebsart und bis zu zwei Lampen je Wippe (vorgemerkt bis „Sender programmieren“) und Aktion je
-Einzeltaste (sofort)."""
+Einzeltaste (sofort). Sonnensensor: Szene je Kanal und Richtung (sofort)."""
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
@@ -11,10 +11,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_added_domain, async_track_state_removed_domain
 
-from . import EnetConfigEntry, ha_wippe, sender, wippe_info
+from . import EnetConfigEntry, geraet_info, ha_wippe, sender, wippe_info
 from .bridge import BridgeError
-from .const import DOMAIN
+from .const import DOMAIN, SENSOR_TYPEN
 from .entity import EnetEntity, EnetParamEntity, param_entitaeten
+from .hub import sensor_aktion_key
 from .params import auswahl
 from .texte import tr
 
@@ -37,6 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
         neu += [WippeAbdimmen(hub, g, n) for n, b in sorted(bel.items()) if b["art"] == "wippe" and ha_wippe.abdimmen_sinnvoll(hub, b)]
         neu += [TasteAktion(hub, g, k) for n, b in sorted(bel.items()) if b["art"] == "tasten"
                 for k in (2 * n - 1, 2 * n)]
+    neu += [SensorAktion(hub, g, kanal, ein) for g in hub.anlage["geraete"] if g.get("typ") in SENSOR_TYPEN
+            for kanal in (1, 2) for ein in (True, False)]
     async_add_entities(neu)
 
 
@@ -247,4 +250,49 @@ class TasteAktion(EnetEntity, SelectEntity):
             await sender.aktion_setzen(self.hub, self.geraet, self.k, self._optionen()[option])
         except BridgeError as err:
             raise HomeAssistantError(tr("taste_fehler", name=self.geraet["name"], k=self.k, err=err)) from err
+        self.async_write_ha_state()
+
+
+class SensorAktion(EnetEntity, SelectEntity):
+    """Sonnensensor: Szene bei Sonnenschutz bzw. Dämmerung ein/aus. Die Integration ruft sie auf, wenn das
+    Szenentelegramm des Sensors kommt (Hub._sensor_aktion) – sofort wirksam, am Sensor wird nichts programmiert."""
+
+    def __init__(self, hub, geraet, kanal: int, ein: bool) -> None:
+        super().__init__(hub)
+        self.geraet, self.key = geraet, sensor_aktion_key(kanal, ein)
+        self._attr_translation_key = f"{'sonnenschutz' if kanal == 1 else 'daemmerung'}_{'ein' if ein else 'aus'}_aktion"
+        self._attr_unique_id = f"{geraet['sn']}_sensor_{self.key}_aktion"
+        self._attr_device_info = geraet_info(hub, geraet)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._listen("ha_szenen")
+
+    def _optionen(self) -> dict[str, str]:
+        # Bridge-Szenen (esp:) nicht: die führt nur die Firmware bei Server-Tasten aus
+        return {anzeige: wert for wert, anzeige in sender.aktion_optionen(self.hub) if not wert.startswith("esp:")}
+
+    @property
+    def options(self) -> list[str]:
+        return list(self._optionen())
+
+    @property
+    def current_option(self) -> str | None:
+        wert = self.geraet.get("sensor_aktionen", {}).get(self.key, sender.MELDEN)
+        if wert.startswith("enet:"):  # eNet-Szene, die inzwischen der eNet-Teil einer HA-Szene ist
+            s = next((s for s in self.hub.szenen.szenen if f"enet:{s.id}" == wert), None)
+            if s and s.ha_id:
+                wert = f"ha:{s.ha_id}"
+        return next((a for a, w in self._optionen().items() if w == wert), None)
+
+    async def async_select_option(self, option: str) -> None:
+        wert = self._optionen()[option]
+        aktionen = self.geraet.setdefault("sensor_aktionen", {})
+        if wert == sender.MELDEN:
+            aktionen.pop(self.key, None)
+        else:
+            aktionen[self.key] = wert
+        if not aktionen:
+            self.geraet.pop("sensor_aktionen")
+        await self.hub.anlage_speichern()
         self.async_write_ha_state()

@@ -62,7 +62,7 @@ eingebunden. Trotzdem hatte ich drei Hauptgründe:
 - **Geräte-Einstellungen** (Einschalthelligkeit, Rampen, Verzögerungen, Lastart, …) als Entitäten, aus den
   Aktoren gelesen und in sie geschrieben.
 - **Sonnensensor** (Jung FM FS 1 S / Gira 5461 02): Helligkeit, Sonnenschutz und Dämmerung, Szenen-Ereignisse,
-  Einstellungen.
+  Einstellungen; je Kanal und Richtung (ein/aus) eine frei wählbare Szene.
 - **Reparaturen**: Geräte, die nicht antworten, fehlende Szenen-Verknüpfungen, unbekannte Sender und unerwartete
   Verknüpfungen in den Aktoren (Überbleibsel früherer Belegungen, Links fremder Geräte) erscheinen unter
   *Einstellungen → Reparaturen* – entfernt wird erst nach Bestätigung.

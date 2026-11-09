@@ -205,6 +205,18 @@
       },
       "taste_aktion": {
         "name": "Key {nr}: action"
+      },
+      "sonnenschutz_ein_aktion": {
+        "name": "Sun protection on: scene"
+      },
+      "sonnenschutz_aus_aktion": {
+        "name": "Sun protection off: scene"
+      },
+      "daemmerung_ein_aktion": {
+        "name": "Twilight on: scene"
+      },
+      "daemmerung_aus_aktion": {
+        "name": "Twilight off: scene"
       }
     }
   },

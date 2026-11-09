@@ -61,7 +61,7 @@ I have an eNet Server myself. It works very well and is nicely integrated into H
 - **Device settings** (switch-on brightness, ramps, delays, load type, …) as entities, read from and written to
   the actuators.
 - **Sun sensor** (Jung FM FS 1 S / Gira 5461 02): illuminance, sun protection and twilight state, scene events,
-  settings.
+  settings; a scene of your choice for sun protection and twilight on/off.
 - **Repairs**: devices that do not answer, missing scene links, unknown transmitters and unexpected links in
   the actuators (leftovers of earlier assignments, links of foreign devices) show up under *Settings → Repairs*
   – removed only after confirmation.
