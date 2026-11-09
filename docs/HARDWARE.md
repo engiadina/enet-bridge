@@ -82,12 +82,12 @@ the opposite edge.
           │   [CC1101]      ▭       │   (▭ = crystal)
           │                         │
           └─●──●──●──●──●──●──●──●──┘
-            8  7  6  5  4  3  2  1
-            CSn   GDO2  SCK   GND
-               GDO0  MISO  MOSI  VCC
+            1  2  3  4  5  6  7  8
+            VCC   MOSI  MISO  GDO0
+               GND   SCK   GDO2  CSn
 ```
 
-Pin 1 (VCC) is on the **right** when the component side faces up and the antenna pads point away from you. Seen
+Pin 1 (VCC) is on the **left** when the component side faces up and the antenna pads point away from you. Seen
 from the bottom side the order is mirrored. Check before soldering: pin 2 must be connected to the outer antenna
 pads (GND).
 
