@@ -10,11 +10,30 @@ from the eNet Server’s export file – **no device has to be paired again**.
 *Deutsch: [README.de.md](README.de.md)*
 
 > **Work in progress – first public release.** The integration runs two real installations every
-> day, but documentation is still being completed: photos of the hardware build are missing, and only the device
-> types listed below are tested. Feedback and issues are welcome.
+> day, but documentation is still being completed, and only the device types listed below are tested. Feedback
+> and issues are welcome.
 
 > **Independent project.** Not affiliated with, endorsed or reviewed by Insta, Gira or Jung. Use at your own
 > risk. See [Trademarks and origin](#trademarks-and-origin).
+
+## Why replace the eNet Server?
+
+<img src="docs/bilder/tastsensor.jpg" width="300" align="right" alt="Gira System 55 eNet push-button sensor with
+six scene buttons">
+
+I have an eNet Server myself. It works very well and is nicely integrated into Home Assistant with the
+[eNet integration by mnordseth](https://github.com/mnordseth/enet-homeassistant). I still had three main reasons:
+
+1. **The eNet Server is discontinued.** What happens when mine breaks? Keeping a spare server on the shelf was
+   too expensive for me.
+2. **The push-button sensors.** I like the Gira System 55 switches, and we have them everywhere. To call scenes
+   or special functions, the eNet push-button sensor is ideal. But its connection to Home Assistant is
+   incomplete: it works through the server, but the sensor gets no feedback.
+3. **Two parallel systems.** With eNet and Home Assistant you maintain both: scenes have to be changed in eNet as
+   soon as they involve eNet devices, and Home Assistant devices have to be attached with automations. I wanted
+   to configure and program all devices from Home Assistant.
+
+<br clear="right">
 
 ## Features
 

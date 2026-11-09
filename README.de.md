@@ -10,11 +10,31 @@ Anlage aus dem Export des eNet Servers – **kein Gerät muss neu eingelernt wer
 *English: [README.md](README.md)*
 
 > **In Arbeit – erste öffentliche Version.** Die Integration läuft täglich in zwei echten Anlagen, die
-> Dokumentation wird aber noch ergänzt: Fotos des Hardware-Aufbaus fehlen, getestet sind nur die unten genannten
-> Gerätetypen. Rückmeldungen und Issues sind willkommen.
+> Dokumentation wird aber noch ergänzt, und getestet sind nur die unten genannten Gerätetypen. Rückmeldungen und
+> Issues sind willkommen.
 
 > **Unabhängiges Projekt.** Nicht verbunden mit Insta, Gira oder Jung, von ihnen weder unterstützt noch geprüft.
 > Nutzung auf eigene Verantwortung. Siehe [Marken und Herkunft](#marken-und-herkunft).
+
+## Warum den eNet Server ersetzen?
+
+<img src="docs/bilder/tastsensor.jpg" width="300" align="right" alt="Gira System 55 eNet-Tastsensor mit sechs
+Szenentasten">
+
+Ich habe selbst einen eNet Server. Er funktioniert sehr gut und ist mit der
+[eNet-Integration von mnordseth](https://github.com/mnordseth/enet-homeassistant) gut in Home Assistant
+eingebunden. Trotzdem hatte ich drei Hauptgründe:
+
+1. **Der eNet Server ist abgekündigt.** Was passiert, wenn meiner kaputtgeht? Einen Ersatz-Server auf Lager zu
+   legen, war mir zu teuer.
+2. **Die Tastsensoren.** Ich finde die Gira-System-55-Taster sehr schön, wir haben sie überall verbaut. Um
+   Szenen oder spezielle Funktionen aufzurufen, ist der eNet-Tastsensor ideal. Die Anbindung an Home Assistant
+   ist aber unvollständig: Über den Server geht es, doch der Sensor bekommt keine Rückmeldung.
+3. **Zwei parallele Systeme.** Mit eNet und Home Assistant pflegt man beides: Szenen müssen in eNet geändert
+   werden, sobald sie eNet-Komponenten betreffen, und Home-Assistant-Geräte müssen per Automation dazugehängt
+   werden. Ich wollte alle Geräte über Home Assistant konfigurieren und programmieren können.
+
+<br clear="right">
 
 ## Was die Bridge kann
 

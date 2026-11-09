@@ -4,11 +4,31 @@ The bridge is a small radio modem: an **ESP32** development board and a **TI CC1
 868 MHz, connected to the Home Assistant host by **USB**. There is no Wi-Fi connection – deliberately (see
 [Why USB](#why-usb-and-not-wi-fi)). Cost: roughly 25–35 € in parts.
 
+## Components
+
+![ESP32 board and three CC1101 radio modules](bilder/bridge-teile.jpg)
+
+These are the components you need to build the bridge:
+
+- **Bottom:** ESP32 board – AZ-Delivery ESP32 Dev Kit C (ESP32-WROOM-32, CP2102 USB-UART, 38 pins, micro-USB).
+- **Top left and middle:** the cheap green “CC1101 868MHz Module” from Amazon – once with an SMA socket soldered
+  on, once without.
+- **Top right:** the somewhat more expensive Italian module **Radiocontrolli RC-CC1101-SPI-868**, available from
+  TME.
+
+The modules are wired on a prototyping board or soldered to the ESP32 with short wires. If you don’t want to
+solder, take the TME module: it already has pins and can be connected with jumper wires. In principle the Amazon
+modules work too – only their antenna is completely useless (see [below](#cheap-cc1101-868-mhz-modules)).
+
+For a start, a **straight wire of 8.6 cm** is enough as antenna: soldered directly to the RF output, or plugged
+onto the antenna pin of the TME module. A proper antenna with a connection cable is nicer, but then you have to
+solder – see [Housing](#housing).
+
 ## Parts list
 
 | Part | Recommendation | Notes |
 |---|---|---|
-| Microcontroller | ESP32 DevKit with ESP32-WROOM-32 (classic ESP32, “esp32dev”) | Any board with a USB-UART chip (CP2102/CP210x, CH340) works. Not ESP32-S2/S3/C3/C6 – the firmware is built for the classic ESP32. |
+| Microcontroller | ESP32 DevKit with ESP32-WROOM-32 (classic ESP32, “esp32dev”), e.g. AZ-Delivery ESP32 Dev Kit C | Any board with a USB-UART chip (CP2102/CP210x, CH340) works. Not ESP32-S2/S3/C3/C6 – the firmware is built for the classic ESP32. |
 | Radio module | **Radiocontrolli RC-CC1101-SPI-868** (through-hole) | Genuine TI CC1101, matched for 868 MHz, accurate crystal (measured −7 ppm). Available from TME. |
 | Antenna connector | SMA female, panel or PCB mount | Soldered directly to the module’s antenna pin. |
 | Antenna | 868 MHz rubber antenna with SMA, ≈ 2–3 dBi | Alternative: straight wire of 8.6 cm (λ/4) on the antenna pin. |
@@ -75,6 +95,21 @@ side, so **check before soldering: pins 7, 8 and 9 must be connected to each oth
 - No traces and no ground plane under the module; ground around the antenna connection is fine.
 - A rubber antenna was ≈ 10 dB better than a wire on the same connector, and the coil antenna supplied with cheap
   modules ≈ 10 dB worse than a straight 8.6 cm wire.
+
+## Housing
+
+<img src="bilder/bridge-gehaeuse.jpg" width="300" align="right" alt="Bridge in a 3D-printed housing with 868 MHz
+rubber antenna">
+
+With a real antenna and a connection cable the bridge can look like this: a 3D-printed housing with the antenna on
+top and the USB socket at the bottom. Inside it looks wild – the primary fastening material is hot glue.
+The STL files are in [`hardware/gehaeuse/`](../hardware/gehaeuse/).
+
+A better construction may follow, especially once the bridge software runs on the ESP32-C6. Then no USB
+connection to the Home Assistant server is needed any more; the connection is planned via Thread (see
+[Why USB](#why-usb-and-not-wi-fi)). That is still a thing of the future.
+
+<br clear="right">
 
 ## Placement
 
