@@ -194,7 +194,8 @@ class Hub:
         self.param_groups: list[ParamGroup] = []
         for g in self.installation.get("geraete", []):
             d = self.definitions.get(g.get("typ", ""))
-            sensor = g.get("typ") in SENSOR_TYPES or is_measuring_device(g)  # no lamp channels, but parameters
+            # no lamp channels, but parameters
+            sensor = g.get("typ") in SENSOR_TYPES or (g.get("rolle") == "sensor" and is_measuring_device(g))
             if not d or (g.get("rolle") != "aktor" and not sensor):
                 continue
             gp = [Param(p) for p in d.get("geraet", [])]

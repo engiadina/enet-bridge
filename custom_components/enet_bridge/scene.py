@@ -22,8 +22,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
 
 
 def scene_attributes(hub, s: SceneDef) -> dict[str, Any]:
-    names_ = {k.key: (f"{k.enet_device['name']} {k.nr}" if len(k.enet_device.get("kanaele", [])) > 1 else k.enet_device["name"])
-             for k in hub.channels_}
+    lamps = {}  # SN → number of lamp channels (an actuator can also have a measuring channel)
+    for k in hub.channels_:
+        lamps[k.enet_device["sn"]] = lamps.get(k.enet_device["sn"], 0) + 1
+    names_ = {k.key: (f"{k.enet_device['name']} {k.nr}" if lamps[k.enet_device["sn"]] > 1 else k.enet_device["name"])
+              for k in hub.channels_}
     return {"szenen_nr": s.nr, "ga": s.ga, "ga_status": s.ga_status, "art": s.art,
             "mitglieder": [names_.get(m, m) for m in s.members]}
 

@@ -83,7 +83,10 @@ LENGTHS = {"wert1": 1, "wert": 2, "wert4": 4}
 
 
 def is_measuring_device(enet_device: dict[str, Any]) -> bool:
-    return enet_device.get("rolle") == "sensor" and any(k["art"] in MEASUREMENT_KINDS for k in enet_device.get("kanaele", []))
+    """Device with measuring channels: a sensor, or an actuator with an additional measuring channel (sensIQ: motion
+    channel 1 plus switching channel 2)."""
+    return enet_device.get("rolle") in ("sensor", "aktor") \
+        and any(k["art"] in MEASUREMENT_KINDS for k in enet_device.get("kanaele", []))
 
 
 class Measurements:

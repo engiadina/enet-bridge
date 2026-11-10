@@ -329,6 +329,8 @@ def read_iex(path):
         meas_channels = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
         if actuator_channels or keys_:
             role = "aktor" if actuator_channels else "sender"
+            if actuator_channels:  # actuator with a measuring channel (sensIQ: motion + switching)
+                actuator_channels = sorted(actuator_channels + meas_channels, key=lambda k: k["nr"])
         elif meas_channels:
             # energy sensor, motion detector, repeater (measurements.py)
             role, actuator_channels = "sensor", meas_channels

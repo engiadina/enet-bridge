@@ -123,6 +123,10 @@ def _type_data(hub: Hub, typ: str) -> tuple[str, str, list[dict[str, Any]]]:
     channels_ = [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"]}
                for k, art in kinds if art in ("schalten", "dimmen", "jalousie")]
     role = "aktor" if channels_ else ("sender" if any(a in ("wippe", "taste") for _, a in kinds) else "unbekannt")
+    if role == "aktor":  # actuator with a measuring channel (sensIQ: motion + switching)
+        channels_ += [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"]}
+                      for k, art in kinds if art in MEASUREMENT_KINDS]
+        channels_.sort(key=lambda k: k["nr"])
     if role == "unbekannt" and (meas := [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"],
                                            "kanaltyp": k["kanaltyp"]} for k, art in kinds if art in MEASUREMENT_KINDS]):
         role, channels_ = "sensor", meas  # energy sensor, motion detector, repeater (measurements.py)
