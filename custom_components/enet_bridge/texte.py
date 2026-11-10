@@ -218,8 +218,8 @@ TEXTE: dict[str, tuple[str, str]] = {
     "esptool_ende": ("esptool beendet mit {rc}", "esptool exited with {rc}"),
     "chip_nicht_unterstuetzt": ("Für den Chip {chip} gibt es keine Bridge-Firmware (unterstützt: {chips})",
                                 "No bridge firmware for chip {chip} (supported: {chips})"),
-    "keine_bridge_am_port": ("Am Port antwortet keine eNet-Bridge. Installieren überschreibt das angeschlossene ESP32.",
-                             "No eNet bridge answers on the port. Installing overwrites the connected ESP32."),
+    "keine_bridge_am_port": ("Am Port antwortet keine eNet-Bridge. Installieren überschreibt den angeschlossenen ESP (ESP32 oder ESP32-C6).",
+                             "No eNet bridge answers on the port. Installing overwrites the connected ESP (ESP32 or ESP32-C6)."),
     "firmware_fehler": ("Bridge-Firmware: {err}", "Bridge firmware: {err}"),
     # --- Parameter --------------------------------------------------------------------------------------
     "verify_fehler": ("{name}: geschrieben {neu}, gelesen {gelesen}", "{name}: written {neu}, read {gelesen}"),

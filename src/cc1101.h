@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#include "rauschen.h"
+
 class CC1101 {
  public:
   // Register
@@ -39,12 +41,18 @@ class CC1101 {
   void setFreqOffset(int8_t freqOffset);  // FSCTRL0 im Betrieb aendern (IDLE, kalibrieren, RX)
   uint8_t version() { return readStatus(VERSION); }
   uint8_t marcState() { return readStatus(MARCSTATE) & 0x1F; }
-  bool carrierSense();                    // Kanal belegt (GDO2 bzw. PKTSTATUS.CS, Bit 6)
+  // Kanal belegt: RSSI > geschätztes Grundrauschen + 10 dB (rauschen.h); vor den ersten Proben wie bisher
+  // GDO2 bzw. PKTSTATUS.CS (Bit 6, feste Schwelle AGCCTRL1)
+  bool carrierSense();
+  void rauschProbe() { rauschen_.probe(rssiDbm()); }  // im RX regelmäßig aufrufen (loop, ~5 ms)
+  const Rauschen& rauschen() const { return rauschen_; }
+  bool lbtUeberschritten() const { return lbtUeberschritten_; }  // letztes transmit: trotz belegt gesendet
   void dumpRegisters(Print& out);
 
   enum TxResult : uint8_t { TX_OK, TX_BUSY, TX_UNDERFLOW, TX_TIMEOUT, TX_TOO_LONG };
   // Sendet einen fertigen Chip-Strom (Praeambel + Sync + Manchester, siehe knxrf::buildTxChips).
-  // Wartet vorher bis maxWaitMs auf freien Kanal (Carrier Sense an GDO2, ohne GDO2 aus PKTSTATUS).
+  // Wartet vorher bis maxWaitMs auf freien Kanal und sendet danach trotzdem (lbtUeberschritten) – ein
+  // verworfenes Telegramm wäre schlimmer als eine mögliche Kollision. TX_BUSY kommt nicht mehr vor.
   // Danach IDLE -> startRx().
   TxResult transmit(const uint8_t* chips, size_t len, uint16_t maxWaitMs = 30);
 
@@ -60,5 +68,7 @@ class CC1101 {
   void idle();
   uint8_t cs_, gdo0_;
   int8_t gdo2_;
+  Rauschen rauschen_;
+  bool lbtUeberschritten_ = false;
   SPISettings spi_{4000000, MSBFIRST, SPI_MODE0};
 };

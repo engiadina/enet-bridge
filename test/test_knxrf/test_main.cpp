@@ -4,6 +4,7 @@
 
 #include "../../src/knxrf.cpp"
 #include "../../src/knxrf.h"
+#include "../../src/rauschen.h"
 
 void setUp() {}
 void tearDown() {}
@@ -208,6 +209,27 @@ void test_decode_corrects_erasures() {
   TEST_ASSERT_EQUAL(-1, knxrf::decodeFrame(chips, n, false, raw, f));
 }
 
+// Rauschen: Grundrauschen folgt dem unteren Pegel, Telegramme heben es kaum, belegt erst 10 dB darüber
+static void test_rauschen() {
+  Rauschen r;
+  TEST_ASSERT_FALSE(r.belegt(-50));                      // ohne Proben nie belegt
+  uint32_t z = 1;
+  auto zufall = [&z]() { z = z * 1103515245u + 12345u; return (int)((z >> 16) % 9) - 4; };  // ±4 dB
+  for (int i = 0; i < 20000; ++i) r.probe(-104.0f + zufall());
+  TEST_ASSERT_FLOAT_WITHIN(3.0f, -105.5f, r.boden());    // unteres Quantil der Streuung
+  TEST_ASSERT_FALSE(r.belegt(-100));
+  TEST_ASSERT_TRUE(r.belegt(-90));
+  TEST_ASSERT_TRUE(r.anteil() < 0.01f);
+  const float vorher = r.boden();
+  for (int i = 0; i < 20; ++i) TEST_ASSERT_TRUE(r.probe(-55));  // ein Telegramm (~100 ms bei 5 ms je Probe)
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, vorher, r.boden());
+  for (int i = 0; i < 20000; ++i) r.probe(-85.0f + zufall());   // dauerhafter Störer
+  TEST_ASSERT_FALSE(r.belegt(-85));                     // sperrt nach einiger Zeit nicht mehr
+  TEST_ASSERT_TRUE(r.belegt(-60));
+  for (int i = 0; i < 2000; ++i) r.probe(-104.0f + zufall());   // Störer weg: schnell wieder unten
+  TEST_ASSERT_TRUE(r.boden() < -100.0f);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_frame_len);
@@ -218,5 +240,6 @@ int main() {
   RUN_TEST(test_parse_fields);
   RUN_TEST(test_build_server_frames);
   RUN_TEST(test_tx_chips);
+  RUN_TEST(test_rauschen);
   return UNITY_END();
 }

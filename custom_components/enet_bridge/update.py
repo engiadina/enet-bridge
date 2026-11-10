@@ -41,7 +41,8 @@ class BridgeFirmware(EnetEntity, UpdateEntity):
 
     @property
     def installed_version(self) -> str | None:
-        return None if self.hub.keine_bridge else self.hub.bridge.info.get("fw")
+        # Leerer ESP: "0.0.0" statt None – mit None setzt HA den Zustand auf „unbekannt“ und zeigt kein Installieren
+        return "0.0.0" if self.hub.keine_bridge else self.hub.bridge.info.get("fw")
 
     @property
     def latest_version(self) -> str | None:

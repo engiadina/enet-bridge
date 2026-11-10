@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.17";
+static const char* kFwVersion = "0.8.19";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -164,7 +164,7 @@ static bool sendTelegram(const uint8_t* data, size_t len) {
   ledBlitz();
   CC1101::TxResult r = radio.transmit(chips, n);
   if (r == CC1101::TX_OK) ++statTx;
-  if (r == CC1101::TX_BUSY) ++statTxBusy;
+  if (radio.lbtUeberschritten()) ++statTxBusy;  // nach der Wartezeit trotz belegtem Kanal gesendet
   if (!monitor) return r == CC1101::TX_OK;
   char hx[2 * 64 + 1];
   hexStr(data, len < 64 ? len : 64, hx);
@@ -472,6 +472,12 @@ static void diagnose() {
   float rssiMin = 0, rssiMax = -200;
   uint32_t cs = 0, n = 0;
   for (uint32_t t0 = millis(); millis() - t0 < 6000; ++n) {
+    if (radio.syncDetected() || radio.marcState() != 0x0D) {  // Telegramm: AGC eingefroren (AGCCTRL0) → neu
+      radio.startRx();                                        // starten, sonst bleibt RSSI auf dessen Pegel
+      delay(2);
+      --n;
+      continue;
+    }
     float r = radio.rssiDbm();
     if (r > rssiMax) rssiMax = r;
     if (r < rssiMin) rssiMin = r;
@@ -486,6 +492,8 @@ static void diagnose() {
   d["rssi_min"] = rssiMin;
   d["rssi_max"] = rssiMax;
   d["cs_anteil"] = n ? (float)cs / n : 0.0f;
+  d["grundrauschen"] = radio.rauschen().boden();
+  d["schwelle"] = radio.rauschen().schwelle();
   emit(d);
 }
 
@@ -504,6 +512,10 @@ static void printStats(uint32_t id) {
   d["overflow"] = statOverflow;
   d["tx"] = statTx;
   d["tx_busy"] = statTxBusy;
+  if (radio.rauschen().bereit()) {
+    d["noise_dbm"] = roundf(radio.rauschen().boden() * 10) / 10;
+    d["busy_pct"] = roundf(radio.rauschen().anteil() * 1000) / 10;
+  }
   d["uptime_s"] = millis() / 1000;
   emit(d);
 }
@@ -940,9 +952,16 @@ void loop() {
   if (radioOk) {
     if (radio.syncDetected()) {
       receiveFrame();
-    } else if (radio.marcState() == 0x11) {  // RX_OVERFLOW
-      ++statOverflow;
-      radio.startRx();
+    } else {
+      static uint32_t tRausch = 0;
+      const uint8_t marc = radio.marcState();
+      if (marc == 0x11) {  // RX_OVERFLOW
+        ++statOverflow;
+        radio.startRx();
+      } else if (marc == 0x0D && now - tRausch >= 5) {  // RX: Grundrauschen für Listen-before-talk
+        tRausch = now;
+        radio.rauschProbe();
+      }
     }
   }
   if (radioOk && cfgValid) server.tick(now);

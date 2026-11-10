@@ -146,7 +146,10 @@ uint8_t CC1101::rxBytes() {
   return a & 0x7F;
 }
 
-bool CC1101::carrierSense() { return gdo2_ >= 0 ? digitalRead(gdo2_) : (readStatus(PKTSTATUS) & 0x40); }
+bool CC1101::carrierSense() {
+  if (rauschen_.bereit()) return rauschen_.belegt(rssiDbm());
+  return gdo2_ >= 0 ? digitalRead(gdo2_) : (readStatus(PKTSTATUS) & 0x40);
+}
 
 bool CC1101::rxOverflow() { return readStatus(RXBYTES) & 0x80; }
 
@@ -179,8 +182,12 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
 
   // Listen before talk: im RX auf freien Kanal warten
   uint32_t t0 = millis();
+  lbtUeberschritten_ = false;
   while (carrierSense()) {
-    if (millis() - t0 >= maxWaitMs) return TX_BUSY;
+    if (millis() - t0 >= maxWaitMs) {
+      lbtUeberschritten_ = true;
+      break;
+    }
     delayMicroseconds(500);
   }
 

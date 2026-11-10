@@ -7,6 +7,7 @@ Bezüge zwischen Geräten, Tasten und Telegrammen lesbar bleiben.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import dataclasses
 import re
@@ -17,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
 from . import EnetConfigEntry
+from .bridge import BridgeError
 from .const import DOMAIN
 
 NAMENS_SCHLUESSEL = {"name", "raum", "szene", "titel"}
@@ -103,6 +105,28 @@ def _seriennummern(obj: Any, anonym: _Anonym) -> None:
             _seriennummern(v, anonym)
 
 
+async def _rauschen(hub) -> dict[str, Any] | None:
+    """Grundrauschen messen (Firmware-Befehl diag: 6 s RSSI min/max und Anteil Carrier Sense; Empfang so lange aus)."""
+    if not hub.bridge.connected or hub.keine_bridge:
+        return None
+    fertig = asyncio.get_running_loop().create_future()
+
+    def warten(msg: dict[str, Any]) -> None:
+        if msg.get("ev") == "diag" and not fertig.done():
+            fertig.set_result(msg)
+
+    abmelden = hub.bridge.add_listener(warten)
+    try:
+        await hub.bridge.command("diag")
+        ergebnis = dict(await asyncio.wait_for(fertig, 10.0))
+    except (BridgeError, asyncio.TimeoutError) as err:
+        return {"fehler": str(err) or type(err).__name__}
+    finally:
+        abmelden()
+    ergebnis.pop("ev", None)
+    return ergebnis
+
+
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: EnetConfigEntry) -> dict[str, Any]:
     hub = entry.runtime_data
     anlage = copy.deepcopy(hub.anlage)
@@ -125,6 +149,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: EnetCon
         "pruefung": {"fehlende_links": _daten(hub.pruefung.fehlende_links)},
         "zustand": _daten(hub.zustand),
         "funk": _daten(hub.diag),
+        "rauschen": await _rauschen(hub),
         "parameter": copy.deepcopy(hub.params.werte),
         "sensoren": {"helligkeit": dict(hub.helligkeit), "aktiv": dict(hub.sensor_aktiv),
                      "batterie_schwach": dict(hub.batterie_schwach)},

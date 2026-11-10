@@ -163,7 +163,10 @@ class Frequenzkorrektur(EnetEntity, SensorEntity):
         r, s = self.hub.radio, self.hub.bridge.info.get("stats", {})
         return {"fsctrl0": r.get("freq_offset"), "kalibriert": r.get("calibrated"),
                 "abweichung_schritte": r.get("freqest"), "telegramme": r.get("freqest_n"),
-                "empfangen": s.get("rx_ok"), "crc_fehler": s.get("crc_error"), "unlesbar": s.get("invalid")}
+                "empfangen": s.get("rx_ok"), "crc_fehler": s.get("crc_error"), "unlesbar": s.get("invalid"),
+                # ab Firmware 0.8.18: Grundrauschen (dBm), Anteil „Kanal belegt“ (%), trotz belegt gesendet
+                "grundrauschen": s.get("noise_dbm"), "kanal_belegt_prozent": s.get("busy_pct"),
+                "gesendet_trotz_belegt": s.get("tx_busy")}
 
 
 class Programmierung(EnetEntity, SensorEntity):
