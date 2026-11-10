@@ -163,9 +163,10 @@ Server-Tasten werden weiter beantwortet).
 |---|---|---|
 | `switch` | `ia`, `ch`, `on` | GO 2 = 01/00 |
 | `dim` | `ia`, `ch`, `percent` | GO 4 = floor(p·255/100); 0 % schaltet aus |
+| `cover` | `ia`, `ch`, `action` (`up`, `down`, `stop`, `step_up`, `step_down`, `position`, `slat`) [, `percent`] | Jalousie (ab 0.8.20, ungetestet): GO 2 Auf/Ab, GO 3 Schritt, GO 4 Stopp, GO 5 Position, GO 6 Lamelle (0 % = oben bzw. offen) |
 | `set` | `ia`, `handle`, `value` (hex 1–4 Byte) | beliebiges GO-Handle (FuncPropCmd obj 0 PID 62) |
 | `read` | `ia`, `handle` | FuncPropStateRead; `result.value` = Wert |
-| `poll` | `ia`, `ch` | Status jetzt lesen (GO 20, bei Dimmern GO 21) → `state` |
+| `poll` | `ia`, `ch` | Status jetzt lesen (GO 20, bei Dimmern GO 21, bei Jalousien GO 13 und 12) → `state` |
 | `state` | `ia`, `ch` (optional) | **ohne Funk:** `state`-Ereignisse aus der Tabelle (`source:"cache"`), Antwort mit `count` |
 | `scene` | `nr` | lokale Szene ausführen; Einzel-`result` je Aktion entfällt, Abschluss `scene_done` + `result` |
 
@@ -211,8 +212,8 @@ Zeitstempel kommen aus der ESP-Uhr; ohne gesetzte Uhr lehnt der ESP `param_write
 | `ev` | Felder | Auslöser |
 |---|---|---|
 | `start` | `fw`, `proto`, `radio` {`ok`,`version`}, `server` {`on`}, `config` {`crc`}, `reset_reason` | jeder Start; Host synchronisiert neu |
-| `key` | `sn`, `ga`, `kind`, `cmd` (hex), `press`, `code` / `hold_ms` / `richtung`, `seq`, `reply_sn`, `reply_ga`, `answered`, `scene` (Nr. oder −1), `battery` (`ok`/`weak`, ab FW 0.8.8), `rssi` | jeder Tastendruck; `kind` `server`/`direkt`/`wert` (2 Byte, auch Helligkeit des Sonnensensors) /`wert1` (1 Byte unter Sender-SN, z. B. Szenentelegramm des Sonnensensors, `cmd` 2-stellig, ab FW 0.8.9) |
-| `state` | `ia`, `ch`, `on`, `percent`, `source` | Änderung (Statusmeldung des Aktors), jede Abfrage (`source:"poll"`, auch unverändert, ab 0.7.1) oder Anfrage (`cache`) |
+| `key` | `sn`, `ga`, `kind`, `cmd` (hex), `press`, `code` / `hold_ms` / `richtung`, `seq`, `reply_sn`, `reply_ga`, `answered`, `scene` (Nr. oder −1), `battery` (`ok`/`weak`, ab FW 0.8.8), `rssi` | jeder Tastendruck; `kind` `server`/`direkt`/`wert` (2 Byte, auch Helligkeit des Sonnensensors) /`wert1` (1 Byte unter Sender-SN, z. B. Szenentelegramm des Sonnensensors, `cmd` 2-stellig, ab FW 0.8.9) /`wert4` (4 Byte unter Sender-SN, z. B. Leistung/Energie des Energiesensors, `cmd` 8-stellig, ab FW 0.8.21) |
+| `state` | `ia`, `ch`, `on`, `percent`, `source` [, Jalousie: `kind`:"blind", `slat`, `move`] | Änderung (Statusmeldung des Aktors), jede Abfrage (`source:"poll"`, auch unverändert, ab 0.7.1) oder Anfrage (`cache`) |
 | `result` | `id`, `ok`, `err`, `msg`, weitere je Befehl | Abschluss eines F/P-Befehls |
 | `scene_done` | `nr`, `failed`, `id` (falls per Befehl) | lokale Szene fertig |
 | `config` | `ok`, `crc`, `channels`, `scenes`, `keys`, `err` | nach `config … last` |
@@ -314,7 +315,7 @@ wird nur gemeldet, nie selbst abgeschaltet (0.8.2) – eine Fehlerkennung darf d
 ## 11. Abbildung in Home Assistant
 
 - Ein eNet-Gerät = ein HA-Gerät (Name, Raum, Typ, SN, Firmware), Bridge = eigenes Gerät.
-- Entitäten: Schaltkanal → `switch`/`light`; Dimmkanal → `light` (Helligkeit); Sender-Kanal → `event`
+- Entitäten: Schaltkanal → `switch`/`light`; Dimmkanal → `light` (Helligkeit); Jalousiekanal → `cover`; Sender-Kanal → `event`
   (`gedrückt`, `losgelassen`, `lang`); Parameter → `number`/`select`/`switch` (Kategorie Konfiguration);
   Diagnose → `sensor` (RSSI, letzte Meldung, GA-Basis).
 - Bridge-Entitäten: Server-Funktionen (`switch`), echter Server erkannt (`binary_sensor`), Funkmodul

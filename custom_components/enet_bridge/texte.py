@@ -175,6 +175,7 @@ TEXTE: dict[str, tuple[str, str]] = {
                                "{namen}"),
     # --- Konfigurieren-Dialoge -------------------------------------------------------------------------
     "unbekannt": ("unbekannt", "unknown"),
+    "ungetestet_zusatz": ("{modell} (ungetestet)", "{modell} (untested)"),
     "folge_sender_wecken": ("- Sender: nach „Absenden“ eine Taste am Sender drücken (aufwecken)",
                             "- Transmitter: after “Submit” press a button on the transmitter (wake it up)"),
     "folge_links_geloescht": ("- Verknüpfungen in den Aktoren werden gelöscht: {liste}",

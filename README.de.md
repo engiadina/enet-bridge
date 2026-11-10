@@ -95,9 +95,20 @@ Getestet in zwei Anlagen:
 | Sender | Wandsender 3fach (WS3BG), Handsender 4fach (HS4) |
 | Sensoren | Sonnen-/Dämmerungssensor (SF1S, Jung FM FS 1 S) |
 
-Die Integration enthält Gerätedefinitionen für alle 41 eNet-Gerätetypen des Herstellerkatalogs, getestet sind
-aber nur die obigen. **Noch nicht unterstützt:** Jalousieaktoren, REG-Module, Bewegungsmelder, Energiesensoren.
-Verschlüsselte Anlagen (eNet Server 2.0 mit AES) werden nicht unterstützt.
+**Aus dem Herstellerkatalog umgesetzt, am Gerät noch nicht getestet** – in Home Assistant mit „(ungetestet)“
+im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten als Issue mit der Datei aus
+„Diagnosedaten herunterladen“):
+
+| Art | Geräte | In Home Assistant |
+|---|---|---|
+| Jalousieaktoren | Mini (5427 00), REG 1fach (5437 00) und 4fach (5435 00), System-2000-Aufsatz (5491) | Rollladen: Auf/Ab/Stopp, Position, Lamelle |
+| Energiesensoren | Mini (5471 00), Zwischenstecker (5472 02), REG 4fach (5473 00) | Spannung, Strom, Wirk-/Blind-/Scheinleistung, Energie (Energie-Dashboard) |
+| Bewegungsmelder | Jung FMDW360WW | Bewegung, Helligkeit |
+| Repeater | Zwischenstecker (5321 02) | Signal, letzte Meldung |
+| REG-Schalt-/Dimmmodule | 5430 00, 5431 00, 5433 00 | wie die Mini-Aktoren |
+
+Gerätedefinitionen (Parameter) für alle 41 eNet-Gerätetypen des Katalogs sind enthalten. Verschlüsselte Anlagen
+(eNet Server 2.0 mit AES) werden nicht unterstützt.
 
 ## Hardware
 

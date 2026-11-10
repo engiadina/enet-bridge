@@ -555,6 +555,75 @@ void test_real_server_reported() {
   TEST_ASSERT_EQUAL(1, io.tx.size());  // Taste wird weiter beantwortet
 }
 
+// Jalousie (Katalog, ungetestet am Gerät): Meldungen GO10/11/12/13, gestufte Abfragen nach einem Befehl
+static const uint8_t kJal[6] = {0x00, 0x0A, 0x54, 0x27, 0x00, 0x18};
+static enet::Config jalousieConfig() {
+  enet::Config c = testanlageConfig();
+  c.channels[4] = {0x0020, {}, 0, false, 2, 1, 3, true};
+  memcpy(c.channels[4].sn, kJal, 6);
+  c.nChannels = 5;
+  return c;
+}
+
+void test_blind_config_and_states() {
+  uint8_t blob[512];
+  enet::Config c = jalousieConfig(), r;
+  size_t n = enet::serializeConfig(c, blob, sizeof(blob));
+  TEST_ASSERT_TRUE(enet::parseConfig(blob, n, r));
+  TEST_ASSERT_TRUE(r.channels[4].blind);
+  TEST_ASSERT_FALSE(r.channels[4].dimmer);
+  TEST_ASSERT_FALSE(r.channels[2].blind);
+  FakeIo io;
+  enet::Server s(io);
+  s.setConfig(c);
+  feed(s, "1244ff02000a54270018000020020ca2008080", 0);  // GO12 Position 0x80 → 50 %
+  TEST_ASSERT_EQUAL(50, s.state(4).percent);
+  TEST_ASSERT_TRUE(s.state(4).on);
+  feed(s, "1144ff02000a54270018000020020aa20083", 0);  // GO10 Kurzwert 3: fährt ab
+  TEST_ASSERT_EQUAL(3, s.state(4).move);
+  feed(s, "1244ff02000a54270018000020020da20080ff", 0);  // GO13 Lamelle 100 %
+  TEST_ASSERT_EQUAL(100, s.state(4).slat);
+  feed(s, "1444ff02000a54270018000020020ba20080e4ffff", 0);  // GO11 Sammelstatus: 100 %
+  TEST_ASSERT_EQUAL(100, s.state(4).percent);
+  TEST_ASSERT_EQUAL(4, io.states.size());
+  TEST_ASSERT_EQUAL(0, io.keys.size());  // keine Tastenereignisse aus den 1-Byte-Meldungen
+  feed(s, "1244ff02000a54270018000020020ca2008000", 0);  // ganz oben
+  TEST_ASSERT_FALSE(s.state(4).on);
+  // gleiche GA, anderer Absender: Sonnensensor-Szene (VALUE1), kein Jalousiezustand
+  feed(s, "1244ff02000a4567891700001e020ca2008005", 0);
+  TEST_ASSERT_EQUAL(1, io.keys.size());
+}
+
+void test_blind_poll_stages() {
+  FakeIo io;
+  enet::Server s(io);
+  s.setConfig(jalousieConfig());
+  const uint8_t down = 1;
+  s.queueSet(0x0020, enet::kGoBlindMove, &down, 1);
+  s.tick(0);
+  feed(s, "1444ff02000a123456000000207fff6902c9003e00", 40);  // Quittung
+  TEST_ASSERT_TRUE(s.state(4).pollPending);
+  TEST_ASSERT_EQUAL_UINT32(8040, s.state(4).pollAt);
+  s.tick(8040);  // erste Abfrage (GO 12 und 13), nächste Stufe geplant
+  TEST_ASSERT_TRUE(s.state(4).pollPending);
+  TEST_ASSERT_EQUAL_UINT32(25040, s.state(4).pollAt);
+  TEST_ASSERT_EQUAL_STRING("1544ff02000a12345600007fff00206102c8003e000c", io.tx[1].c_str());
+  feed(s, kStylosInfoEin, 9000);  // Meldung eines anderen Kanals ändert nichts an der Jalousie-Abfrage
+  TEST_ASSERT_TRUE(s.state(4).pollPending);
+}
+
+// Energiesensor: 4-Byte-Wert (z. B. Wirkleistung DPT 14) als VALUE4 mit GA und Wert
+void test_value4() {
+  FakeIo io;
+  enet::Server s(io);
+  s.setConfig(testanlageConfig());
+  feed(s, "1544ff02000a547100000000210105a2008042c80000", 0);
+  TEST_ASSERT_EQUAL(1, io.keys.size());
+  TEST_ASSERT_EQUAL((int)enet::KeyKind::VALUE4, (int)io.keys[0].kind);
+  TEST_ASSERT_EQUAL_HEX32(0x42C80000, io.keys[0].value32);  // 100.0 W
+  TEST_ASSERT_EQUAL_HEX16(0x0105, io.keys[0].ga);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_config_roundtrip);
@@ -575,5 +644,8 @@ int main() {
   RUN_TEST(test_link_table);
   RUN_TEST(test_scene_call_group);
   RUN_TEST(test_scene_with_group_action);
+  RUN_TEST(test_blind_config_and_states);
+  RUN_TEST(test_blind_poll_stages);
+  RUN_TEST(test_value4);
   return UNITY_END();
 }

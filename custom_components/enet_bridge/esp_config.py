@@ -14,7 +14,9 @@ try:
 except ImportError:  # tools/server_cfg.py lädt das Modul ohne Paket
     from texte import tr
 
-TEIL_HEX = 400  # Hex-Zeichen je config-Befehl (Zeile < 512 Byte)
+TEIL_HEX = 400
+# Kanal-Flags im Blob (src/server.h): Bit 0 Dimmer, Bit 1 Jalousie (ab Firmware 0.8.20)
+FLAGS = {"schalten": 0, "dimmen": 1, "jalousie": 2}  # Hex-Zeichen je config-Befehl (Zeile < 512 Byte)
 
 
 def crc16(data: bytes) -> int:
@@ -39,10 +41,10 @@ def build(anlage: dict[str, Any], esp: dict[str, Any] | None = None):
     channels = []
     for d in anlage["geraete"]:
         for k in d["kanaele"]:
-            if k["art"] not in ("schalten", "dimmen"):  # z. B. Jalousie: in der Bridge (noch) nicht umgesetzt
+            if k["art"] not in FLAGS:
                 continue
             channels.append((ia_int(d["ia"]), d["sn"], k["nr"], k["offset"], k.get("obj", 2 + k["nr"]),
-                             k["art"] == "dimmen", d.get("ga_basis", 0)))
+                             FLAGS[k["art"]], d.get("ga_basis", 0)))
     scene_names = list(esp.get("szenen", {}))
     actions, scenes = [], []
     for name in scene_names:
@@ -57,8 +59,8 @@ def build(anlage: dict[str, Any], esp: dict[str, Any] | None = None):
 
     b = bytearray(b"E\x03") + bytes.fromhex(srv["domain"]) + bytes.fromhex(srv["sn"])
     b += ia_int(srv["ia"]).to_bytes(2, "big") + bytes([len(channels), len(actions), len(scenes), len(keys)])
-    for ia, sn, ch, off, obj, dim, base in channels:
-        b += ia.to_bytes(2, "big") + bytes.fromhex(sn) + bytes([ch, off, obj, 1 if dim else 0, base])
+    for ia, sn, ch, off, obj, flags, base in channels:
+        b += ia.to_bytes(2, "big") + bytes.fromhex(sn) + bytes([ch, off, obj, flags, base])
     for ia, h, v in actions:
         if not 1 <= len(v) <= 4:
             raise ValueError(tr("wert_laenge", wert=v.hex()))

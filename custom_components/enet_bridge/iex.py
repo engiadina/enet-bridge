@@ -60,6 +60,7 @@ AKTIONEN = {
 # Kanaltypen -> Art. Aktoren: "schalten" (GO 2 Ein/Aus, GO 20 Status), "dimmen" (+ GO 4 Wert, GO 21),
 # "jalousie" (ungetestet). Sender: "taste" (Einzeltaste, sendet an Offset + 6), "wippe" (Offset + 2/3).
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
+                 "CT_1F19": "energie", "CT_1F1B": "bewegung", "CT_1F06": "repeater",
                  "CT_1F11": "wippe", "CT_1F13": "taste", "CT_1F13BLED": "taste"}
 
 # Eigene Gerätedefinitionen: Typ -> (Beschreibung, Rolle, Kanäle [(Art, GO-Offset)])
@@ -313,8 +314,11 @@ def read_iex(path):
         exp = sorted(chans_by_dev.get(idx, []), key=lambda k: k["nr"])
         aktor_k = [k for k in exp if k["art"] in ("schalten", "dimmen", "jalousie")]
         tasten = [k for k in exp if k["art"] in ("taste", "wippe")]
+        mess_k = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
         if aktor_k or tasten:
             role = "aktor" if aktor_k else "sender"
+        elif mess_k:
+            role, aktor_k = "sensor", mess_k  # Energiesensor, Bewegungsmelder, Repeater (messung.py)
         devices.append({
             "name": dev["installationArea"] or typ,
             "ia": ia_str(m["address"]),

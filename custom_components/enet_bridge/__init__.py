@@ -27,7 +27,7 @@ from . import texte
 from .iex import produkt_kennung
 from .params import lade_definitionen
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.EVENT, Platform.LIGHT, Platform.NUMBER,
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.COVER, Platform.EVENT, Platform.LIGHT, Platform.NUMBER,
              Platform.SCENE, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.UPDATE]
 
 _LOGGER = logging.getLogger(__name__)
@@ -368,7 +368,7 @@ def kanal_info(hub: Hub, kanal) -> dr.DeviceInfo:
     """HA-Gerät für einen Kanal: bei einkanaligen Aktoren das Gerät selbst, sonst ein Child-Gerät „Kanal n“ des
     Aktors, damit jeder Kanal in der Bedienung als eigenständige Lampe erscheint."""
     g = kanal.geraet
-    if sum(1 for k in hub.kanaele if k.geraet is g) == 1:
+    if sum(1 for k in hub.alle_kanaele if k.geraet is g) == 1:
         return geraet_info(hub, g)
     return _teil_info(hub, g, f"{g['sn']}_{kanal.nr}", f"Kanal {kanal.nr}")
 

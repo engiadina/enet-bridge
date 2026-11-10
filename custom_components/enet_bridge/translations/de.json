@@ -87,6 +87,9 @@
       },
       "daemmerung": {
         "name": "Dämmerung"
+      },
+      "bewegung": {
+        "name": "Bewegung"
       }
     },
     "event": {
@@ -178,6 +181,24 @@
       },
       "helligkeit": {
         "name": "Helligkeit"
+      },
+      "spannung": {
+        "name": "Spannung"
+      },
+      "strom": {
+        "name": "Strom"
+      },
+      "wirkleistung": {
+        "name": "Wirkleistung"
+      },
+      "blindleistung": {
+        "name": "Blindleistung"
+      },
+      "scheinleistung": {
+        "name": "Scheinleistung"
+      },
+      "energie": {
+        "name": "Energie"
       }
     },
     "update": {

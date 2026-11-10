@@ -15,5 +15,6 @@ PROTO_VERSION = 1
 # Kanalarten aus anlage.json (tools/iex.py)
 ART_SCHALTEN = "schalten"
 ART_DIMMEN = "dimmen"
+ART_JALOUSIE = "jalousie"
 ART_TASTE = "taste"
 ART_WIPPE = "wippe"

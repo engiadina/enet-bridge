@@ -64,7 +64,9 @@ bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
     ch.ch = r.u8();
     ch.offset = r.u8();
     ch.obj = r.u8();
-    ch.dimmer = r.u8() & 1;
+    const uint8_t flags = r.u8();
+    ch.dimmer = flags & 1;
+    ch.blind = flags & 2;
     ch.gaBase = r.u8();
   }
   for (uint8_t i = 0; i < n.nActions; ++i) {
@@ -110,7 +112,7 @@ size_t serializeConfig(const Config& c, uint8_t* out, size_t cap) {
     w.u8(ch.ch);
     w.u8(ch.offset);
     w.u8(ch.obj);
-    w.u8(ch.dimmer ? 1 : 0);
+    w.u8((ch.dimmer ? 1 : 0) | (ch.blind ? 2 : 0));
     w.u8(ch.gaBase);
   }
   for (uint8_t i = 0; i < c.nActions; ++i) {
@@ -146,7 +148,7 @@ void Server::setConfig(const Config& c) {
 int Server::channelIndex(uint16_t ia, uint16_t handle) const {
   for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
     const Channel& ch = cfg_.channels[i];
-    if (ch.ia == ia && handle >= ch.offset && handle < ch.offset + 26) return i;
+    if (ch.ia == ia && handle >= ch.offset && handle < ch.offset + (ch.blind ? kSpanBlind : kSpanLight)) return i;
   }
   return -1;
 }
@@ -336,8 +338,14 @@ void Server::finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t
   if (ci >= 0 && ok) {
     const Channel& ch = cfg_.channels[ci];
     if (!cur_.read) {
-      st_[ci].pollPending = true;  // Status abfragen, falls der Aktor sich nicht selbst meldet
-      st_[ci].pollAt = now + kPollDelayMs;
+      st_[ci].cmdAt = now;
+      st_[ci].pollStage = 0;
+      schedulePoll(ci, now);  // Status abfragen, falls der Aktor sich nicht selbst meldet
+    } else if (ch.blind) {
+      if (len >= 1 && cur_.handle == ch.offset + kGoBlindPosNow)
+        updateBlind(ci, val[0] * 100 / 255, -1, -1, Source::POLL);
+      else if (len >= 1 && cur_.handle == ch.offset + kGoBlindSlatNow)
+        updateBlind(ci, -1, val[0] * 100 / 255, -1, Source::POLL);
     } else if (len >= 1 && cur_.handle == ch.offset + kGoStatus) {
       updateState(ci, true, val[0] != 0, false, 0, Source::POLL);
     } else if (len >= 1 && cur_.handle == ch.offset + kGoStatusValue) {
@@ -368,6 +376,36 @@ void Server::updateState(int ci, bool setOn, bool on, bool setPercent, uint8_t p
   // Abfragen immer melden: der Host setzt nach Befehlen vorläufig den Sollzustand, die Tabelle hier nicht –
   // ein ausgeführter, aber abweichender Zustand (z. B. Szene, verlorene Statusmeldung) würde sonst nie korrigiert
   if (changed || src == Source::POLL) io_.onState(cfg_.channels[ci], s, src);
+}
+
+void Server::updateBlind(int ci, int percent, int slat, int move, Source src) {
+  ChannelState& s = st_[ci];
+  bool changed = !s.known;
+  if (percent >= 0 && s.percent != percent) changed = true;
+  if (slat >= 0 && s.slat != slat) changed = true;
+  if (move >= 0 && s.move != move) changed = true;
+  if (percent >= 0) s.percent = (uint8_t)percent;
+  if (slat >= 0) s.slat = (uint8_t)slat;
+  if (move >= 0) s.move = (uint8_t)move;
+  s.on = s.percent > 0;  // „nicht ganz oben“
+  s.known = true;
+  if (changed || src == Source::POLL) io_.onState(cfg_.channels[ci], s, src);
+}
+
+// Abfrage planen: Licht einmal nach kPollDelayMs, Jalousie in Stufen (kBlindPollMs ab dem Befehl)
+void Server::schedulePoll(int ci, uint32_t now) {
+  ChannelState& s = st_[ci];
+  if (!cfg_.channels[ci].blind) {
+    s.pollPending = true;
+    s.pollAt = now + kPollDelayMs;
+    return;
+  }
+  if (s.pollStage >= kBlindPolls) {
+    s.pollPending = false;
+    return;
+  }
+  s.pollPending = true;
+  s.pollAt = s.cmdAt + kBlindPollMs[s.pollStage++];
 }
 
 void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
@@ -461,6 +499,30 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
+  // Jalousie: 1-Byte-Meldung unter eigener SN an Basis * 256 + Offset + 10/12/13 (Fahrinfo, Position, Lamelle)
+  // (Fahrinfo 2 Bit: als Kurzwert im APCI oder als eigenes Byte)
+  if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE) {
+    for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
+      const Channel& ch = cfg_.channels[i];
+      if (!ch.blind || memcmp(ch.sn, t.addr, 6) != 0) continue;
+      const uint8_t go = (uint8_t)((t.dst & 0xFF) - ch.offset);
+      const uint8_t v = t.dataLen ? t.data[0] : (uint8_t)(t.apci & 0x3F);
+      if (go == kGoBlindInfo) return updateBlind(i, -1, -1, v & 3, Source::STATUS_MSG);
+      if (go == kGoBlindPosNow && t.dataLen == 1) return updateBlind(i, v * 100 / 255, -1, -1, Source::STATUS_MSG);
+      if (go == kGoBlindSlatNow && t.dataLen == 1) return updateBlind(i, -1, v * 100 / 255, -1, Source::STATUS_MSG);
+      if (go == kGoBlindSumstatus && t.dataLen == 3)
+        return updateBlind(i, t.data[0] & 0x7F, -1, -1, Source::STATUS_MSG);
+    }
+  }
+
+  // 4-Byte-Gruppenwert unter Sender-SN (Energiesensor: Leistung, Energie)
+  if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 4) {
+    KeyEvent e{t.addr, t.dst, KeyKind::VALUE4, 0, {}, -1, false, false, false, t.rfInfo,
+               (uint32_t)t.data[0] << 24 | (uint32_t)t.data[1] << 16 | (uint32_t)t.data[2] << 8 | t.data[3]};
+    io_.onKey(e);
+    return;
+  }
+
   // 1-Byte-Gruppenwert unter Sender-SN: Szenenaufruf des Sonnensensors (DPT 18, z. B. GA Basis*256+3 bzw. +7)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 1) {
     KeyEvent e{t.addr, t.dst, KeyKind::VALUE1, t.data[0], {}, -1, false, false, false, t.rfInfo};
@@ -474,7 +536,7 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 3) {
     for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
       const Channel& ch = cfg_.channels[i];
-      if ((t.dst & 0xFF) == ((ch.offset + kGoSumstatusInfo) & 0xFF) && memcmp(ch.sn, t.addr, 6) == 0) {
+      if (!ch.blind && (t.dst & 0xFF) == ((ch.offset + kGoSumstatusInfo) & 0xFF) && memcmp(ch.sn, t.addr, 6) == 0) {
         st_[i].pollPending = false;
         updateState(i, true, (t.data[0] & 0x80) != 0, true, t.data[0] & 0x7F, Source::STATUS_MSG);
       }
@@ -488,6 +550,12 @@ void Server::tick(uint32_t now) {
     if (s.pollPending && reached(now, s.pollAt)) {
       s.pollPending = false;
       const Channel& ch = cfg_.channels[i];
+      if (ch.blind) {
+        queueRead(ch.ia, ch.offset + kGoBlindPosNow, Origin::POLL);
+        queueRead(ch.ia, ch.offset + kGoBlindSlatNow, Origin::POLL);
+        schedulePoll(i, now);  // nächste Stufe
+        continue;
+      }
       queueRead(ch.ia, ch.offset + kGoStatus, Origin::POLL);
       if (ch.dimmer) queueRead(ch.ia, ch.offset + kGoStatusValue, Origin::POLL);
     }

@@ -149,6 +149,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: EnetCon
         "pruefung": {"fehlende_links": _daten(hub.pruefung.fehlende_links)},
         "zustand": _daten(hub.zustand),
         "funk": _daten(hub.diag),
+        "messung": hub.messung.diagnose(),
         "rauschen": await _rauschen(hub),
         "parameter": copy.deepcopy(hub.params.werte),
         "sensoren": {"helligkeit": dict(hub.helligkeit), "aktiv": dict(hub.sensor_aktiv),

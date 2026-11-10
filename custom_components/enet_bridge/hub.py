@@ -23,11 +23,12 @@ from homeassistant.util import dt as dt_util
 
 from . import esp_config, firmware
 from .bridge import Bridge, BridgeError, fremdes_funkmodul
-from .const import ART_DIMMEN, ART_SCHALTEN, ART_TASTE, ART_WIPPE, DOMAIN, SENSOR_TYPEN
+from .const import ART_DIMMEN, ART_JALOUSIE, ART_SCHALTEN, ART_TASTE, ART_WIPPE, DOMAIN, SENSOR_TYPEN
 from .anlage import AnlageSpeicher
 from .params import Param, ParamSpeicher, dpt9_dekodiere
 from .ha_szenen import HaSzenen
 from .ha_wippe import HaWippe
+from .messung import UNGETESTET, Messung, ist_messgeraet
 from .pruefung import Pruefung
 from .szenen import SzenenVerwaltung
 from .texte import deutsch, tr
@@ -130,7 +131,9 @@ class Diagnose:
 @dataclass
 class Zustand:
     on: bool = False
-    percent: int = 0
+    percent: int = 0  # Jalousie: Position wie im Aktor (0 % = oben)
+    lamelle: int | None = None  # nur Jalousie
+    bewegung: int | None = None  # nur Jalousie: Fahrinfo 0 steht oben, 1 steht unten, 2 fährt auf, 3 fährt ab
     known: bool = False
     gemeldet: float = 0.0  # time.monotonic() der letzten Meldung, die keine Antwort auf eine Statusabfrage war
 
@@ -141,7 +144,8 @@ class Hub:
     entry_id: str
     bridge: Bridge
     anlage: dict[str, Any]
-    kanaele: list[Kanal] = field(default_factory=list)
+    kanaele: list[Kanal] = field(default_factory=list)  # Lampen (Schalten, Dimmen)
+    jalousien: list[Kanal] = field(default_factory=list)
     tasten: list[Taste] = field(default_factory=list)
     zustand: dict[str, Zustand] = field(default_factory=dict)
     definitionen: dict[str, Any] = field(default_factory=dict)
@@ -164,10 +168,13 @@ class Hub:
             for k in g.get("kanaele", []):
                 if k["art"] in (ART_SCHALTEN, ART_DIMMEN):
                     self.kanaele.append(Kanal(g, k["nr"], k["art"]))
+                elif k["art"] == ART_JALOUSIE:
+                    self.jalousien.append(Kanal(g, k["nr"], k["art"]))
             for t in g.get("tasten", []):
                 if t["art"] in GA_SPAN:
                     self.tasten.append(Taste(g, t["nr"], t["art"], t["offset"]))
-        self.zustand = {k.key: Zustand() for k in self.kanaele}
+        self.zustand = {k.key: Zustand() for k in self.alle_kanaele}
+        self.messung = Messung(self)
         self.diag: dict[str, Diagnose] = {}
         self.helligkeit: dict[str, float] = {}  # Sonnensensor-SN → Helligkeit in Lux (Wert-Telegramm, DPT 9.004)
         self.sensor_aktiv: dict[str, bool] = {}  # „SN/Kanal“ → Sonnenschutz bzw. Dämmerung aktiv (Szenentelegramm)
@@ -178,7 +185,7 @@ class Hub:
         self.param_gruppen: list[ParamGruppe] = []
         for g in self.anlage.get("geraete", []):
             d = self.definitionen.get(g.get("typ", ""))
-            sensor = g.get("typ") in SENSOR_TYPEN  # Sonnensensor: Kanäle ohne Lampe, Parameter trotzdem
+            sensor = g.get("typ") in SENSOR_TYPEN or ist_messgeraet(g)  # Kanäle ohne Lampe, Parameter trotzdem
             if not d or (g.get("rolle") != "aktor" and not sensor):
                 continue
             gp = [Param(p) for p in d.get("geraet", [])]
@@ -186,7 +193,7 @@ class Hub:
                 self.param_gruppen.append(ParamGruppe(g, None, gp, d["geraet_obj"]))
             for k in d.get("kanaele", []):
                 kp = [p for p in map(Param, k["parameter"]) if p.nutzbar]
-                if kp and (sensor or any(c.geraet is g and c.nr == k["nr"] for c in self.kanaele)):
+                if kp and (sensor or any(c.geraet is g and c.nr == k["nr"] for c in self.alle_kanaele)):
                     self.param_gruppen.append(ParamGruppe(g, k["nr"], kp, d["geraet_obj"]))
         self.params = ParamSpeicher(self.hass, self.entry_id, self.bridge, self.signal("params"))
         self.params.zustaende_merken = self._zustaende_merken
@@ -264,11 +271,16 @@ class Hub:
         return z is not None and (dt_util.now() - z).total_seconds() < REAL_SERVER_S
 
     @property
+    def alle_kanaele(self) -> list[Kanal]:
+        """Alle Aktor-Kanäle (Lampen und Jalousien): Zustand, Abfragen, Parameter, GA-Basis."""
+        return self.kanaele + self.jalousien
+
+    @property
     def radio(self) -> dict[str, Any]:
         return self.bridge.info.get("radio", {})
 
     def kanal(self, geraet: dict[str, Any], nr: int | None) -> Kanal | None:
-        return next((k for k in self.kanaele if k.geraet is geraet and k.nr == nr), None)
+        return next((k for k in self.alle_kanaele if k.geraet is geraet and k.nr == nr), None)
 
     @callback
     def _rahmen_meldung(self, ia: str, aktiv: bool, zweck: str, fehler: str | None) -> None:
@@ -281,7 +293,7 @@ class Hub:
                     if fehler is None else tr("akt_programmierung_fehler", zweck=zweck, fehler=fehler))
             entity_id = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{g['sn']}_parameter_lesen")
             async_log_entry(self.hass, g["name"], text, DOMAIN, entity_id)
-        for k in self.kanaele:
+        for k in self.alle_kanaele:
             if k.ia == ia:
                 async_dispatcher_send(self.hass, self.signal(f"state_{k.key}"))
 
@@ -349,10 +361,10 @@ class Hub:
     def modell(self, geraet: dict[str, Any]) -> str:
         """Gerätebezeichnung für die Anzeige: deutsch aus der Anlage (Katalogname beim Import/Einlernen), sonst der
         englische Produktname aus dem Katalog."""
+        modell = geraet.get("beschreibung") or geraet.get("typ", "")
         if not deutsch():
-            if en := self.definitionen.get(geraet.get("typ", ""), {}).get("produktname"):
-                return en
-        return geraet.get("beschreibung") or geraet.get("typ", "")
+            modell = self.definitionen.get(geraet.get("typ", ""), {}).get("produktname") or modell
+        return tr("ungetestet_zusatz", modell=modell) if geraet.get("typ") in UNGETESTET else modell
 
     def geraet_params(self, geraet: dict[str, Any]) -> list[ParamGruppe]:
         return [g for g in self.param_gruppen if g.geraet is geraet]
@@ -539,7 +551,7 @@ class Hub:
         + Offset + 1). Einmal je Gerät; ändert sich etwas, wird die Konfiguration der Bridge neu übertragen."""
         geaendert = False
         for g in self.anlage["geraete"]:
-            k = next((k for k in self.kanaele if k.geraet is g), None)
+            k = next((k for k in self.alle_kanaele if k.geraet is g), None)
             if k is None or g.get("ga_basis_geprueft"):
                 continue
             for idx in range(8):
@@ -568,12 +580,14 @@ class Hub:
         self._unsub = self.bridge.add_listener(self._on_message)
         self.bridge.start()
         self.ha_szenen.start()
+        self.messung.start()
         self._nachfuehren_task = self.hass.async_create_background_task(self._nachfuehren(),
                                                                         f"{DOMAIN} frequency tracking")
 
     async def async_stop(self) -> None:
         self.ha_szenen.stop()
         self.ha_wippe.stop()
+        self.messung.stop()
         if self._unsub:
             self._unsub()
         if self._sync_task:
@@ -619,7 +633,7 @@ class Hub:
             kalibriert = not self.radio.get("calibrated")
             if kalibriert:
                 await self.kalibrieren()
-            elif self.kanaele and not await self._antwortet(list({k.ia: k for k in self.kanaele}.values())
+            elif self.alle_kanaele and not await self._antwortet(list({k.ia: k for k in self.alle_kanaele}.values())
                                                              [:KAL_TESTKANAELE]):
                 # Zustände kommen sonst aus der Tabelle der Bridge, ohne dass ein Aktor antworten muss: Nach einem
                 # Modultausch bliebe die alte Korrektur stehen und die Bridge taub (Nachführen braucht Empfang).
@@ -631,7 +645,7 @@ class Hub:
             await self.bridge.command("state")
             await asyncio.sleep(0.5)  # state-Ereignisse aus der Tabelle abwarten
             for versuch in range(3):
-                offen = [k for k in self.kanaele if not self.zustand[k.key].known]
+                offen = [k for k in self.alle_kanaele if not self.zustand[k.key].known]
                 if not offen:
                     break
                 if versuch:
@@ -641,15 +655,15 @@ class Hub:
                         await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                     except BridgeError as err:
                         _LOGGER.debug("poll %s (Versuch %d): %s", k.key, versuch + 1, err)
-            if not kalibriert and self.kanaele and not any(self.zustand[k.key].known for k in self.kanaele):
+            if not kalibriert and self.alle_kanaele and not any(self.zustand[k.key].known for k in self.alle_kanaele):
                 _LOGGER.warning("No actuator answers – searching the frequency correction again")
                 if await self.kalibrieren():
-                    for k in self.kanaele:
+                    for k in self.alle_kanaele:
                         try:
                             await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                         except BridgeError:
                             pass
-            for k in self.kanaele:
+            for k in self.alle_kanaele:
                 if not self.zustand[k.key].known:
                     _LOGGER.warning("%s (%s) does not answer the status request", k.geraet["name"], k.key)
             await self._aktor_basis_lesen()
@@ -755,7 +769,7 @@ class Hub:
         (FSCTRL0 += FREQEST). Liefert den gespeicherten Wert oder None (kein Aktor erreichbar)."""
         async with self._kal_lock:
             # je Gerät ein Kanal, damit die Grobsuche verschiedene Aktoren probiert
-            test = list({k.ia: k for k in self.kanaele}.values())[:KAL_TESTKANAELE]
+            test = list({k.ia: k for k in self.alle_kanaele}.values())[:KAL_TESTKANAELE]
             if not test:
                 return None
             start = self.radio.get("freq_offset", KAL_KANDIDATEN[0])
@@ -768,7 +782,7 @@ class Hub:
                 _LOGGER.warning("Calibration: no actuator answers at any frequency correction")
                 return None
             for _ in range(2):  # Telegramme für den Mittelwert sammeln
-                for k in self.kanaele:
+                for k in self.alle_kanaele:
                     try:
                         await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                     except BridgeError:
@@ -889,12 +903,16 @@ class Hub:
                 _LOGGER.debug("State %s: %s", key, msg)
                 self.pruefung.antwortet(msg.get("ia"))
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
+                if msg.get("kind") == "blind":
+                    z.lamelle = msg.get("slat")
+                    if msg.get("move") is not None:
+                        z.bewegung = int(msg["move"])
                 if msg.get("source") != "poll":
                     z.gemeldet = time.monotonic()
                 async_dispatcher_send(self.hass, self.signal(f"state_{key}"))
         elif ev == "key":
             self._batterie(msg)
-            if self._sensorwert(msg):
+            if self.messung.telegramm(msg) or self._sensorwert(msg):
                 return
             taste = self.taste_fuer(msg.get("sn", ""), int(msg.get("ga", -1))) \
                 or self._sender_basis_lernen(msg.get("sn", ""), int(msg.get("ga", -1)))

@@ -28,6 +28,15 @@ constexpr uint8_t kBusyRetries = 20;
 constexpr uint8_t kGroupRepeats = 3;
 constexpr uint32_t kGroupGapMs = 80;
 constexpr uint16_t kGoStatus = 20, kGoStatusValue = 21, kGoSumstatusInfo = 22;
+// Jalousie CT_1F03 (Katalog, ungetestet): GO2 Auf/Ab (1.008), GO3 Stopp/Schritt (1.007), GO4 Stopp (1.017),
+// GO5 Position (5.001), GO6 Lamelle (5.001), GO10 Fahrinfo (2 Bit: 0 steht oben, 1 steht unten, 2 fährt auf,
+// 3 fährt ab), GO11 SumstatusInfo, GO12 Position aktuell, GO13 Lamelle aktuell. Position 0 % = oben.
+constexpr uint16_t kGoBlindMove = 2, kGoBlindStep = 3, kGoBlindStop = 4, kGoBlindPos = 5, kGoBlindSlat = 6,
+                   kGoBlindInfo = 10, kGoBlindSumstatus = 11, kGoBlindPosNow = 12, kGoBlindSlatNow = 13;
+constexpr uint8_t kSpanLight = 26, kSpanBlind = 19;  // Handles je Kanal (Offset .. Offset + Span - 1)
+// Jalousie: Fahrten dauern länger als ein Licht – nach einem Befehl mehrfach abfragen (ms nach dem Befehl)
+constexpr uint32_t kBlindPollMs[] = {8000, 25000, 60000, 120000};
+constexpr uint8_t kBlindPolls = sizeof(kBlindPollMs) / sizeof(kBlindPollMs[0]);
 
 struct Channel {
   uint16_t ia;
@@ -37,6 +46,7 @@ struct Channel {
   uint8_t gaBase;  // eigene GAs = gaBase * 256 + GO (wechselt bei jedem Werksreset)
   uint8_t ch;      // Kanalnummer wie im Export (1, 2, ...) – Adressierung durch den Host
   uint8_t obj;     // Kanal-Objekt (Link-Tabelle, Parameter)
+  bool blind;      // Jalousie (Flags Bit 1) – am Ende, damit bestehende Initialisierungen gelten
 };
 struct Action {
   uint16_t ia, handle;  // ia = 0: Gruppentelegramm unter Server-SN an GA = handle (Szenenaufruf)
@@ -65,7 +75,7 @@ struct Config {
 
 // Binaerformat Version 3 (erzeugt von tools/server_cfg.py), alle Zahlen Big Endian:
 //   'E' 0x03 | Domaene(6) | Server-SN(6) | Server-IA(2) | nCh nAct nScenes nKeys (je 1)
-//   Kanaele: IA(2) SN(6) Kanalnr(1) Offset(1) Objekt(1) Flags(1, Bit0 Dimmer) GA-Basis(1)
+//   Kanaele: IA(2) SN(6) Kanalnr(1) Offset(1) Objekt(1) Flags(1, Bit0 Dimmer, Bit1 Jalousie) GA-Basis(1)
 //   Aktionen: IA(2) Handle(2) Laenge(1) Wert(Laenge, max 4); IA 0 = Gruppentelegramm an GA = Handle
 //   Szenen: erste Aktion(1) Anzahl(1)
 //   Tasten: SN(6) GA(2) Szene(1, signed)
@@ -75,9 +85,12 @@ size_t serializeConfig(const Config& c, uint8_t* out, size_t cap);
 
 struct ChannelState {
   bool known = false, on = false;
-  uint8_t percent = 0;
+  uint8_t percent = 0;  // Jalousie: Position (0 % = oben)
+  uint8_t slat = 0;     // Jalousie: Lamelle
+  uint8_t move = 0xFF;  // Jalousie: Fahrinfo GO10 (0xFF unbekannt)
   bool pollPending = false;
-  uint32_t pollAt = 0;
+  uint32_t pollAt = 0, cmdAt = 0;
+  uint8_t pollStage = 0;  // Jalousie: nächste Abfrage aus kBlindPollMs
 };
 
 enum class Source : uint8_t { STATUS_MSG, POLL, CACHE };
@@ -92,7 +105,8 @@ enum class Origin : uint8_t { HOST, SCENE, POLL };
 // SERVER: SumstatusGet an die Server-SN (Server-Taste); DIRECT: SumstatusGet an einen Aktor (verknuepfte
 // Taste/Wippe); VALUE: nackter Tastenwert einer unbelegten Wippe (2 Byte), auch Helligkeit des Sonnensensors
 // (DPT 9); VALUE1: 1-Byte-Gruppenwert unter Sender-SN (Sonnensensor: Szenennummer in Bit 5-0, ab 0.8.9).
-enum class KeyKind : uint8_t { SERVER, DIRECT, VALUE, VALUE1 };
+// VALUE4: 4-Byte-Gruppenwert unter Sender-SN (Energiesensor: Leistung DPT 14, Energie DPT 13; ab 0.8.21).
+enum class KeyKind : uint8_t { SERVER, DIRECT, VALUE, VALUE1, VALUE4 };
 
 struct KeyEvent {
   const uint8_t* senderSn;
@@ -103,6 +117,7 @@ struct KeyEvent {
   int keyIndex;            // -1: nicht konfiguriert (nur SERVER)
   bool press, answered, sceneStarted;
   uint8_t rfInfo;          // RF-Info des Telegramms (Bit 1: Batterie in Ordnung)
+  uint32_t value32;        // nur VALUE4
 };
 
 class Io {
@@ -174,6 +189,8 @@ class Server {
   void finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t now);
   void sceneStep(bool ok);
   void updateState(int ci, bool setOn, bool on, bool setPercent, uint8_t percent, Source src);
+  void updateBlind(int ci, int percent, int slat, int move, Source src);  // -1: unverändert
+  void schedulePoll(int ci, uint32_t now);
 
   Io& io_;
   Config cfg_;

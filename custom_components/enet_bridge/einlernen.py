@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from .bridge import BridgeError
 from .iex import CHANNEL_TYPES, DEVICE_TYPES, PRODUKT_TYPEN, ia_str, produkt_kennung
+from .messung import MESS_ARTEN
 from .texte import tr
 
 if TYPE_CHECKING:
@@ -122,6 +123,9 @@ def _typ_daten(hub: Hub, typ: str) -> tuple[str, str, list[dict[str, Any]]]:
     kanaele = [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"]}
                for k, art in arten if art in ("schalten", "dimmen", "jalousie")]
     rolle = "aktor" if kanaele else ("sender" if any(a in ("wippe", "taste") for _, a in arten) else "unbekannt")
+    if rolle == "unbekannt" and (mess := [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"]}
+                                          for k, art in arten if art in MESS_ARTEN]):
+        rolle, kanaele = "sensor", mess  # Energiesensor, Bewegungsmelder, Repeater (messung.py)
     desc = DEVICE_TYPES.get(typ, (d.get("produktname") or d.get("name") or typ,))[0]
     return desc, rolle, kanaele
 

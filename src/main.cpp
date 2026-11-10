@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.19";
+static const char* kFwVersion = "0.8.21";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -194,7 +194,7 @@ class BridgeIo : public enet::Io {
   }
 
   void onKey(const enet::KeyEvent& e) override {
-    static const char* kKind[] = {"server", "direkt", "wert", "wert1"};
+    static const char* kKind[] = {"server", "direkt", "wert", "wert1", "wert4"};
     char sn[13], cmd[5], rsn[13];
     hexStr(e.senderSn, 6, sn);
     sprintf(cmd, "%04x", e.cmd);
@@ -217,6 +217,10 @@ class BridgeIo : public enet::Io {
     } else if (e.kind == enet::KeyKind::VALUE1) {
       sprintf(cmd, "%02x", e.cmd);
       d["cmd"] = cmd;
+    } else if (e.kind == enet::KeyKind::VALUE4) {
+      char c8[9];
+      sprintf(c8, "%08lx", (unsigned long)e.value32);
+      d["cmd"] = c8;
     } else {
       d["richtung"] = (e.cmd & 0xC000) == 0x8000 ? "rechts" : "links";  // Wippentasten liegen nebeneinander
       d["hold_ms"] = (uint32_t)(e.cmd & 0x3FFF) * 10;
@@ -243,7 +247,12 @@ class BridgeIo : public enet::Io {
     d["ia"] = ia;
     d["ch"] = ch.ch;
     d["on"] = st.on;
-    d["percent"] = st.on && !ch.dimmer ? 100 : st.percent;
+    d["percent"] = st.on && !ch.dimmer && !ch.blind ? 100 : st.percent;
+    if (ch.blind) {
+      d["kind"] = "blind";
+      d["slat"] = st.slat;
+      if (st.move != 0xFF) d["move"] = st.move;
+    }
     d["source"] = kSrc[(int)src];
     if (src != enet::Source::CACHE) d["rssi"] = lastRssi;  // Pegel der Statusmeldung bzw. Antwort
     emit(d);
@@ -724,6 +733,31 @@ static void handleJson(const char* line) {
     }
     val[0] = (uint8_t)(p * 255 / 100);  // wie der Server: floor
     queued(id, server.queueSet(ia, ch.offset + 4, val, 1, enet::Origin::HOST, id));
+  } else if (!strcmp(cmd, "cover")) {
+    // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = oben)]}
+    if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
+    const enet::Channel& ch = server.config().channels[ci];
+    if (!ch.blind) return replyErr(id, "bad_args", "kein Jalousiekanal");
+    const char* a = in["action"] | "";
+    uint16_t go;
+    if (!strcmp(a, "up") || !strcmp(a, "down")) {
+      go = enet::kGoBlindMove;
+      val[0] = !strcmp(a, "down") ? 1 : 0;  // DPT 1.008: 0 auf, 1 ab
+    } else if (!strcmp(a, "step_up") || !strcmp(a, "step_down")) {
+      go = enet::kGoBlindStep;
+      val[0] = !strcmp(a, "step_down") ? 1 : 0;  // DPT 1.007
+    } else if (!strcmp(a, "stop")) {
+      go = enet::kGoBlindStop;
+      val[0] = 1;  // DPT 1.017 Trigger
+    } else if (!strcmp(a, "position") || !strcmp(a, "slat")) {
+      int p = in["percent"] | -1;
+      if (p < 0 || p > 100) return replyErr(id, "bad_args", "percent 0..100");
+      go = !strcmp(a, "slat") ? enet::kGoBlindSlat : enet::kGoBlindPos;
+      val[0] = (uint8_t)((p * 255 + 50) / 100);  // DPT 5.001
+    } else {
+      return replyErr(id, "bad_args", "action up|down|stop|step_up|step_down|position|slat");
+    }
+    queued(id, server.queueSet(ia, ch.offset + go, val, 1, enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "set")) {
     if (!radioReady(id)) return;
     size_t vl = parseHex(in["value"] | "", val, 4);
@@ -776,6 +810,11 @@ static void handleJson(const char* line) {
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
     const enet::Channel& ch = server.config().channels[ci];
     bool ok = true;
+    if (ch.blind) {
+      ok = server.queueRead(ia, ch.offset + enet::kGoBlindSlatNow, enet::Origin::POLL, 0) &&
+           server.queueRead(ia, ch.offset + enet::kGoBlindPosNow, enet::Origin::POLL, id);
+      return queued(id, ok);
+    }
     if (ch.dimmer) ok = server.queueRead(ia, ch.offset + enet::kGoStatus, enet::Origin::POLL, 0);
     ok = ok && server.queueRead(ia, ch.offset + (ch.dimmer ? enet::kGoStatusValue : enet::kGoStatus),
                                 enet::Origin::POLL, id);

@@ -95,9 +95,20 @@ Tested in two installations:
 | Transmitters | Wall transmitter 3-gang (WS3BG), hand-held transmitter 4-gang (HS4) |
 | Sensors | Sun/twilight sensor (SF1S, Jung FM FS 1 S) |
 
-The integration contains device definitions for all 41 eNet device types of the manufacturer catalogue, but only
-the types above are tested. **Not supported yet:** blind/shutter actuators, DIN-rail (REG) modules, motion
-detectors, energy sensors. Encrypted installations (eNet Server 2.0 with AES) are not supported.
+**Implemented from the manufacturer catalogue, not yet tested on a device** – shown in Home Assistant with
+"(untested)" in the model name. If you have one of these, please report whether it works (an issue with the
+"Download diagnostics" file helps most):
+
+| Type | Devices | In Home Assistant |
+|---|---|---|
+| Blind/shutter actuators | Mini (5427 00), DIN-rail 1-gang (5437 00) and 4-gang (5435 00), System 2000 insert (5491) | cover: up/down/stop, position, slats |
+| Energy sensors | Mini (5471 00), intermediate plug (5472 02), DIN-rail 4-gang (5473 00) | voltage, current, active/reactive/apparent power, energy (energy dashboard) |
+| Motion detector | Jung FMDW360WW | motion, illuminance |
+| Repeater | intermediate plug (5321 02) | signal, last message |
+| DIN-rail switching/dimming modules | 5430 00, 5431 00, 5433 00 | like the Mini actuators |
+
+Device definitions (parameters) for all 41 eNet device types of the catalogue are included. Encrypted
+installations (eNet Server 2.0 with AES) are not supported.
 
 ## Hardware
 

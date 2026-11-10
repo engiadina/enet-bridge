@@ -8,6 +8,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import EnetConfigEntry, bridge_info, geraet_info
+from .messung import ART_BEWEGUNG
 from .const import SENSOR_TYPEN
 from .entity import EnetEntity
 
@@ -18,7 +19,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     sender = [g for g in hub.anlage["geraete"] if g.get("rolle") == "sender" or g.get("typ") in SENSOR_TYPEN]
     sensoren = [g for g in hub.anlage["geraete"] if g.get("typ") in SENSOR_TYPEN]
     async_add_entities([RealServer(hub), Funkmodul(hub)] + [Batterie(hub, g) for g in sender]
-                       + [Schwelle(hub, g, k) for g in sensoren for k in (1, 2)])
+                       + [Schwelle(hub, g, k) for g in sensoren for k in (1, 2)]
+                       + [Bewegung(hub, g, k) for g, k in hub.messung.kanaele(ART_BEWEGUNG)])
+
+
+class Bewegung(EnetEntity, BinarySensorEntity):
+    """Bewegungsmelder (messung.py, ungetestet): an beim Auslösen bzw. Nachtriggern, aus nach der gesendeten
+    Einschaltdauer ohne erneutes Auslösen."""
+
+    _attr_device_class = BinarySensorDeviceClass.MOTION
+    _attr_translation_key = "bewegung"
+
+    def __init__(self, hub, geraet, kanal) -> None:
+        super().__init__(hub)
+        from .sensor import mess_info
+
+        self.sn, self.nr = geraet["sn"], kanal["nr"]
+        self._attr_unique_id = f"{self.sn}_{self.nr}_bewegung"
+        self._attr_device_info = mess_info(hub, geraet, self.nr)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._listen(f"bewegung_{self.sn}_{self.nr}")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return self.hub.messung.bewegung.get(f"{self.sn}/{self.nr}", False)
 
 
 class RealServer(EnetEntity, BinarySensorEntity):

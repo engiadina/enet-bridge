@@ -87,6 +87,9 @@
       },
       "daemmerung": {
         "name": "Twilight"
+      },
+      "bewegung": {
+        "name": "Motion"
       }
     },
     "event": {
@@ -178,6 +181,24 @@
       },
       "helligkeit": {
         "name": "Illuminance"
+      },
+      "spannung": {
+        "name": "Voltage"
+      },
+      "strom": {
+        "name": "Current"
+      },
+      "wirkleistung": {
+        "name": "Active power"
+      },
+      "blindleistung": {
+        "name": "Reactive power"
+      },
+      "scheinleistung": {
+        "name": "Apparent power"
+      },
+      "energie": {
+        "name": "Energy"
       }
     },
     "update": {

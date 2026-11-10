@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import (LIGHT_LUX, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory,
-                                 UnitOfElectricPotential, UnitOfTime)
+                                 UnitOfApparentPower, UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfEnergy,
+                                 UnitOfPower, UnitOfReactivePower, UnitOfTime)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EnetConfigEntry, bridge_info, geraet_info
+from . import EnetConfigEntry, _teil_info, bridge_info, geraet_info
+from .messung import ART_BEWEGUNG, ART_ENERGIE, WERTE
 from .const import SENSOR_TYPEN
 from .entity import EnetEntity, EnetParamEntity, param_entitaeten
 
@@ -15,11 +17,14 @@ from .entity import EnetEntity, EnetParamEntity, param_entitaeten
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    aktoren = [g for g in hub.anlage["geraete"] if g.get("rolle") == "aktor"]
+    aktoren = [g for g in hub.anlage["geraete"] if g.get("rolle") in ("aktor", "sensor")]
     entities: list = [cls(hub, g) for g in aktoren for cls in (Signal, LetzteMeldung)]
     entities += param_entitaeten(hub, Zaehler, lambda p: p.art == "zahl" and p.nur_lesen)
     entities += param_entitaeten(hub, ParamText, lambda p: p.art == "auswahl" and p.nur_lesen)
     entities += [Helligkeit(hub, g) for g in hub.anlage["geraete"] if g.get("typ") in SENSOR_TYPEN]
+    entities += [Messwert(hub, g, k, w.key) for g, k in hub.messung.kanaele(ART_ENERGIE)
+                 for w in WERTE[ART_ENERGIE].values()]
+    entities += [Messwert(hub, g, k, "helligkeit") for g, k in hub.messung.kanaele(ART_BEWEGUNG)]
     entities += [Frequenzkorrektur(hub), Programmierung(hub)]
     async_add_entities(entities)
 
@@ -100,6 +105,62 @@ class Helligkeit(EnetEntity, RestoreSensor):
     @property
     def native_value(self) -> float | None:
         return self.hub.helligkeit.get(self.sn)
+
+
+def mess_info(hub, geraet: dict, nr: int):
+    """Einkanalig: das Gerät selbst; mehrkanalig (z. B. Energiesensor REG 4fach): Child-Gerät „Kanal n“."""
+    if sum(1 for g, _k in hub.messung.kanaele() if g is geraet) <= 1:
+        return geraet_info(hub, geraet)
+    return _teil_info(hub, geraet, f"{geraet['sn']}_{nr}", f"Kanal {nr}")
+
+
+# key → (Geräteklasse, Einheit, Zustandsklasse, Nachkommastellen)
+MESS_ANZEIGE = {
+    "spannung": (SensorDeviceClass.VOLTAGE, UnitOfElectricPotential.VOLT, SensorStateClass.MEASUREMENT, 1),
+    "strom": (SensorDeviceClass.CURRENT, UnitOfElectricCurrent.AMPERE, SensorStateClass.MEASUREMENT, 3),
+    "wirkleistung": (SensorDeviceClass.POWER, UnitOfPower.WATT, SensorStateClass.MEASUREMENT, 1),
+    "blindleistung": (SensorDeviceClass.REACTIVE_POWER, UnitOfReactivePower.VOLT_AMPERE_REACTIVE,
+                      SensorStateClass.MEASUREMENT, 1),
+    "scheinleistung": (SensorDeviceClass.APPARENT_POWER, UnitOfApparentPower.VOLT_AMPERE,
+                       SensorStateClass.MEASUREMENT, 1),
+    "energie": (SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR, SensorStateClass.TOTAL_INCREASING, 3),
+    "helligkeit": (SensorDeviceClass.ILLUMINANCE, LIGHT_LUX, SensorStateClass.MEASUREMENT, 0),
+}
+
+
+class Messwert(EnetEntity, RestoreSensor):
+    """Messwert eines Energiesensors oder Bewegungsmelders (messung.py, ungetestet). Bis zum ersten Wert gilt der
+    letzte vor dem Neustart."""
+
+    def __init__(self, hub, geraet, kanal, key: str) -> None:
+        super().__init__(hub)
+        self.sn, self.nr, self.key = geraet["sn"], kanal["nr"], key
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{self.sn}_{self.nr}_{key}"
+        self._attr_device_info = mess_info(hub, geraet, self.nr)
+        (self._attr_device_class, self._attr_native_unit_of_measurement, self._attr_state_class,
+         self._attr_suggested_display_precision) = MESS_ANZEIGE[key]
+        if key in ("blindleistung", "scheinleistung"):
+            self._attr_entity_registry_enabled_default = False
+
+    @property
+    def _schluessel(self) -> str:
+        return f"{self.sn}/{self.nr}/{self.key}"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self._schluessel not in self.hub.messung.werte and (alt := await self.async_get_last_sensor_data()) \
+                and alt.native_value is not None:
+            self.hub.messung.werte[self._schluessel] = float(alt.native_value)
+        self._listen(f"messwert_{self.sn}_{self.nr}")
+
+    @property
+    def available(self) -> bool:
+        return True  # Wert stammt vom Gerät, nicht von der Verbindung zur Bridge
+
+    @property
+    def native_value(self) -> float | None:
+        return self.hub.messung.werte.get(self._schluessel)
 
 
 class Zaehler(EnetParamEntity, SensorEntity):
