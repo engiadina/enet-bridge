@@ -120,11 +120,11 @@ def _type_data(hub: Hub, typ: str) -> tuple[str, str, list[dict[str, Any]]]:
         desc, role, channels_ = DEVICE_TYPES[typ]
         return desc, role, [{"nr": i + 1, "art": a, "offset": o} for i, (a, o) in enumerate(channels_)]
     kinds = [(k, CHANNEL_TYPES.get(k["kanaltyp"])) for k in d["kanaele"]]
-    channels_ = [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"]}
+    channels_ = [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"]}
                for k, art in kinds if art in ("schalten", "dimmen", "jalousie")]
     role = "aktor" if channels_ else ("sender" if any(a in ("wippe", "taste") for _, a in kinds) else "unbekannt")
-    if role == "unbekannt" and (meas := [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"]}
-                                          for k, art in kinds if art in MEASUREMENT_KINDS]):
+    if role == "unbekannt" and (meas := [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"],
+                                           "kanaltyp": k["kanaltyp"]} for k, art in kinds if art in MEASUREMENT_KINDS]):
         role, channels_ = "sensor", meas  # energy sensor, motion detector, repeater (measurements.py)
     desc = DEVICE_TYPES.get(typ, (d.get("produktname") or d.get("name") or typ,))[0]
     return desc, role, channels_

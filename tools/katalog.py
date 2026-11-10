@@ -169,6 +169,18 @@ class Catalogue:
                     out["kanaele"].append(entry_)
         return out
 
+    def channel_type_layouts(self):
+        """Group object number per device function of every channel type: {CT: {"alias", "go": {"SOO": 2, …}}}.
+        Installations switch channels to variants of the default type (e.g. CT_1F05 instead of CT_1F01) whose group
+        objects are numbered differently – so the GO of a function is taken from the channel type."""
+        out = {}
+        for ct_id, ct in sorted(self.channel_types.items()):
+            go = {f.get("id").rsplit(".", 1)[-1]: int(f.get("groupObjectNumber"))
+                  for f in ct.iter("KnxRfDeviceFunctionType") if f.get("groupObjectNumber")}
+            if go:
+                out[ct_id] = {"alias": ct.get("aliasID"), "go": go}
+        return out
+
 
 def encoding(t):
     """How the value is stored in parameter memory (HA converts with this)."""
@@ -210,7 +222,8 @@ def main():
         print(f"{t:<12} {d['name'][:40]:<40} {len(d['kanaele'])} Kanäle, {n} Parameter ({unknown_} ohne Kodierung)")
     os.makedirs(os.path.dirname(off) or ".", exist_ok=True)
     with open(off, "w", encoding="utf-8") as f:
-        json.dump({"quelle": os.path.basename(os.path.abspath(kat.d)), "typen": defs}, f, ensure_ascii=False,
+        json.dump({"quelle": os.path.basename(os.path.abspath(kat.d)), "typen": defs,
+                   "kanaltypen": kat.channel_type_layouts()}, f, ensure_ascii=False,
                   separators=(",", ":"), sort_keys=True)
         f.write("\n")
     print(f"→ {off}")

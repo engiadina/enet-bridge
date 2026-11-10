@@ -26,6 +26,7 @@ from .texts import tr
 from . import texts
 from .iex import product_ident
 from .params import load_definitions
+from . import layouts
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.COVER, Platform.EVENT, Platform.LIGHT, Platform.NUMBER,
              Platform.SCENE, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.UPDATE]
@@ -58,6 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     definitions = await hass.async_add_executor_job(
         load_definitions, os.path.join(os.path.dirname(__file__), "definitionen.json"))
     definitions |= await hass.async_add_executor_job(load_definitions, path_)
+    channel_layouts = await hass.async_add_executor_job(
+        layouts.load, os.path.join(os.path.dirname(__file__), "definitionen.json"))
+    layouts.set_layouts(channel_layouts | await hass.async_add_executor_job(layouts.load, path_))
     await hass.async_add_executor_job(_install_blueprints, hass.config.path("blueprints", "automation", DOMAIN))
     hub = Hub(hass, entry.entry_id, Bridge(hass.loop, entry.data[CONF_PORT]), installation, definitions=definitions,
               store=store)

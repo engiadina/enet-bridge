@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.22";
+static const char* kFwVersion = "0.8.23";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -344,7 +344,7 @@ class BridgeIo : public enet::Io {
 static BridgeIo bridgeIo;
 static enet::Server server(bridgeIo);
 static enet::Config cfgTmp;  // buffer for loading/uploading
-static uint8_t cfgBlob[2048];
+static uint8_t cfgBlob[3072];  // format 4: 23 bytes per channel
 static size_t cfgLen = 0;     // length of the blob currently being uploaded
 static uint16_t cfgCrc = 0;   // CRC of the active configuration (0 = none)
 static bool cfgValid = false;
@@ -721,7 +721,8 @@ static void handleJson(const char* line) {
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
     if (!in["on"].is<bool>()) return replyErr(id, "bad_args", "on fehlt");
     val[0] = in["on"].as<bool>() ? 1 : 0;
-    queued(id, server.queueSet(ia, server.config().channels[ci].offset + 2, val, 1, enet::Origin::HOST, id));
+    const enet::Channel& ch = server.config().channels[ci];
+    queued(id, server.queueSet(ia, ch.offset + enet::goOf(ch, enet::kSlotOn), val, 1, enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "dim")) {
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
     int p = in["percent"] | -1;
@@ -729,10 +730,10 @@ static void handleJson(const char* line) {
     const enet::Channel& ch = server.config().channels[ci];
     if (p == 0) {
       val[0] = 0;
-      return queued(id, server.queueSet(ia, ch.offset + 2, val, 1, enet::Origin::HOST, id));
+      return queued(id, server.queueSet(ia, ch.offset + enet::goOf(ch, enet::kSlotOn), val, 1, enet::Origin::HOST, id));
     }
     val[0] = (uint8_t)(p * 255 / 100);  // like the server: floor
-    queued(id, server.queueSet(ia, ch.offset + 4, val, 1, enet::Origin::HOST, id));
+    queued(id, server.queueSet(ia, ch.offset + enet::goOf(ch, enet::kSlotValue), val, 1, enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "cover")) {
     // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = top)]}
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
@@ -741,18 +742,18 @@ static void handleJson(const char* line) {
     const char* a = in["action"] | "";
     uint16_t go;
     if (!strcmp(a, "up") || !strcmp(a, "down")) {
-      go = enet::kGoBlindMove;
+      go = enet::goOf(ch, enet::kSlotMove);
       val[0] = !strcmp(a, "down") ? 1 : 0;  // DPT 1.008: 0 up, 1 down
     } else if (!strcmp(a, "step_up") || !strcmp(a, "step_down")) {
-      go = enet::kGoBlindStep;
+      go = enet::goOf(ch, enet::kSlotStep);
       val[0] = !strcmp(a, "step_down") ? 1 : 0;  // DPT 1.007
     } else if (!strcmp(a, "stop")) {
-      go = enet::kGoBlindStop;
+      go = enet::goOf(ch, enet::kSlotStop);
       val[0] = 1;  // DPT 1.017 trigger
     } else if (!strcmp(a, "position") || !strcmp(a, "slat")) {
       int p = in["percent"] | -1;
       if (p < 0 || p > 100) return replyErr(id, "bad_args", "percent 0..100");
-      go = !strcmp(a, "slat") ? enet::kGoBlindSlat : enet::kGoBlindPos;
+      go = enet::goOf(ch, !strcmp(a, "slat") ? enet::kSlotSlat : enet::kSlotPos);
       val[0] = (uint8_t)((p * 255 + 50) / 100);  // DPT 5.001
     } else {
       return replyErr(id, "bad_args", "action up|down|stop|step_up|step_down|position|slat");
@@ -811,12 +812,12 @@ static void handleJson(const char* line) {
     const enet::Channel& ch = server.config().channels[ci];
     bool ok = true;
     if (ch.blind) {
-      ok = server.queueRead(ia, ch.offset + enet::kGoBlindSlatNow, enet::Origin::POLL, 0) &&
-           server.queueRead(ia, ch.offset + enet::kGoBlindPosNow, enet::Origin::POLL, id);
+      ok = server.queueRead(ia, ch.offset + enet::goOf(ch, enet::kSlotSlatNow), enet::Origin::POLL, 0) &&
+           server.queueRead(ia, ch.offset + enet::goOf(ch, enet::kSlotPosNow), enet::Origin::POLL, id);
       return queued(id, ok);
     }
-    if (ch.dimmer) ok = server.queueRead(ia, ch.offset + enet::kGoStatus, enet::Origin::POLL, 0);
-    ok = ok && server.queueRead(ia, ch.offset + (ch.dimmer ? enet::kGoStatusValue : enet::kGoStatus),
+    if (ch.dimmer) ok = server.queueRead(ia, ch.offset + enet::goOf(ch, enet::kSlotStatus), enet::Origin::POLL, 0);
+    ok = ok && server.queueRead(ia, ch.offset + enet::goOf(ch, ch.dimmer ? enet::kSlotStatusValue : enet::kSlotStatus),
                                 enet::Origin::POLL, id);
     queued(id, ok);
   } else if (!strcmp(cmd, "state")) {

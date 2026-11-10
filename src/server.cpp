@@ -41,9 +41,22 @@ struct Writer {
 
 }  // namespace
 
+uint8_t goOf(const Channel& ch, GoSlot slot) {
+  if (ch.go[slot]) return ch.go[slot];
+  if (ch.blind) {
+    static const uint8_t kBlind[kGoSlots] = {kGoBlindMove, kGoBlindStep,      kGoBlindStop,   kGoBlindPos,
+                                             kGoBlindSlat, kGoBlindInfo,      kGoBlindSumstatus,
+                                             kGoBlindPosNow, kGoBlindSlatNow, kSpanBlind};
+    return kBlind[slot];
+  }
+  static const uint8_t kLight[kGoSlots] = {2, 4, kGoStatus, kGoStatusValue, kGoSumstatusInfo, 0, 0, 0, 0, kSpanLight};
+  return kLight[slot];
+}
+
 // Minimum length 22: header (2) + domain/SN (12) + IA (2) + counts (4) + CRC (2) – empty installation is valid
 bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
-  if (len < 22 || blob[0] != 'E' || blob[1] != 0x03) return false;
+  if (len < 22 || blob[0] != 'E' || (blob[1] != 0x03 && blob[1] != 0x04)) return false;
+  const bool withGos = blob[1] == 0x04;
   uint16_t crc = (uint16_t)(blob[len - 2] << 8 | blob[len - 1]);
   if (knxrf::crc16(blob, len - 2) != crc) return false;
   Reader r(blob, len - 2, 2);
@@ -68,6 +81,8 @@ bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
     ch.dimmer = flags & 1;
     ch.blind = flags & 2;
     ch.gaBase = r.u8();
+    if (withGos) r.bytes(ch.go, kGoSlots);
+    else memset(ch.go, 0, kGoSlots);
   }
   for (uint8_t i = 0; i < n.nActions; ++i) {
     Action& a = n.actions[i];
@@ -97,7 +112,7 @@ bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
 size_t serializeConfig(const Config& c, uint8_t* out, size_t cap) {
   Writer w(out, cap);
   w.u8('E');
-  w.u8(0x03);
+  w.u8(0x04);
   w.bytes(c.domain, 6);
   w.bytes(c.serverSn, 6);
   w.u16(c.serverIa);
@@ -114,6 +129,7 @@ size_t serializeConfig(const Config& c, uint8_t* out, size_t cap) {
     w.u8(ch.obj);
     w.u8((ch.dimmer ? 1 : 0) | (ch.blind ? 2 : 0));
     w.u8(ch.gaBase);
+    w.bytes(ch.go, kGoSlots);
   }
   for (uint8_t i = 0; i < c.nActions; ++i) {
     const Action& a = c.actions[i];
@@ -148,7 +164,7 @@ void Server::setConfig(const Config& c) {
 int Server::channelIndex(uint16_t ia, uint16_t handle) const {
   for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
     const Channel& ch = cfg_.channels[i];
-    if (ch.ia == ia && handle >= ch.offset && handle < ch.offset + (ch.blind ? kSpanBlind : kSpanLight)) return i;
+    if (ch.ia == ia && handle >= ch.offset && handle < ch.offset + goOf(ch, kSlotSpan)) return i;
   }
   return -1;
 }
@@ -342,13 +358,13 @@ void Server::finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t
       st_[ci].pollStage = 0;
       schedulePoll(ci, now);  // query status in case the actuator does not report by itself
     } else if (ch.blind) {
-      if (len >= 1 && cur_.handle == ch.offset + kGoBlindPosNow)
+      if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotPosNow))
         updateBlind(ci, val[0] * 100 / 255, -1, -1, Source::POLL);
-      else if (len >= 1 && cur_.handle == ch.offset + kGoBlindSlatNow)
+      else if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotSlatNow))
         updateBlind(ci, -1, val[0] * 100 / 255, -1, Source::POLL);
-    } else if (len >= 1 && cur_.handle == ch.offset + kGoStatus) {
+    } else if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotStatus)) {
       updateState(ci, true, val[0] != 0, false, 0, Source::POLL);
-    } else if (len >= 1 && cur_.handle == ch.offset + kGoStatusValue) {
+    } else if (len >= 1 && ch.dimmer && cur_.handle == ch.offset + goOf(ch, kSlotStatusValue)) {
       updateState(ci, false, false, true, (uint8_t)(val[0] * 100 / 255), Source::POLL);
     }
   }
@@ -499,7 +515,8 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // Blind: 1-byte message under its own SN to base * 256 + offset + 10/12/13 (movement info, position, slat)
+  // Blind: 1-byte message under its own SN to base * 256 + offset + 10/12/13 (movement info, position, slat; GO
+  // numbers of CT_1F03, other channel types from the configuration)
   // (movement info 2 bits: as short value in the APCI or as a separate byte)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE) {
     for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
@@ -507,10 +524,12 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
       if (!ch.blind || memcmp(ch.sn, t.addr, 6) != 0) continue;
       const uint8_t go = (uint8_t)((t.dst & 0xFF) - ch.offset);
       const uint8_t v = t.dataLen ? t.data[0] : (uint8_t)(t.apci & 0x3F);
-      if (go == kGoBlindInfo) return updateBlind(i, -1, -1, v & 3, Source::STATUS_MSG);
-      if (go == kGoBlindPosNow && t.dataLen == 1) return updateBlind(i, v * 100 / 255, -1, -1, Source::STATUS_MSG);
-      if (go == kGoBlindSlatNow && t.dataLen == 1) return updateBlind(i, -1, v * 100 / 255, -1, Source::STATUS_MSG);
-      if (go == kGoBlindSumstatus && t.dataLen == 3)
+      if (go == goOf(ch, kSlotInfo)) return updateBlind(i, -1, -1, v & 3, Source::STATUS_MSG);
+      if (go == goOf(ch, kSlotPosNow) && t.dataLen == 1)
+        return updateBlind(i, v * 100 / 255, -1, -1, Source::STATUS_MSG);
+      if (go == goOf(ch, kSlotSlatNow) && t.dataLen == 1)
+        return updateBlind(i, -1, v * 100 / 255, -1, Source::STATUS_MSG);
+      if (go == goOf(ch, kSlotSum) && t.dataLen == 3)
         return updateBlind(i, t.data[0] & 0x7F, -1, -1, Source::STATUS_MSG);
     }
   }
@@ -530,13 +549,15 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // Spontaneous actuator status message: under its own SN to GA = base * 256 + offset + 22. Only the lower GA
+  // Spontaneous actuator status message: under its own SN to GA = base * 256 + offset + 22 (SSGI; per channel type
+  // from the configuration). Only the lower GA
   // byte counts (as with keys): the base increases with every factory reset, and a wrong base in the config
   // (e.g. import) would otherwise leave all messages of the actuator unrecognized. The SN makes it unique.
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 3) {
     for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
       const Channel& ch = cfg_.channels[i];
-      if (!ch.blind && (t.dst & 0xFF) == ((ch.offset + kGoSumstatusInfo) & 0xFF) && memcmp(ch.sn, t.addr, 6) == 0) {
+      if (!ch.blind && (t.dst & 0xFF) == ((ch.offset + goOf(ch, kSlotSumInfo)) & 0xFF) &&
+          memcmp(ch.sn, t.addr, 6) == 0) {
         st_[i].pollPending = false;
         updateState(i, true, (t.data[0] & 0x80) != 0, true, t.data[0] & 0x7F, Source::STATUS_MSG);
       }
@@ -551,13 +572,13 @@ void Server::tick(uint32_t now) {
       s.pollPending = false;
       const Channel& ch = cfg_.channels[i];
       if (ch.blind) {
-        queueRead(ch.ia, ch.offset + kGoBlindPosNow, Origin::POLL);
-        queueRead(ch.ia, ch.offset + kGoBlindSlatNow, Origin::POLL);
+        queueRead(ch.ia, ch.offset + goOf(ch, kSlotPosNow), Origin::POLL);
+        queueRead(ch.ia, ch.offset + goOf(ch, kSlotSlatNow), Origin::POLL);
         schedulePoll(i, now);  // next stage
         continue;
       }
-      queueRead(ch.ia, ch.offset + kGoStatus, Origin::POLL);
-      if (ch.dimmer) queueRead(ch.ia, ch.offset + kGoStatusValue, Origin::POLL);
+      queueRead(ch.ia, ch.offset + goOf(ch, kSlotStatus), Origin::POLL);
+      if (ch.dimmer) queueRead(ch.ia, ch.offset + goOf(ch, kSlotStatusValue), Origin::POLL);
     }
   }
   if (busy_ && reached(now, deadline_)) {

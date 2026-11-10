@@ -146,13 +146,14 @@ class Check:
                 if ia is not None and not key.startswith(f"{ia}/"):
                     continue
                 if key in channels_ and key not in s.open_items:
-                    needed.setdefault(key, set()).add((s.ga, GO_SCENE))
+                    k = channels_[key]
+                    needed.setdefault(key, set()).add((s.ga, k.go("SC", GO_SCENE)))
                     if s.ga_status is not None:
-                        needed[key].add((s.ga_status, GO_SUMSTATUS_GET))
+                        needed[key].add((s.ga_status, k.go("SSGET", GO_SUMSTATUS_GET)))
         missing: dict[str, list[tuple[int, int]]] = {}
         for key, wanted in needed.items():
             k = channels_[key]
-            for go in (GO_SCENE, GO_SUMSTATUS_GET):
+            for go in (k.go("SC", GO_SCENE), k.go("SSGET", GO_SUMSTATUS_GET)):
                 present = await self._links(k, go)
                 if present is None:
                     continue  # not reachable: reported as "does not respond"
