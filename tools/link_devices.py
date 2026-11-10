@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-Sender-Wippe mit einem Aktor-Kanal verknüpfen – ohne eNet Server, nach Mitschnitten
-(verknuepfen.jsonl, wandsender.jsonl; docs/NOTES.md „Verknüpfen und Löschen“). --loeschen entfernt sie wieder.
+Link a transmitter rocker to an actuator channel – without an eNet Server, based on captures
+(verknuepfen.jsonl, wandsender.jsonl; docs/NOTES.md "Verknüpfen und Löschen"). --loeschen removes the link again.
 
-  python3 tools/verknuepfen.py --port ssh://root@<ha-host> --anlage anlage.json \
+  python3 tools/link_devices.py --port ssh://root@<ha-host> --anlage anlage.json \
       --sender 0.0.3 --wippe 4 --aktor 0.0.30 [--kanal 1] [--loeschen]
 
-Regel für Wippe n (bestätigt an HS4 W3/W4 und WS3 W2): Tastenwert-GA 50+3n, Statusabfrage-GA 51+3n,
-Parameter-Objekte 2n+1 (= Link-Objekt) und 2n+2 (= ff), Link-Objekt 0x0B+n.
-Aktor-Kanal k: Link-Objekt 2+k, GOs kanalweise ab 1 (1 = Tastenwert, 19 = Statusabfrage),
-Status-GA = GA-Basis·256 + Kanaloffset + 22 (bestätigt an SA2M K1/K2).
-Nur bei ausgestecktem eNet Server verwenden!
+Rule for rocker n (confirmed on HS4 W3/W4 and WS3 W2): key value GA 50+3n, status query GA 51+3n,
+parameter objects 2n+1 (= link object) and 2n+2 (= ff), link object 0x0B+n.
+Actuator channel k: link object 2+k, GOs per channel starting at 1 (1 = key value, 19 = status query),
+status GA = GA base·256 + channel offset + 22 (confirmed on SA2M K1/K2).
+Only use with the eNet Server unplugged!
 """
 import json, os, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import enet  # noqa: E402
-from einlernen import Bridge, apci, arg  # noqa: E402
+from pair import Bridge, apci, arg  # noqa: E402
 
 SRV_IA = 0x7FFF
 
@@ -26,20 +26,20 @@ def main():
     if not port or not arg("--sender") or not arg("--aktor"):
         sys.exit(__doc__)
     with open(arg("--anlage", "anlage.json"), encoding="utf-8") as f:
-        anlage = json.load(f)
-    dom, srv_sn = anlage["server"]["domain"], anlage["server"]["sn"]
-    by_ia = {d["ia"]: d for d in anlage["geraete"]}
-    sender, aktor = by_ia[arg("--sender")], by_ia[arg("--aktor")]
-    s_ia, a_ia = enet.ia_int(sender["ia"]), enet.ia_int(aktor["ia"])
-    s_sn, a_sn = bytes.fromhex(sender["sn"]), bytes.fromhex(aktor["sn"])
+        installation = json.load(f)
+    dom, srv_sn = installation["server"]["domain"], installation["server"]["sn"]
+    by_ia = {d["ia"]: d for d in installation["geraete"]}
+    sender, actuator = by_ia[arg("--sender")], by_ia[arg("--aktor")]
+    s_ia, a_ia = enet.ia_int(sender["ia"]), enet.ia_int(actuator["ia"])
+    s_sn, a_sn = bytes.fromhex(sender["sn"]), bytes.fromhex(actuator["sn"])
     k = int(arg("--kanal", "1"))
-    kanal = aktor["kanaele"][k - 1]
-    aktor_obj = 2 + k
-    status_ga = aktor.get("ga_basis", 0) * 256 + kanal["offset"] + 22
+    channel = actuator["kanaele"][k - 1]
+    actuator_obj = 2 + k
+    status_ga = actuator.get("ga_basis", 0) * 256 + channel["offset"] + 22
     op = b"\x02\x00" if "--loeschen" in sys.argv else b"\x00\x00"
     n = int(arg("--wippe", "4"))
-    WIPPE_GA = 50 + 3 * n             # Tastenwert-GA, Statusabfrage = WIPPE_GA + 1
-    SENDER_LINK_OBJ = 0x0B + n        # Link-Objekt des Senders für die Status-LED dieser Wippe
+    ROCKER_GA = 50 + 3 * n             # key value GA, status query = ROCKER_GA + 1
+    SENDER_LINK_OBJ = 0x0B + n        # transmitter link object for the status LED of this rocker
     SENDER_PARAMS = [(2 * n + 1, 0x4F, 1, bytes([SENDER_LINK_OBJ])), (2 * n + 2, 0x4F, 1, b"\xff")]
     b = Bridge(port)
 
@@ -69,7 +69,7 @@ def main():
             sys.exit("Abbruch")
 
     def program(ia, ts_obj, steps):
-        """Rahmen wie der Server: Ladezustand 02, Vorbereitung, Schritte, Abschluss, Ladezustand 01."""
+        """Framing like the server: load state 02, preparation, steps, completion, load state 01."""
         prop_write(ia, 0x01, 0x06, 1, b"\x02" + bytes(9))
         prop_write(ia, ts_obj, 0x39, 1, bytes.fromhex("000000000003"))
         steps()
@@ -86,7 +86,7 @@ def main():
                 return
         print("  Ladezustand nicht bestätigt (weiter)", flush=True)
 
-    # 1. Sender wecken
+    # 1. Wake up the transmitter
     wake = enet.build_frame(srv_sn, False, True, SRV_IA, 0, 0x3E4,
                             bytes.fromhex("c35148") + s_sn + bytes.fromhex("0200000000"))
     print(f"Handsender wecken – jetzt Taste 7 oder 8 drücken …", flush=True)
@@ -99,16 +99,16 @@ def main():
         sys.exit("Sender nicht wach geworden")
     print("Sender wach, Modus:", (prop_read(s_ia, 0x10, 0x48) or b"").hex(), flush=True)
 
-    # 2. Aktor: Tastenwert (GA n) -> GO 1, Statusabfrage (GA n+1) -> GO 19
-    print(f"Aktor {aktor['ia']} Kanal {k} programmieren …", flush=True)
+    # 2. Actuator: key value (GA n) -> GO 1, status query (GA n+1) -> GO 19
+    print(f"Aktor {actuator['ia']} Kanal {k} programmieren …", flush=True)
 
-    def aktor_steps():
-        link(a_ia, aktor_obj, s_sn, WIPPE_GA, 1)
-        link(a_ia, aktor_obj, s_sn, WIPPE_GA + 1, 19)
-    aktor_steps.link_obj = aktor_obj
-    program(a_ia, 0x04, aktor_steps)
+    def actuator_steps():
+        link(a_ia, actuator_obj, s_sn, ROCKER_GA, 1)
+        link(a_ia, actuator_obj, s_sn, ROCKER_GA + 1, 19)
+    actuator_steps.link_obj = actuator_obj
+    program(a_ia, 0x04, actuator_steps)
 
-    # 3. Sender: Parameter, Status-LED hört auf die Statusmeldung des Aktors
+    # 3. Transmitter: parameters, status LED listens to the actuator's status message
     print(f"Sender {sender['ia']} programmieren …", flush=True)
 
     def sender_steps():
@@ -117,8 +117,8 @@ def main():
         link(s_ia, SENDER_LINK_OBJ, a_sn, status_ga, 1)
     sender_steps.link_obj = SENDER_LINK_OBJ
     program(s_ia, 0x10, sender_steps)
-    prop_write(s_ia, 0x10, 0x48, 1, b"\x03")  # Sender entlassen
-    print(f"Fertig – Wippe {n} " + ("gelöst" if op[0] else f"mit {aktor['name']} verknüpft (Status-GA {status_ga})"))
+    prop_write(s_ia, 0x10, 0x48, 1, b"\x03")  # release the transmitter
+    print(f"Fertig – Wippe {n} " + ("gelöst" if op[0] else f"mit {actuator['name']} verknüpft (Status-GA {status_ga})"))
 
 
 if __name__ == "__main__":

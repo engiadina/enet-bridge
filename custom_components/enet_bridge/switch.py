@@ -1,4 +1,4 @@
-"""Bridge: Server-Funktionen ein/aus (Tasten beantworten, lokale Szenen, Status-Polling)."""
+"""Bridge: server functions on/off (answer key presses, local scenes, status polling)."""
 from __future__ import annotations
 
 from typing import Any
@@ -11,15 +11,15 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EnetConfigEntry, bridge_info
 from .bridge import BridgeError
-from .entity import EnetEntity, EnetParamEntity, param_entitaeten
-from .texte import tr
+from .entity import EnetEntity, EnetParamEntity, param_entities
+from .texts import tr
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    async_add_entities([ServerSwitch(hub), Mithoeren(hub)] +
-                       param_entitaeten(hub, EnetParamSwitch, lambda p: p.art == "bool" and not p.nur_lesen))
+    async_add_entities([ServerSwitch(hub), ListenOnly(hub)] +
+                       param_entities(hub, EnetParamSwitch, lambda p: p.art == "bool" and not p.read_only))
 
 
 class ServerSwitch(EnetEntity, SwitchEntity):
@@ -37,7 +37,7 @@ class ServerSwitch(EnetEntity, SwitchEntity):
 
     async def _set(self, on: bool) -> None:
         try:
-            await self.hub.server_setzen(on)
+            await self.hub.set_server(on)
         except BridgeError as err:
             raise HomeAssistantError(tr("server_funktionen_fehler", err=err)) from err
 
@@ -48,8 +48,9 @@ class ServerSwitch(EnetEntity, SwitchEntity):
         await self._set(False)
 
 
-class Mithoeren(EnetEntity, SwitchEntity):
-    """„Nur mithören“: Bridge empfängt nur, sendet nichts (Betrieb neben dem echten Server vor dem Umzug)."""
+class ListenOnly(EnetEntity, SwitchEntity):
+    """"Listen only": the bridge only receives and sends nothing (operation alongside the real server before
+    migrating)."""
 
     _attr_translation_key = "mithoeren"
     _attr_entity_category = EntityCategory.CONFIG
@@ -62,15 +63,15 @@ class Mithoeren(EnetEntity, SwitchEntity):
 
     @property
     def available(self) -> bool:
-        return True  # auch ohne Bridge umschaltbar (gilt beim nächsten Verbinden)
+        return True  # can be toggled even without a bridge (applies on the next connection)
 
     @property
     def is_on(self) -> bool:
-        return self.hub.mithoeren
+        return self.hub.listen_only
 
     async def _set(self, on: bool) -> None:
         try:
-            await self.hub.mithoeren_setzen(on)
+            await self.hub.set_listen_only(on)
         except BridgeError as err:
             raise HomeAssistantError(tr("mithoeren_fehler", err=err)) from err
 
@@ -82,14 +83,14 @@ class Mithoeren(EnetEntity, SwitchEntity):
 
 
 class EnetParamSwitch(EnetParamEntity, SwitchEntity):
-    """Ein/Aus-Parameter eines Aktors."""
+    """On/off parameter of an actuator."""
 
     @property
     def is_on(self) -> bool | None:
-        return self.wert
+        return self.value
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.schreiben(True)
+        await self.write(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.schreiben(False)
+        await self.write(False)

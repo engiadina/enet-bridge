@@ -1,4 +1,4 @@
-"""eNet-Bridge: Gira/Jung eNet-Funk ohne eNet Server (ESP32 + CC1101 an USB)."""
+"""eNet-Bridge: Gira/Jung eNet radio without eNet Server (ESP32 + CC1101 on USB)."""
 from __future__ import annotations
 
 import functools
@@ -17,50 +17,50 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from . import einlernen, ha_wippe, sender
-from .bridge import Bridge, BridgeError, fremdes_funkmodul
-from .anlage import AnlageSpeicher
-from .const import CONF_ANLAGE, CONF_PORT, DEFAULT_DEFINITIONEN, DOMAIN, MANUFACTURER
+from . import pair, ha_rocker, sender
+from .bridge import Bridge, BridgeError, foreign_radio
+from .installation import InstallationStore
+from .const import CONF_INSTALLATION, CONF_PORT, DEFAULT_DEFINITIONS, DOMAIN, MANUFACTURER
 from .hub import Hub
-from .texte import tr
-from . import texte
-from .iex import produkt_kennung
-from .params import lade_definitionen
+from .texts import tr
+from . import texts
+from .iex import product_ident
+from .params import load_definitions
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.COVER, Platform.EVENT, Platform.LIGHT, Platform.NUMBER,
              Platform.SCENE, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.UPDATE]
 
 _LOGGER = logging.getLogger(__name__)
 
-SCHEMA_SZENE_ANLEGEN = vol.Schema({
+SCHEMA_SCENE_CREATE = vol.Schema({
     vol.Required("name"): cv.string,
     vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
     vol.Optional("lernen", default=True): cv.boolean,
 })
-SCHEMA_SZENE_LOESCHEN = vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id})
-SCHEMA_EINLERNEN = vol.Schema({vol.Optional("name"): cv.string})
-SCHEMA_ENTFERNEN = vol.Schema({vol.Required("device_id"): cv.string})
-SCHEMA_VERKNUEPFUNGEN = vol.Schema({vol.Optional("device_id"): vol.All(cv.ensure_list, [cv.string])})
+SCHEMA_SCENE_DELETE = vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id})
+SCHEMA_PAIR = vol.Schema({vol.Optional("name"): cv.string})
+SCHEMA_REMOVE = vol.Schema({vol.Required("device_id"): cv.string})
+SCHEMA_LINKS = vol.Schema({vol.Optional("device_id"): vol.All(cv.ensure_list, [cv.string])})
 
 type EnetConfigEntry = ConfigEntry[Hub]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool:
-    texte.setzen(hass.config.language)
-    if fremdes_funkmodul(entry.data[CONF_PORT]):
+    texts.set_language(hass.config.language)
+    if foreign_radio(entry.data[CONF_PORT]):
         raise ConfigEntryError(tr("fremdes_funkmodul_start", port=entry.data[CONF_PORT]))
-    speicher = AnlageSpeicher(hass, entry.entry_id)
-    anlage = await speicher.laden(entry)
-    # Gerätedefinitionen (tools/katalog.py) liegen neben der Anlage bzw. in /config/enet
-    pfad = (os.path.join(os.path.dirname(entry.data[CONF_ANLAGE]), "definitionen.json")
-            if CONF_ANLAGE in entry.data else DEFAULT_DEFINITIONEN)
-    # mitgelieferte Definitionen (alle Katalog-Typen), eine lokale Datei ergänzt bzw. überschreibt sie
-    definitionen = await hass.async_add_executor_job(
-        lade_definitionen, os.path.join(os.path.dirname(__file__), "definitionen.json"))
-    definitionen |= await hass.async_add_executor_job(lade_definitionen, pfad)
-    await hass.async_add_executor_job(_blueprints_anlegen, hass.config.path("blueprints", "automation", DOMAIN))
-    hub = Hub(hass, entry.entry_id, Bridge(hass.loop, entry.data[CONF_PORT]), anlage, definitionen=definitionen,
-              speicher=speicher)
+    store = InstallationStore(hass, entry.entry_id)
+    installation = await store.laden(entry)
+    # device definitions (tools/katalog.py) live next to the installation file or in /config/enet
+    path_ = (os.path.join(os.path.dirname(entry.data[CONF_INSTALLATION]), "definitionen.json")
+            if CONF_INSTALLATION in entry.data else DEFAULT_DEFINITIONS)
+    # bundled definitions (all catalog types); a local file supplements or overrides them
+    definitions = await hass.async_add_executor_job(
+        load_definitions, os.path.join(os.path.dirname(__file__), "definitionen.json"))
+    definitions |= await hass.async_add_executor_job(load_definitions, path_)
+    await hass.async_add_executor_job(_install_blueprints, hass.config.path("blueprints", "automation", DOMAIN))
+    hub = Hub(hass, entry.entry_id, Bridge(hass.loop, entry.data[CONF_PORT]), installation, definitions=definitions,
+              store=store)
     entry.runtime_data = hub
 
     bridge_dev = dr.async_get(hass).async_get_or_create(
@@ -71,12 +71,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
         name="eNet-Bridge",
     )
     hub.bridge_device_id = bridge_dev.id
-    # eNet-Geräte vorab anlegen: Kanal-Geräte mehrkanaliger Aktoren hängen per via_device_id daran
-    for g in anlage["geraete"]:
-        hub.geraet_device_id[g["sn"]] = dr.async_get(hass).async_get_or_create(
-            config_entry_id=entry.entry_id, **geraet_info(hub, g)).id
-    await hub.szenen.laden()
-    _verwaiste_tasten_entfernen(hass, hub)
+    # create eNet devices up front: channel devices of multi-channel actuators attach to them via via_device_id
+    for g in installation["geraete"]:
+        hub.device_ids[g["sn"]] = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, **device_info_for(hub, g)).id
+    await hub.scenes.laden()
+    _remove_orphaned_keys(hass, hub)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await hub.async_start()
 
@@ -91,161 +91,161 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
 
         hass.services.async_register(DOMAIN, "release", _release)
         hass.services.async_register(DOMAIN, "reconnect", _reconnect)
-        hass.services.async_register(DOMAIN, "geraet_einlernen", functools.partial(_einlernen, hass),
-                                     schema=SCHEMA_EINLERNEN)
-        hass.services.async_register(DOMAIN, "geraet_entfernen", functools.partial(_entfernen, hass),
-                                     schema=SCHEMA_ENTFERNEN)
-        hass.services.async_register(DOMAIN, "sender_programmieren", functools.partial(_sender_programmieren, hass),
-                                     schema=SCHEMA_ENTFERNEN)
-        hass.services.async_register(DOMAIN, "verknuepfungen_lesen", functools.partial(_verknuepfungen_lesen, hass),
-                                     schema=SCHEMA_VERKNUEPFUNGEN, supports_response=SupportsResponse.OPTIONAL)
-        hass.services.async_register(DOMAIN, "szene_anlegen", functools.partial(_szene_anlegen, hass),
-                                     schema=SCHEMA_SZENE_ANLEGEN)
-        hass.services.async_register(DOMAIN, "szene_loeschen", functools.partial(_szene_loeschen, hass),
-                                     schema=SCHEMA_SZENE_LOESCHEN)
+        hass.services.async_register(DOMAIN, "geraet_einlernen", functools.partial(_pair, hass),
+                                     schema=SCHEMA_PAIR)
+        hass.services.async_register(DOMAIN, "geraet_entfernen", functools.partial(_remove, hass),
+                                     schema=SCHEMA_REMOVE)
+        hass.services.async_register(DOMAIN, "sender_programmieren", functools.partial(_program_sender, hass),
+                                     schema=SCHEMA_REMOVE)
+        hass.services.async_register(DOMAIN, "verknuepfungen_lesen", functools.partial(_read_links, hass),
+                                     schema=SCHEMA_LINKS, supports_response=SupportsResponse.OPTIONAL)
+        hass.services.async_register(DOMAIN, "szene_anlegen", functools.partial(_scene_create, hass),
+                                     schema=SCHEMA_SCENE_CREATE)
+        hass.services.async_register(DOMAIN, "szene_loeschen", functools.partial(_scene_delete, hass),
+                                     schema=SCHEMA_SCENE_DELETE)
     return True
 
 
-def _blueprints_anlegen(ziel: str) -> None:
-    """Mitgelieferte Blueprints nach blueprints/automation/enet_bridge kopieren – nur fehlende, eine vorhandene
-    (ggf. vom Nutzer geänderte) Datei bleibt. HA liest Blueprints erst beim Öffnen der Liste, kein Neuladen nötig."""
-    quelle = os.path.join(os.path.dirname(__file__), "blueprints")
+def _install_blueprints(target: str) -> None:
+    """Copy bundled blueprints to blueprints/automation/enet_bridge – only missing ones; an existing file (possibly
+    changed by the user) is kept. HA reads blueprints only when the list is opened, no reload needed."""
+    source_ = os.path.join(os.path.dirname(__file__), "blueprints")
     try:
-        for name in sorted(os.listdir(quelle)):
-            pfad = os.path.join(ziel, name)
-            if name.endswith(".yaml") and not os.path.exists(pfad):
-                os.makedirs(ziel, exist_ok=True)
-                shutil.copyfile(os.path.join(quelle, name), pfad)
-                _LOGGER.info("Blueprint %s installed", pfad)
+        for name in sorted(os.listdir(source_)):
+            path_ = os.path.join(target, name)
+            if name.endswith(".yaml") and not os.path.exists(path_):
+                os.makedirs(target, exist_ok=True)
+                shutil.copyfile(os.path.join(source_, name), path_)
+                _LOGGER.info("Blueprint %s installed", path_)
     except OSError as err:
         _LOGGER.warning("Blueprints not installed: %s", err)
 
 
-def _verwaiste_tasten_entfernen(hass: HomeAssistant, hub: Hub) -> None:
-    """Tasten-Entitäten (Ereignis, „Taste k: Aktion“, „Wippe n: Lampe i“) entfernen, die es nach dem Umbelegen nicht mehr gibt."""
-    bleiben = {f"{t.geraet['sn']}_taste_{t.nr}" for t in hub.tasten}
-    unbekannt = set()  # Belegung nicht lesbar: deren Aktions-Auswahl nicht anfassen
-    for g in hub.anlage["geraete"]:
+def _remove_orphaned_keys(hass: HomeAssistant, hub: Hub) -> None:
+    """Remove key entities (event, "Key k: action", "Rocker n: lamp i") that no longer exist after reassignment."""
+    remain = {f"{t.enet_device['sn']}_taste_{t.nr}" for t in hub.keys_}
+    unknown = set()  # assignment not readable: don't touch their action selects
+    for g in hub.installation["geraete"]:
         if g.get("rolle") != "sender":
             continue
         try:
-            bel = sender.geplante_belegung(g)
+            assigned = sender.planned_assignment(g)
         except BridgeError:
-            unbekannt.add(g["sn"])
+            unknown.add(g["sn"])
             continue
-        bleiben |= {f"{g['sn']}_taste{k}_aktion" for n, b in bel.items() if b["art"] == "tasten"
+        remain |= {f"{g['sn']}_taste{k}_aktion" for n, b in assigned.items() if b["art"] == "tasten"
                     for k in (2 * n - 1, 2 * n)}
-        bleiben |= {f"{g['sn']}_wippe{n}_lampe{i}" for n in range(1, sender.wippen_anzahl(hub, g) + 1)
-                    for i in range(1, sender.lampen_auswahlen(g, n) + 1)}
-        if sender.vorgemerkt(g):
-            bleiben |= {f"{g['sn']}_wippe{n}_sender_programmieren" for n in range(1, sender.wippen_anzahl(hub, g) + 1)}
-        bleiben |= {f"{g['sn']}_wippe{n}_abdimmen" for n, b in bel.items()
-                    if b["art"] == "wippe" and ha_wippe.abdimmen_sinnvoll(hub, b)}
+        remain |= {f"{g['sn']}_wippe{n}_lampe{i}" for n in range(1, sender.rocker_count(hub, g) + 1)
+                    for i in range(1, sender.lamp_choices(g, n) + 1)}
+        if sender.pending(g):
+            remain |= {f"{g['sn']}_wippe{n}_sender_programmieren" for n in range(1, sender.rocker_count(hub, g) + 1)}
+        remain |= {f"{g['sn']}_wippe{n}_abdimmen" for n, b in assigned.items()
+                    if b["art"] == "wippe" and ha_rocker.dim_down_useful(hub, b)}
     reg = er.async_get(hass)
-    if alt := reg.async_get_entity_id("button", DOMAIN, f"{hub.entry_id}_kalibrieren"):
-        reg.async_remove(alt)  # Knopf „Funk kalibrieren“ gibt es seit 0.9.6 nicht mehr (automatisch)
+    if old := reg.async_get_entity_id("button", DOMAIN, f"{hub.entry_id}_kalibrieren"):
+        reg.async_remove(old)  # the "calibrate radio" button no longer exists since 0.9.6 (automatic)
     for e in er.async_entries_for_config_entry(reg, hub.entry_id):
         uid = e.unique_id
         if e.domain == "event" and "_taste_" in uid or (
                 e.domain == "button" and re.fullmatch(r"[0-9a-f]+_wippe\d+_sender_programmieren", uid)) or (
                 e.domain == "select" and re.fullmatch(r"[0-9a-f]+_(taste\d+_aktion|wippe\d+_lampe\d+|wippe\d+_abdimmen)", uid)
-                and uid.split("_")[0] not in unbekannt):
-            if uid not in bleiben:
+                and uid.split("_")[0] not in unknown):
+            if uid not in remain:
                 _LOGGER.info("Entity %s removed (button no longer assigned)", e.entity_id)
                 reg.async_remove(e.entity_id)
 
 
-async def _einlernen(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Gerät im Lernmodus aufnehmen (eine Anlage: die erste geladene)."""
+async def _pair(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Add a device in learning mode (one installation: the first loaded one)."""
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if not entries:
         raise ServiceValidationError(tr("keine_anlage"))
     hub = entries[0].runtime_data
     try:
-        await einlernen.aufnehmen(hub, call.data.get("name"))
+        await pair.add(hub, call.data.get("name"))
     except BridgeError as err:
-        hub.aktivitaet(tr("akt_einlernen_fehlgeschlagen", err=err))
+        hub.activity(tr("akt_einlernen_fehlgeschlagen", err=err))
         raise HomeAssistantError(tr("einlernen_fehler", err=err)) from err
     finally:
         hass.config_entries.async_schedule_reload(hub.entry_id)
 
 
-async def _entfernen(hass: HomeAssistant, call: ServiceCall) -> None:
-    """eNet-Gerät in den Werkszustand versetzen und aus der Anlage nehmen."""
+async def _remove(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Factory-reset an eNet device and remove it from the installation."""
     dev = dr.async_get(hass).async_get(call.data["device_id"])
     sn = next((i[1] for i in dev.identifiers if i[0] == DOMAIN), None) if dev else None
     for e in hass.config_entries.async_loaded_entries(DOMAIN):
         hub = e.runtime_data
-        geraet = next((g for g in hub.anlage["geraete"] if g["sn"] == sn), None)
-        if geraet is None:
+        enet_device = next((g for g in hub.installation["geraete"] if g["sn"] == sn), None)
+        if enet_device is None:
             continue
         try:
-            await einlernen.entfernen(hub, geraet)
+            await pair.remove(hub, enet_device)
         except BridgeError as err:
             raise HomeAssistantError(tr("entfernen_fehler", err=err)) from err
         reg = dr.async_get(hass)
         for d in dr.async_entries_for_config_entry(reg, hub.entry_id):
-            if any(i[0] == DOMAIN and i[1].split("_")[0] == geraet["sn"] for i in d.identifiers):
+            if any(i[0] == DOMAIN and i[1].split("_")[0] == enet_device["sn"] for i in d.identifiers):
                 reg.async_remove_device(d.id)
         hass.config_entries.async_schedule_reload(hub.entry_id)
         return
     raise ServiceValidationError(tr("kein_geraet"))
 
 
-def _geraet_fuer(hass: HomeAssistant, device_id: str) -> tuple[Hub, dict, dr.DeviceEntry]:
+def _device_for(hass: HomeAssistant, device_id: str) -> tuple[Hub, dict, dr.DeviceEntry]:
     dev = dr.async_get(hass).async_get(device_id)
     sn = next((i[1] for i in dev.identifiers if i[0] == DOMAIN), None) if dev else None
     for e in hass.config_entries.async_loaded_entries(DOMAIN):
-        if g := next((g for g in e.runtime_data.anlage["geraete"] if g["sn"] == sn), None):
+        if g := next((g for g in e.runtime_data.installation["geraete"] if g["sn"] == sn), None):
             return e.runtime_data, g, dev
     raise ServiceValidationError(tr("kein_enet_geraet"))
 
 
-async def _sender_programmieren(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Sender wecken und mit seiner Belegung aus der Anlage komplett neu programmieren."""
-    hub, g, _ = _geraet_fuer(hass, call.data["device_id"])
+async def _program_sender(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Wake a transmitter and fully reprogram it with its assignment from the installation."""
+    hub, g, _ = _device_for(hass, call.data["device_id"])
     if g.get("rolle") != "sender":
         raise ServiceValidationError(tr("kein_sender", name=g["name"]))
     try:
-        await sender.programmieren(hub, g)
+        await sender.program(hub, g)
     except BridgeError as err:
         raise HomeAssistantError(f"{g['name']}: {err}") from err
-    hub.neu_laden_nach_funk()  # Tastenzuordnung (GA-Basis, Belegung) neu, erst nach allen Funk-Sitzungen
+    hub.reload_after_radio()  # rebuild key mapping (GA base, assignment), only after all radio sessions
 
 
-async def _verknuepfungen_lesen(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
-    """Link-Tabellen von Aktoren (ohne Angabe: alle) lesen und bewerten; auffällige Einträge kommen unter
-    Reparaturen. Antwort: je Aktor die angelegten Verknüpfungen (ohne Werkseinträge) mit Bewertung."""
+async def _read_links(hass: HomeAssistant, call: ServiceCall) -> ServiceResponse:
+    """Read and assess the link tables of actuators (none given: all); suspicious entries go to Repairs.
+    Response: per actuator the created links (without factory entries) with assessment."""
     if ids := call.data.get("device_id"):
-        ziele = [_geraet_fuer(hass, i)[:2] for i in ids]
+        targets = [_device_for(hass, i)[:2] for i in ids]
     else:
-        ziele = [(e.runtime_data, g) for e in hass.config_entries.async_loaded_entries(DOMAIN)
-                 for g in e.runtime_data.anlage["geraete"]]
-    antwort: dict = {}
-    for hub, g in ziele:
-        if not any(k.geraet is g for k in hub.kanaele):
+        targets = [(e.runtime_data, g) for e in hass.config_entries.async_loaded_entries(DOMAIN)
+                 for g in e.runtime_data.installation["geraete"]]
+    answer: dict = {}
+    for hub, g in targets:
+        if not any(k.enet_device is g for k in hub.channels_):
             if ids:
                 raise ServiceValidationError(tr("kein_aktor", name=g["name"]))
             continue
-        if hub.mithoeren:
+        if hub.listen_only:
             raise ServiceValidationError(tr("nur_mithoeren_lesen"))
         try:
-            ergebnis = await hub.pruefung.geraet_links_lesen(g)
+            outcome = await hub.check.read_device_links(g)
         except BridgeError as err:
-            antwort[g["name"]] = {"ia": g["ia"], "fehler": str(err)}
+            answer[g["name"]] = {"ia": g["ia"], "fehler": str(err)}
             continue
-        antwort[g["name"]] = {
+        answer[g["name"]] = {
             "ia": g["ia"],
             "kanaele": {ch: {"werkseintraege": sum(e["art"] == "werk" for e in ee),
                              "verknuepfungen": [{k: v for k, v in e.items() if k != "typ"}
                                                 for e in ee if e["art"] != "werk"]}
-                        for ch, ee in ergebnis.items()},
+                        for ch, ee in outcome.items()},
             "auffaellig": len(g["links"]["auffaellig"]),
         }
-    return antwort
+    return answer
 
 
-def _hub_fuer(hass: HomeAssistant, entity_id: str, domain: str) -> tuple[Hub, er.RegistryEntry]:
+def _hub_for(hass: HomeAssistant, entity_id: str, domain: str) -> tuple[Hub, er.RegistryEntry]:
     e = er.async_get(hass).async_get(entity_id)
     if e is None or e.platform != DOMAIN or e.domain != domain or e.config_entry_id is None:
         raise ServiceValidationError(tr("nicht_bridge_entitaet", entity_id=entity_id, domain=domain))
@@ -255,71 +255,71 @@ def _hub_fuer(hass: HomeAssistant, entity_id: str, domain: str) -> tuple[Hub, er
     return entry.runtime_data, e
 
 
-async def _szene_anlegen(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Neue eNet-Szene aus eNet-Lampen; mit lernen = true gilt der aktuelle Zustand als Szenenwert."""
-    hub, kanaele = None, []
+async def _scene_create(hass: HomeAssistant, call: ServiceCall) -> None:
+    """New eNet scene from eNet lamps; with `lernen` = true the current state becomes the scene value."""
+    hub, channels_ = None, []
     for eid in call.data[ATTR_ENTITY_ID]:
-        h, e = _hub_fuer(hass, eid, "light")
+        h, e = _hub_for(hass, eid, "light")
         if hub is not None and h is not hub:
             raise ServiceValidationError(tr("lampen_eine_bridge"))
         hub = h
-        k = next((k for k in h.kanaele if f"{k.geraet['sn']}_{k.nr}" == e.unique_id), None)
+        k = next((k for k in h.channels_ if f"{k.enet_device['sn']}_{k.nr}" == e.unique_id), None)
         if k is None:
             raise ServiceValidationError(tr("kanal_fehlt", entity_id=eid))
-        kanaele.append(k)
+        channels_.append(k)
     try:
-        s = await hub.szenen.anlegen(call.data["name"], kanaele)
+        s = await hub.scenes.create(call.data["name"], channels_)
         if call.data["lernen"]:
-            await hub.szenen.lernen(s)
+            await hub.scenes.learn(s)
     except BridgeError as err:
         raise HomeAssistantError(tr("szene_fehler", name=call.data["name"], err=err)) from err
     _LOGGER.info("eNet scene %s created (no. %d, GA %d/%d)", s.name, s.nr, s.ga, s.ga_status)
     hass.config_entries.async_schedule_reload(hub.entry_id)
 
 
-async def _szene_loeschen(hass: HomeAssistant, call: ServiceCall) -> None:
-    """eNet-Szene löschen: Links in allen Mitgliedern entfernen, Entitäten entfernen."""
-    hub, e = _hub_fuer(hass, call.data[ATTR_ENTITY_ID], "scene")
-    s = hub.szenen.get(e.unique_id.split("_szene_", 1)[-1])
+async def _scene_delete(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Delete an eNet scene: remove the links in all members, remove the entities."""
+    hub, e = _hub_for(hass, call.data[ATTR_ENTITY_ID], "scene")
+    s = hub.scenes.get(e.unique_id.split("_szene_", 1)[-1])
     if s is None:
         raise ServiceValidationError(tr("szene_unbekannt", entity_id=e.entity_id))
     try:
-        offen = await hub.szenen.loeschen(s)
+        open_items = await hub.scenes.delete(s)
     except BridgeError as err:
         raise HomeAssistantError(tr("szene_fehler", name=s.name, err=err)) from err
     reg = er.async_get(hass)
     reg.async_remove(e.entity_id)
     if btn := reg.async_get_entity_id("button", DOMAIN, f"{e.unique_id}_speichern"):
         reg.async_remove(btn)
-    if offen:
-        hub.aktivitaet(tr("akt_szene_geloescht_offen", name=s.name, geraete=", ".join(offen)))
+    if open_items:
+        hub.activity(tr("akt_szene_geloescht_offen", name=s.name, geraete=", ".join(open_items)))
     hass.config_entries.async_schedule_reload(hub.entry_id)
 
 
 async def async_remove_config_entry_device(hass: HomeAssistant, entry: EnetConfigEntry,
                                            device: dr.DeviceEntry) -> bool:
-    """„Gerät löschen“ (Mülleimer): eNet-Gerät auf Werkszustand setzen, alles Zugehörige aufräumen und aus der Anlage
-    nehmen (wie „Konfigurieren → Gerät entfernen“, nur ohne Übersicht). Nicht gelöscht wird, wenn die Bridge fehlt
-    oder ein Sender nicht aufwacht – sonst stünde ein Gerät im Funk, das HA nicht mehr kennt.
-    Meldungen fest auf Deutsch: HA übersetzt Fehlermeldungen in der Serversprache, nicht in der Oberfläche."""
-    kennung = next((i[1] for i in device.identifiers if i[0] == DOMAIN), None) or ""
+    """"Delete device" (trash can): factory-reset the eNet device, clean up everything belonging to it and remove it
+    from the installation (like "Configure → Remove device", just without the overview). Nothing is deleted if the
+    bridge is missing or a transmitter does not wake up – otherwise a device would remain on the radio that HA no
+    longer knows. Messages fixed in German: HA translates error messages in the server language, not the UI one."""
+    ident = next((i[1] for i in device.identifiers if i[0] == DOMAIN), None) or ""
     hub = entry.runtime_data if entry.state is ConfigEntryState.LOADED else None
-    if kennung.startswith(("bridge_", "szenen_")):
+    if ident.startswith(("bridge_", "szenen_")):
         raise HomeAssistantError(tr("loeschen_bridge_szenen"))
-    sn, _, kanal = kennung.partition("_")  # Kanal-Geräte mehrkanaliger Aktoren: „SN_Kanal“
-    geraet = next((g for g in hub.anlage["geraete"] if g["sn"] == sn), None) if hub else None
-    if hub and geraet is None:
-        return True  # verwaist (nicht mehr in der Anlage)
+    sn, _, channel = ident.partition("_")  # channel devices of multi-channel actuators: "SN_channel"
+    enet_device = next((g for g in hub.installation["geraete"] if g["sn"] == sn), None) if hub else None
+    if hub and enet_device is None:
+        return True  # orphaned (no longer in the installation)
     if hub is None or not hub.bridge.connected:
         raise HomeAssistantError(tr("loeschen_nicht_verbunden"))
-    if kanal:
-        raise HomeAssistantError(tr("loeschen_kanal", name=geraet["name"]))
+    if channel:
+        raise HomeAssistantError(tr("loeschen_kanal", name=enet_device["name"]))
     try:
-        await einlernen.entfernen(hub, geraet)
+        await pair.remove(hub, enet_device)
     except BridgeError as err:
-        raise HomeAssistantError(tr("nicht_geloescht", name=geraet["name"], err=err)) from err
+        raise HomeAssistantError(tr("nicht_geloescht", name=enet_device["name"], err=err)) from err
     reg = dr.async_get(hass)
-    for d in dr.async_entries_for_config_entry(reg, entry.entry_id):  # Kanal-Geräte mit entfernen
+    for d in dr.async_entries_for_config_entry(reg, entry.entry_id):  # remove the channel devices too
         if d.id != device.id and any(i[0] == DOMAIN and i[1].split("_")[0] == sn for i in d.identifiers):
             reg.async_remove_device(d.id)
     hass.config_entries.async_schedule_reload(entry.entry_id)
@@ -333,63 +333,63 @@ async def async_unload_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> boo
     return ok
 
 
-HERSTELLER = {"gira": "Gira", "jung": "Jung"}
-# Jung-Artikelnummern für Geräte, die der Katalog nur unter Gira führt (Jung meldet dieselbe Kennung mit …3)
-JUNG_ARTIKEL = {"DVT_SF1S": "FM FS 1 S"}
+MANUFACTURERS = {"gira": "Gira", "jung": "Jung"}
+# Jung article numbers for devices the catalog lists only under Gira (Jung reports the same ident ending in …3)
+JUNG_ARTICLES = {"DVT_SF1S": "FM FS 1 S"}
 
 
-def _hersteller(hub: Hub, geraet: dict) -> tuple[str, str | None]:
-    """Hersteller und Artikelnummer aus den Gerätedefinitionen (sonst allgemein eNet, Typkennung). Maßgeblich ist
-    die vom Gerät gemeldete Kennung: letzte Ziffer 3 = Jung, auch wenn der Katalogeintrag von Gira stammt."""
-    typ = geraet.get("typ", "")
-    d = hub.definitionen.get(typ, {})
-    hersteller, artikel = d.get("hersteller") or "", d.get("artikel")
-    if produkt_kennung(geraet.get("produkt") or "").endswith("3") and hersteller != "jung":
-        hersteller, artikel = "jung", JUNG_ARTIKEL.get(typ)
-    return HERSTELLER.get(hersteller, MANUFACTURER), artikel or typ
+def _manufacturer(hub: Hub, enet_device: dict) -> tuple[str, str | None]:
+    """Manufacturer and article number from the device definitions (otherwise generic eNet, type ident). The ident
+    reported by the device is authoritative: last digit 3 = Jung, even if the catalog entry comes from Gira."""
+    typ = enet_device.get("typ", "")
+    d = hub.definitions.get(typ, {})
+    manufacturer_, article = d.get("hersteller") or "", d.get("artikel")
+    if product_ident(enet_device.get("produkt") or "").endswith("3") and manufacturer_ != "jung":
+        manufacturer_, article = "jung", JUNG_ARTICLES.get(typ)
+    return MANUFACTURERS.get(manufacturer_, MANUFACTURER), article or typ
 
 
-def geraet_info(hub: Hub, geraet: dict) -> dr.DeviceInfo:
-    """HA-Gerät für ein eNet-Gerät (über die Bridge)."""
-    hersteller, artikel = _hersteller(hub, geraet)
+def device_info_for(hub: Hub, enet_device: dict) -> dr.DeviceInfo:
+    """HA device for an eNet device (via the bridge)."""
+    manufacturer_, article = _manufacturer(hub, enet_device)
     return dr.DeviceInfo(
-        identifiers={(DOMAIN, geraet["sn"])},
-        name=geraet["name"],
-        manufacturer=hersteller,
-        model=hub.modell(geraet),
-        model_id=artikel,
-        serial_number=geraet["sn"],
-        suggested_area=geraet.get("raum"),  # optional in anlage.json; gilt nur beim ersten Anlegen
+        identifiers={(DOMAIN, enet_device["sn"])},
+        name=enet_device["name"],
+        manufacturer=manufacturer_,
+        model=hub.model(enet_device),
+        model_id=article,
+        serial_number=enet_device["sn"],
+        suggested_area=enet_device.get("raum"),  # optional in anlage.json; applies only on first creation
         via_device_id=hub.bridge_device_id,
     )
 
 
-def kanal_info(hub: Hub, kanal) -> dr.DeviceInfo:
-    """HA-Gerät für einen Kanal: bei einkanaligen Aktoren das Gerät selbst, sonst ein Child-Gerät „Kanal n“ des
-    Aktors, damit jeder Kanal in der Bedienung als eigenständige Lampe erscheint."""
-    g = kanal.geraet
-    if sum(1 for k in hub.alle_kanaele if k.geraet is g) == 1:
-        return geraet_info(hub, g)
-    return _teil_info(hub, g, f"{g['sn']}_{kanal.nr}", f"Kanal {kanal.nr}")
+def channel_info(hub: Hub, channel) -> dr.DeviceInfo:
+    """HA device for a channel: for single-channel actuators the device itself, otherwise a child device "Kanal n"
+    of the actuator, so that each channel appears as a separate lamp in the UI."""
+    g = channel.enet_device
+    if sum(1 for k in hub.all_channels if k.enet_device is g) == 1:
+        return device_info_for(hub, g)
+    return _part_info(hub, g, f"{g['sn']}_{channel.nr}", f"Kanal {channel.nr}")
 
 
-def wippe_info(hub: Hub, geraet: dict, n: int) -> dr.DeviceInfo:
-    """HA-Gerät für Wippe n eines Senders: bei einer Wippe der Sender selbst, sonst ein Child-Gerät „Wippe n“,
-    damit Betriebsart, Lampen bzw. Tastenaktionen jeder Wippe auf einer eigenen Seite stehen."""
-    if sender.wippen_anzahl(hub, geraet) <= 1:
-        return geraet_info(hub, geraet)
-    return _teil_info(hub, geraet, f"{geraet['sn']}_wippe{n}", tr("wippe_geraet", n=n))
+def rocker_info(hub: Hub, enet_device: dict, n: int) -> dr.DeviceInfo:
+    """HA device for rocker n of a transmitter: with one rocker the transmitter itself, otherwise a child device
+    "Rocker n", so that the mode, lamps or key actions of each rocker are on their own page."""
+    if sender.rocker_count(hub, enet_device) <= 1:
+        return device_info_for(hub, enet_device)
+    return _part_info(hub, enet_device, f"{enet_device['sn']}_wippe{n}", tr("wippe_geraet", n=n))
 
 
-def _teil_info(hub: Hub, geraet: dict, kennung: str, name: str) -> dr.ChildDeviceInfo:
-    """Child-Gerät (HA ab 2026.10): Teil des eNet-Geräts, auf dessen Seite aufgeführt; der Name wird in HA
-    mit dem des Geräts zusammengesetzt, der Bereich vom Gerät übernommen."""
-    return dr.ChildDeviceInfo(identifiers={(DOMAIN, kennung)}, name=name,
-                              parent_device_id=hub.geraet_device_id[geraet["sn"]])
+def _part_info(hub: Hub, enet_device: dict, ident: str, name: str) -> dr.ChildDeviceInfo:
+    """Child device (HA 2026.10+): part of the eNet device, listed on its page; HA combines the name with the
+    device's name and takes over the area from the device."""
+    return dr.ChildDeviceInfo(identifiers={(DOMAIN, ident)}, name=name,
+                              parent_device_id=hub.device_ids[enet_device["sn"]])
 
 
-def szenen_info(hub: Hub) -> dr.DeviceInfo:
-    """Sammel-Gerät für die eNet-Szenen (Szenen-Entitäten und „speichern“-Knöpfe)."""
+def scenes_device_info(hub: Hub) -> dr.DeviceInfo:
+    """Collective device for the eNet scenes (scene entities and "save" buttons)."""
     return dr.DeviceInfo(identifiers={(DOMAIN, f"szenen_{hub.entry_id}")}, name=tr("geraet_szenen"),
                          manufacturer=MANUFACTURER, model="KNX-Szenen in den Aktoren",
                          via_device_id=hub.bridge_device_id)

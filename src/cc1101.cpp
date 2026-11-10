@@ -2,40 +2,40 @@
 
 #include "config.h"
 
-// KNX RF 1.1 / wM-Bus Mode S: 868,3 MHz, 2-FSK, 32,768 kBaud (Chips), Hub 47,6 kHz,
-// Kanalbandbreite 270 kHz, Sync 0x7696 (16/16, ohne Carrier Sense), Laenge unendlich,
-// kein HW-Manchester, keine HW-CRC (beides in Software, siehe knxrf.cpp).
+// KNX RF 1.1 / wM-Bus Mode S: 868.3 MHz, 2-FSK, 32.768 kBaud (chips), deviation 47.6 kHz,
+// channel bandwidth 270 kHz, sync 0x7696 (16/16, without carrier sense), infinite length,
+// no HW Manchester, no HW CRC (both in software, see knxrf.cpp).
 static const uint8_t kConfig[][2] = {
-    {CC1101::IOCFG2, 0x0E},    // GDO2: Carrier Sense
-    {CC1101::IOCFG1, 0x2E},    // GDO1: hochohmig (= MISO)
-    {CC1101::IOCFG0, 0x06},    // GDO0: Sync empfangen .. Paketende
+    {CC1101::IOCFG2, 0x0E},    // GDO2: carrier sense
+    {CC1101::IOCFG1, 0x2E},    // GDO1: high impedance (= MISO)
+    {CC1101::IOCFG0, 0x06},    // GDO0: sync received .. end of packet
     {CC1101::FIFOTHR, 0x07},
     {CC1101::SYNC1, 0x76},
     {CC1101::SYNC0, 0x96},
     {CC1101::PKTLEN, 0xFF},
-    {CC1101::PKTCTRL1, 0x00},  // kein Status-Anhang, keine Adresspruefung
-    {CC1101::PKTCTRL0, 0x02},  // FIFO, kein CRC, unendliche Laenge
+    {CC1101::PKTCTRL1, 0x00},  // no status append, no address check
+    {CC1101::PKTCTRL0, 0x02},  // FIFO, no CRC, infinite length
     {CC1101::ADDR, 0x00},
     {CC1101::CHANNR, 0x00},
-    {CC1101::FSCTRL1, 0x08},   // ZF 203 kHz
-    {CC1101::FSCTRL0, 0x00},   // wird durch freqOffset ueberschrieben
-    {CC1101::FREQ2, 0x21},     // 868,300 MHz
+    {CC1101::FSCTRL1, 0x08},   // IF 203 kHz
+    {CC1101::FSCTRL0, 0x00},   // overwritten by freqOffset
+    {CC1101::FREQ2, 0x21},     // 868.300 MHz
     {CC1101::FREQ1, 0x65},
     {CC1101::FREQ0, 0x6A},
     {CC1101::MDMCFG4, 0x6A},   // BW 270 kHz, DRATE_E 10
     {CC1101::MDMCFG3, 0x4A},   // DRATE_M 74 -> 32,73 kBaud
-    {CC1101::MDMCFG2, 0x02},   // 2-FSK, kein Manchester, Sync 16/16 (ohne CS: +6..8 dB, Messung 2026-11-05)
-    {CC1101::MDMCFG1, 0x22},   // 4 Byte Praeambel (TX), CHANSPC_E 2
+    {CC1101::MDMCFG2, 0x02},   // 2-FSK, no Manchester, sync 16/16 (without CS: +6..8 dB, measured 2026-11-05)
+    {CC1101::MDMCFG1, 0x22},   // 4 bytes preamble (TX), CHANSPC_E 2
     {CC1101::MDMCFG0, 0xF8},
-    {CC1101::DEVIATN, 0x47},   // 47,6 kHz
+    {CC1101::DEVIATN, 0x47},   // 47.6 kHz
     {CC1101::MCSM2, 0x07},
-    {CC1101::MCSM1, 0x00},     // nach RX/TX -> IDLE
-    {CC1101::MCSM0, 0x18},     // Autokalibrierung IDLE->RX/TX
+    {CC1101::MCSM1, 0x00},     // after RX/TX -> IDLE
+    {CC1101::MCSM0, 0x18},     // auto-calibration IDLE->RX/TX
     {CC1101::FOCCFG, 0x2E},
     {CC1101::BSCFG, 0xBF},
-    {CC1101::AGCCTRL2, 0x03},  // volle DVGA-Verstaerkung (0x43 sperrte die hoechste Stufe)
-    {CC1101::AGCCTRL1, 0x06},  // CS-Schwelle MAGN_TARGET +6 dB, nur fuer Listen-before-talk (GDO2): mit voller
-                               // DVGA meldete 0x00 den leeren Kanal mit Antenne zu ~45 % belegt, 0x06 zu ~0 %
+    {CC1101::AGCCTRL2, 0x03},  // full DVGA gain (0x43 blocked the highest step)
+    {CC1101::AGCCTRL1, 0x06},  // CS threshold MAGN_TARGET +6 dB, only for listen-before-talk (GDO2): with full
+                               // DVGA, 0x00 reported the empty channel with antenna as ~45 % busy, 0x06 as ~0 %
     {CC1101::AGCCTRL0, 0xB5},
     {CC1101::FREND1, 0xB6},
     {CC1101::FREND0, 0x10},
@@ -53,7 +53,7 @@ void CC1101::select() {
   digitalWrite(cs_, LOW);
   uint32_t t0 = micros();
   while (digitalRead(PIN_MISO) && micros() - t0 < 2000) {
-  }  // CHIP_RDYn abwarten
+  }  // wait for CHIP_RDYn
 }
 
 void CC1101::deselect() {
@@ -101,10 +101,10 @@ bool CC1101::begin(int8_t freqOffset) {
   pinMode(cs_, OUTPUT);
   digitalWrite(cs_, HIGH);
   pinMode(gdo0_, INPUT);
-  if (gdo2_ >= 0) pinMode(gdo2_, INPUT_PULLDOWN);  // offen = "Kanal frei"
+  if (gdo2_ >= 0) pinMode(gdo2_, INPUT_PULLDOWN);  // open = "channel free"
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, cs_);
 
-  // Manueller Power-on-Reset laut Datenblatt
+  // Manual power-on reset according to the datasheet
   digitalWrite(cs_, LOW);
   delayMicroseconds(10);
   digitalWrite(cs_, HIGH);
@@ -113,7 +113,7 @@ bool CC1101::begin(int8_t freqOffset) {
   delay(2);
 
   uint8_t v = version();
-  if (v == 0x00 || v == 0xFF) return false;  // kein Chip / Verkabelung
+  if (v == 0x00 || v == 0xFF) return false;  // no chip / wiring
 
   for (auto& r : kConfig) writeReg(r[0], r[1]);
   writeReg(FSCTRL0, (uint8_t)freqOffset);
@@ -137,7 +137,7 @@ void CC1101::startRx() {
 }
 
 uint8_t CC1101::rxBytes() {
-  // Errata: Statusregister zweimal gleich lesen
+  // Errata: read the status register twice until equal
   uint8_t a, b;
   do {
     a = readStatus(RXBYTES);
@@ -147,7 +147,7 @@ uint8_t CC1101::rxBytes() {
 }
 
 bool CC1101::carrierSense() {
-  if (rauschen_.bereit()) return rauschen_.belegt(rssiDbm());
+  if (noise_.ready()) return noise_.busy(rssiDbm());
   return gdo2_ >= 0 ? digitalRead(gdo2_) : (readStatus(PKTSTATUS) & 0x40);
 }
 
@@ -156,7 +156,7 @@ bool CC1101::rxOverflow() { return readStatus(RXBYTES) & 0x80; }
 void CC1101::readFifo(uint8_t* buf, uint8_t n) {
   if (!n) return;
   select();
-  SPI.transfer(0x3F | 0xC0);  // Burst-Read RX-FIFO
+  SPI.transfer(0x3F | 0xC0);  // burst read RX FIFO
   for (uint8_t i = 0; i < n; ++i) buf[i] = SPI.transfer(0);
   deselect();
 }
@@ -174,18 +174,18 @@ void CC1101::setFreqOffset(int8_t freqOffset) {
   startRx();
 }
 
-// Senden ohne Hardware-Praeambel/Sync: Der Chip-Strom enthaelt Mode-S-Praeambel und
-// 18-Chip-Sync selbst (nicht byte-ausgerichtet, daher nicht per SYNC1/0 moeglich).
-// Feste Paketlaenge, FIFO (64 Byte) wird waehrend des Sendens nachgefuellt.
+// Transmit without hardware preamble/sync: the chip stream itself contains the Mode S preamble and
+// 18-chip sync (not byte-aligned, hence not possible via SYNC1/0).
+// Fixed packet length, the FIFO (64 bytes) is refilled during transmission.
 CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t maxWaitMs) {
   if (len == 0 || len > 255) return TX_TOO_LONG;
 
-  // Listen before talk: im RX auf freien Kanal warten
+  // Listen before talk: wait in RX for a free channel
   uint32_t t0 = millis();
-  lbtUeberschritten_ = false;
+  lbtOverrun_ = false;
   while (carrierSense()) {
     if (millis() - t0 >= maxWaitMs) {
-      lbtUeberschritten_ = true;
+      lbtOverrun_ = true;
       break;
     }
     delayMicroseconds(500);
@@ -193,9 +193,9 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
 
   idle();
   strobe(SFTX);
-  const uint8_t mdmcfg2Rx = readReg(MDMCFG2);  // Empfangs-Sync-Modus (auch per Befehl "w" geaendert)
-  writeReg(MDMCFG2, 0x00);   // 2-FSK, ohne Praeambel/Sync
-  writeReg(PKTCTRL0, 0x00);  // feste Laenge
+  const uint8_t mdmcfg2Rx = readReg(MDMCFG2);  // receive sync mode (also changed via command "w")
+  writeReg(MDMCFG2, 0x00);   // 2-FSK, without preamble/sync
+  writeReg(PKTCTRL0, 0x00);  // fixed length
   writeReg(PKTLEN, (uint8_t)len);
 
   size_t sent = len < 64 ? len : 64;
@@ -203,7 +203,7 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
   strobe(STX);
 
   TxResult res = TX_OK;
-  // 1 Byte = 8 Chips / 32,768 kchip/s = 244 us
+  // 1 byte = 8 chips / 32.768 kchip/s = 244 us
   const uint32_t timeoutUs = (uint32_t)len * 244 + 20000;
   const uint32_t t1 = micros();
   while (true) {
@@ -219,7 +219,7 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
         writeBurst(FIFO, chips + sent, n);
         sent += n;
       }
-    } else if (marcState() == 0x01) {  // IDLE -> fertig (MCSM1: TX -> IDLE)
+    } else if (marcState() == 0x01) {  // IDLE -> done (MCSM1: TX -> IDLE)
       break;
     }
     if (micros() - t1 > timeoutUs) {
@@ -231,7 +231,7 @@ CC1101::TxResult CC1101::transmit(const uint8_t* chips, size_t len, uint16_t max
 
   idle();
   strobe(SFTX);
-  writeReg(MDMCFG2, mdmcfg2Rx);  // zurueck auf den Empfangs-Sync-Modus
+  writeReg(MDMCFG2, mdmcfg2Rx);  // back to the receive sync mode
   writeReg(PKTCTRL0, 0x02);
   writeReg(PKTLEN, 0xFF);
   startRx();

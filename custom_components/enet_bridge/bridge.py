@@ -1,8 +1,8 @@
-"""Verbindung zur eNet-Bridge über USB (Protokoll 1, docs/SCHNITTSTELLE.md).
+"""Connection to the eNet bridge via USB (protocol 1, docs/INTERFACE.md).
 
-Eine JSON-Zeile pro Nachricht. Befehle tragen eine id; der ESP antwortet sofort mit "re" und meldet
-Funk-Ergebnisse später als "ev":"result" mit derselben id. Ereignisse ("ev") gehen an alle Zuhörer.
-Gelesen wird in einem eigenen Thread (pyserial), verteilt im Event-Loop von Home Assistant.
+One JSON line per message. Commands carry an id; the ESP answers immediately with "re" and reports
+radio results later as "ev":"result" with the same id. Events ("ev") go to all listeners.
+Reading happens in a separate thread (pyserial), dispatching in the Home Assistant event loop.
 """
 from __future__ import annotations
 
@@ -18,32 +18,32 @@ from typing import Any
 
 import serial
 
-from .texte import tr
+from .texts import tr
 
 _LOGGER = logging.getLogger(__name__)
 
 Listener = Callable[[dict[str, Any]], None]
-VERLAUF_MAX = 300  # letzte Nachrichten an/von der Bridge für „Diagnosedaten herunterladen“
-VERLAUF_ZEICHEN = 400  # je Eintrag höchstens so viele Zeichen (Konfigurations-Upload ist lang)
+HISTORY_MAX = 300  # last messages to/from the bridge for "download diagnostics"
+HISTORY_CHARS = 400  # at most this many characters per entry (the configuration upload is long)
 
 
 class BridgeError(Exception):
-    """Befehl abgelehnt oder Bridge nicht erreichbar."""
+    """Command rejected or bridge not reachable."""
 
     def __init__(self, err: str, msg: str = "", rc: int | None = None) -> None:
-        super().__init__(msg if err == "mithoeren" else f"{err}: {msg}" if msg else err)  # mithoeren: für Nutzer
+        super().__init__(msg if err == "mithoeren" else f"{err}: {msg}" if msg else err)  # mithoeren: for the user
         self.err, self.rc = err, rc
 
 
 class Bridge:
-    """Serielle Verbindung mit Wiederverbinden, Befehl/Antwort und Ereignisverteilung."""
+    """Serial connection with reconnect, command/response and event dispatch."""
 
     RECONNECT_S = 10
 
     def __init__(self, loop: asyncio.AbstractEventLoop, port: str) -> None:
         self._loop = loop
         self.port = port
-        self.nur_hoeren = False  # „Nur mithören“: keine Funk-Befehle (request, send) an die Bridge
+        self.listen_only_mode = False  # "listen only": no radio commands (request, send) to the bridge
         self._ser: serial.Serial | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -51,16 +51,16 @@ class Bridge:
         self._ids = itertools.count(1)
         self._replies: dict[int, asyncio.Future] = {}
         self._results: dict[int, asyncio.Future] = {}
-        self.verlauf: deque[tuple[str, str, str]] = deque(maxlen=VERLAUF_MAX)  # (Zeit, ">"/"<", JSON-Zeile)
+        self.history: deque[tuple[str, str, str]] = deque(maxlen=HISTORY_MAX)  # (time, ">"/"<", JSON line)
         self._listeners: list[Listener] = []
         self.connected = False
         self.info: dict[str, Any] = {}
 
-    # --- Verbindung ---------------------------------------------------------
+    # --- Connection -------------------------------------------------------
     def _open(self) -> None:
         s = serial.Serial()
         s.port, s.baudrate, s.timeout = self.port, 115200, 0.2
-        s.dtr = s.rts = False  # sonst Reset (unter Linux startet der ESP beim Öffnen trotzdem neu)
+        s.dtr = s.rts = False  # otherwise reset (on Linux the ESP restarts on open anyway)
         s.open()
         self._ser = s
 
@@ -81,10 +81,10 @@ class Bridge:
             try:
                 buf += self._ser.read(self._ser.in_waiting or 1)
             except (serial.SerialException, OSError, TypeError) as err:
-                if self._released:  # Port wurde absichtlich geschlossen (release)
+                if self._released:  # port was closed deliberately (release)
                     buf = b""
                     continue
-                _LOGGER.warning("Verbindung zur Bridge verloren: %s", err)
+                _LOGGER.warning("Connection to the bridge lost: %s", err)
                 self._close_port()
                 self._loop.call_soon_threadsafe(self._set_connected, False)
                 buf = b""
@@ -93,7 +93,7 @@ class Bridge:
                 line, buf = buf.split(b"\n", 1)
                 text = line.decode("utf-8", "replace").strip()
                 if not text.startswith("{"):
-                    continue  # Bootmeldungen des ESP32
+                    continue  # ESP32 boot messages
                 try:
                     msg = json.loads(text)
                 except ValueError:
@@ -130,7 +130,7 @@ class Bridge:
         self._close_port()
 
     def release(self) -> None:
-        """Port freigeben (z. B. zum Flashen der Firmware)."""
+        """Release the port (e.g. to flash the firmware)."""
         self._released = True
         self._close_port()
         self._loop.call_soon_threadsafe(self._set_connected, False)
@@ -138,17 +138,17 @@ class Bridge:
     def reconnect(self) -> None:
         self._released = False
 
-    # --- Nachrichten --------------------------------------------------------
+    # --- Messages --------------------------------------------------------
     def add_listener(self, listener: Listener) -> Callable[[], None]:
         self._listeners.append(listener)
         return lambda: self._listeners.remove(listener)
 
-    def _merken(self, richtung: str, obj: dict[str, Any]) -> None:
+    def _remember(self, direction: str, obj: dict[str, Any]) -> None:
         text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
-        self.verlauf.append((datetime.now().isoformat(timespec="milliseconds"), richtung, text[:VERLAUF_ZEICHEN]))
+        self.history.append((datetime.now().isoformat(timespec="milliseconds"), direction, text[:HISTORY_CHARS]))
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
-        self._merken("<", msg)
+        self._remember("<", msg)
         if "re" in msg:
             fut = self._replies.pop(msg["re"], None)
             if fut and not fut.done():
@@ -161,7 +161,7 @@ class Bridge:
         for listener in list(self._listeners):
             try:
                 listener(msg)
-            except Exception:  # noqa: BLE001 – ein fehlerhafter Zuhörer darf die Verteilung nicht stoppen
+            except Exception:  # noqa: BLE001 – a faulty listener must not stop the dispatch
                 _LOGGER.exception("Error while processing %s", msg)
 
     def _write(self, obj: dict[str, Any]) -> None:
@@ -171,16 +171,16 @@ class Bridge:
         if len(line) > 512:
             raise BridgeError("line_too_long", tr("befehl_zu_lang"))
         self._ser.write(line)
-        self._merken(">", obj)
+        self._remember(">", obj)
 
-    def _nicht_mithoeren(self) -> None:
-        if self.nur_hoeren:
+    def _not_listen_only(self) -> None:
+        if self.listen_only_mode:
             raise BridgeError("mithoeren", tr("mithoeren_sendet_nicht"))
 
     async def command(self, cmd: str, timeout: float = 2.0, **fields: Any) -> dict[str, Any]:
-        """Befehl senden und auf die sofortige Antwort ("re") warten."""
+        """Send a command and wait for the immediate response ("re")."""
         if cmd == "send":
-            self._nicht_mithoeren()
+            self._not_listen_only()
         cid = next(self._ids)
         fut = self._loop.create_future()
         self._replies[cid] = fut
@@ -196,8 +196,8 @@ class Bridge:
         return reply
 
     async def request(self, cmd: str, timeout: float = 10.0, **fields: Any) -> dict[str, Any]:
-        """Funk-Befehl senden und auf das Ergebnis ("ev":"result") warten."""
-        self._nicht_mithoeren()
+        """Send a radio command and wait for the result ("ev":"result")."""
+        self._not_listen_only()
         cid = next(self._ids)
         reply_fut = self._loop.create_future()
         result_fut = self._loop.create_future()
@@ -219,46 +219,46 @@ class Bridge:
         return result
 
     async def hello(self) -> dict[str, Any]:
-        """Verbindung prüfen, Uhr stellen, Zustand der Bridge holen."""
+        """Check the connection, set the clock, fetch the bridge state."""
         self.info = await self.command("hello", time=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
         return self.info
 
-    async def config_hochladen(self, teile: list[str]) -> dict[str, Any]:
-        """Server-Konfiguration in Teilen übertragen; liefert das Ereignis config (crc, channels, …)."""
-        fertig = self._loop.create_future()
+    async def upload_config(self, split_parts: list[str]) -> dict[str, Any]:
+        """Transfer the server configuration in parts; returns the config event (crc, channels, …)."""
+        done = self._loop.create_future()
 
-        def warten(msg: dict[str, Any]) -> None:
-            if msg.get("ev") == "config" and not fertig.done():
-                fertig.set_result(msg)
+        def wait(msg: dict[str, Any]) -> None:
+            if msg.get("ev") == "config" and not done.done():
+                done.set_result(msg)
 
-        abmelden = self.add_listener(warten)
+        unsubscribe = self.add_listener(wait)
         try:
-            for n, teil in enumerate(teile):
-                await self.command("config", part=n, data=teil, last=n == len(teile) - 1)
-            ergebnis = await asyncio.wait_for(fertig, 3.0)
+            for n, part in enumerate(split_parts):
+                await self.command("config", part=n, data=part, last=n == len(split_parts) - 1)
+            outcome = await asyncio.wait_for(done, 3.0)
         except asyncio.TimeoutError as err:
             raise BridgeError("timeout", tr("config_unbestaetigt")) from err
         finally:
-            abmelden()
-        if not ergebnis.get("ok"):
-            raise BridgeError(ergebnis.get("err", "error"), ergebnis.get("msg", ""))
-        return ergebnis
+            unsubscribe()
+        if not outcome.get("ok"):
+            raise BridgeError(outcome.get("err", "error"), outcome.get("msg", ""))
+        return outcome
 
 
-# Funkmodule anderer Integrationen (Thread, Zigbee, Z-Wave) an ihrem by-id-Namen: nie öffnen, nie flashen.
-# Schon das Öffnen bringt z. B. den OpenThread Border Router am ZBT-2 zum Absturz (2026-11-02).
-FREMDE_FUNKMODULE = ("nabu_casa", "skyconnect", "zbt-", "zigbee", "conbee", "raspbee", "slzb", "z-wave", "zwave",
+# Radio modules of other integrations (Thread, Zigbee, Z-Wave) by their by-id name: never open, never flash.
+# Just opening one crashes e.g. the OpenThread Border Router on the ZBT-2 (2026-11-02).
+FOREIGN_RADIOS = ("nabu_casa", "skyconnect", "zbt-", "zigbee", "conbee", "raspbee", "slzb", "z-wave", "zwave",
                      "zooz", "aeotec")
 
 
-def fremdes_funkmodul(port: str) -> bool:
+def foreign_radio(port: str) -> bool:
     name = port.rsplit("/", 1)[-1].lower()
-    return any(k in name for k in FREMDE_FUNKMODULE)
+    return any(k in name for k in FOREIGN_RADIOS)
 
 
 def list_ports() -> list[str]:
-    """Serielle Ports ohne fremde Funkmodule, bevorzugt stabile /dev/serial/by-id-Pfade (läuft im Executor)."""
+    """Serial ports without foreign radio modules, preferring stable /dev/serial/by-id paths (runs in the executor)."""
     import glob
 
     ports = sorted(glob.glob("/dev/serial/by-id/*")) or sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
-    return [p for p in ports if not fremdes_funkmodul(p)]
+    return [p for p in ports if not foreign_radio(p)]

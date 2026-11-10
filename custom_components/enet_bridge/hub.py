@@ -1,8 +1,8 @@
-"""Anlage (Geräteverzeichnis) + Bridge: Zustandstabelle, Tastenzuordnung, Resync nach ESP-Start.
+"""Installation (device directory) + bridge: state table, key mapping, resync after ESP start.
 
-Inbetriebnahme ohne Eingaben: Beim Verbinden gleicht HA die Server-Konfiguration der Bridge (CRC) mit
-anlage.json ab und überträgt sie bei Abweichung. Eine noch nicht kalibrierte Bridge (oder eine, bei der
-kein Aktor antwortet) sucht per Statusabfragen ihre Frequenzkorrektur und speichert sie im NVS.
+Commissioning without input: on connect, HA compares the bridge's server configuration (CRC) with
+anlage.json and transfers it if they differ. A bridge that is not yet calibrated (or one where no
+actuator answers) searches for its frequency correction via status requests and stores it in NVS.
 """
 from __future__ import annotations
 
@@ -22,46 +22,46 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from . import esp_config, firmware
-from .bridge import Bridge, BridgeError, fremdes_funkmodul
-from .const import ART_DIMMEN, ART_JALOUSIE, ART_SCHALTEN, ART_TASTE, ART_WIPPE, DOMAIN, SENSOR_TYPEN
-from .anlage import AnlageSpeicher
-from .params import Param, ParamSpeicher, dpt9_dekodiere
-from .ha_szenen import HaSzenen
-from .ha_wippe import HaWippe
-from .messung import UNGETESTET, Messung, ist_messgeraet
-from .pruefung import Pruefung
-from .szenen import SzenenVerwaltung
-from .texte import deutsch, tr
+from .bridge import Bridge, BridgeError, foreign_radio
+from .const import KIND_DIMMER, KIND_BLIND, KIND_SWITCH, KIND_KEY, KIND_ROCKER, DOMAIN, SENSOR_TYPES
+from .installation import InstallationStore
+from .params import Param, ParamStore, dpt9_decode
+from .ha_scenes import HaScenes
+from .ha_rocker import HaRocker
+from .measurements import UNTESTED, Measurements, is_measuring_device
+from .check import Check
+from .scenes import SceneManager
+from .texts import german, tr
 
 _LOGGER = logging.getLogger(__name__)
-BATTERIE_WARNUNG_S = 3600  # Abstand der Log-Warnungen „Battery low“ je Gerät
+BATTERY_WARNING_S = 3600  # interval between "Battery low" log warnings per device
 
-OSV_HALTEN_MS = 4000  # beide Wippentasten so lange: Dimmer speichert die Einschalthelligkeit
-SYNC_DELAY_S = 3.0  # nach dem Öffnen: ESP startet unter Linux neu, start-Ereignis abwarten
-WIEDERHOLUNG_S = 2.0  # gleiches Tastentelegramm (SN, GA, Tastenwert) innerhalb dieser Zeit: Wiederholung
-REAL_SERVER_S = 300  # „echter Server aktiv“ so lange nach seinem letzten Telegramm (Bridge meldet ≤ 1×/min)
-HELLO_VERSUCHE = 3  # so oft hello, bevor der Port als „keine Bridge“ gilt
+OSV_HOLD_MS = 4000  # both rocker keys held this long: dimmer stores the switch-on brightness
+SYNC_DELAY_S = 3.0  # after opening: ESP restarts under Linux, wait for the start event
+REPEAT_S = 2.0  # same key telegram (SN, GA, key value) within this time: repetition
+REAL_SERVER_S = 300  # "real server active" for this long after its last telegram (bridge reports ≤ 1×/min)
+HELLO_ATTEMPTS = 3  # hello attempts before the port counts as "no bridge"
 
-# Frequenzkorrektur (FSCTRL0, ~1,59 kHz je Schritt): Suchreihenfolge, falls kein Aktor antwortet.
-# Abstand 30 (~48 kHz) liegt innerhalb des Fangbereichs; 60 = bisher gebaute Platinen/Module.
-KAL_KANDIDATEN = (60, 0, 30, -30, 90, -60, 120, -90, -120)
-KAL_PROBEN = 3       # Feinabgleich: mindestens so viele gemittelte Telegramme
-KAL_TESTKANAELE = 2  # Grobsuche: je Kandidat höchstens so viele Geräte abfragen
-KAL_PASSIV_S = 300   # „Nur mithören“: so lange je Frequenzkorrektur auf fremde Telegramme warten
-NACHFUEHREN_S = 600         # so oft die mittlere Abweichung der empfangenen Telegramme prüfen
-NACHFUEHREN_PROBEN = 20     # erst ab so vielen Telegrammen seit der letzten Änderung nachstellen
-NACHFUEHREN_SCHWELLE = 2    # ab so vielen FSCTRL0-Schritten (~1,59 kHz) Abweichung nachstellen
-NACHFUEHREN_ABSTAND_S = 3600  # höchstens so oft im NVS speichern
+# Frequency correction (FSCTRL0, ~1.59 kHz per step): search order if no actuator answers.
+# A spacing of 30 (~48 kHz) lies within the capture range; 60 = boards/modules built so far.
+CAL_CANDIDATES = (60, 0, 30, -30, 90, -60, 120, -90, -120)
+CAL_SAMPLES = 3       # fine tuning: at least this many averaged telegrams
+CAL_TEST_CHANNELS = 2  # coarse search: query at most this many devices per candidate
+CAL_PASSIVE_S = 300   # "listen only": wait this long per frequency correction for foreign telegrams
+TRACKING_S = 600         # check the mean offset of received telegrams this often
+TRACKING_SAMPLES = 20     # adjust only after this many telegrams since the last change
+TRACKING_THRESHOLD = 2    # adjust from this many FSCTRL0 steps (~1.59 kHz) of offset
+TRACKING_INTERVAL_S = 3600  # store in NVS at most this often
 
-PID_LINKS = 63  # Link-Tabelle im Kanal-Objekt
+PID_LINKS = 63  # link table in the channel object
 
-# GAs je Tastenart relativ zum Offset (docs/NOTES.md „Sender-Programmierung“)
-GA_SPAN = {ART_TASTE: 6, ART_WIPPE: 3}
+# GAs per key kind relative to the offset (docs/NOTES.md "Sender-Programmierung")
+GA_SPAN = {KIND_KEY: 6, KIND_ROCKER: 3}
 
 
-def wippe_als_server_taste(msg: dict[str, Any]) -> None:
-    """Wippe mit HA-Lampen fragt die Server-SN: die Firmware meldet das wie eine Server-Taste (Drücken =
-    Bit 0x4000). Bei der Wippe ist das Richtungsbit 0x4000/0x8000, die Haltedauer steht in den unteren 14 Bit."""
+def rocker_as_server_key(msg: dict[str, Any]) -> None:
+    """A rocker with HA lamps addresses the server SN: the firmware reports it like a server key (press =
+    bit 0x4000). For the rocker, the direction bit is 0x4000/0x8000; the hold time is in the lower 14 bits."""
     cmd = int(msg.get("cmd", "0") or "0", 16)
     msg["richtung"] = "rechts" if cmd & 0xC000 == 0x8000 else "links"
     msg["hold_ms"] = (cmd & 0x3FFF) * 10
@@ -69,22 +69,22 @@ def wippe_als_server_taste(msg: dict[str, Any]) -> None:
     msg.pop("code", None)
 
 
-def sensor_aktion_key(kanal: int, ein: bool) -> str:
-    """Schlüssel in geraet["sensor_aktionen"]: „1_ein“ Sonnenschutz ein … „2_aus“ Dämmerung aus."""
-    return f"{kanal}_{'ein' if ein else 'aus'}"
+def sensor_action_key(channel: int, on: bool) -> str:
+    """Key in geraet["sensor_aktionen"]: "1_ein" sun protection on … "2_aus" twilight off."""
+    return f"{channel}_{'ein' if on else 'aus'}"
 
 
 @dataclass
-class Kanal:
-    """Aktor-Kanal aus anlage.json."""
+class Channel:
+    """Actuator channel from anlage.json."""
 
-    geraet: dict[str, Any]
+    enet_device: dict[str, Any]
     nr: int
     art: str
 
     @property
     def ia(self) -> str:
-        return self.geraet["ia"]
+        return self.enet_device["ia"]
 
     @property
     def key(self) -> str:
@@ -92,50 +92,50 @@ class Kanal:
 
     @property
     def obj(self) -> int:
-        """Kanal-Objekt (Link-Tabelle, Parameter); Export-Feld „obj“, sonst Regel 2 + Kanal."""
-        k = next((k for k in self.geraet.get("kanaele", []) if k["nr"] == self.nr), {})
+        """Channel object (link table, parameters); export field `obj`, otherwise the rule 2 + channel."""
+        k = next((k for k in self.enet_device.get("kanaele", []) if k["nr"] == self.nr), {})
         return k.get("obj") or 2 + self.nr
 
 
 @dataclass
-class Taste:
-    """Taste oder Wippe eines Senders aus anlage.json."""
+class Key:
+    """Key or rocker of a transmitter from anlage.json."""
 
-    geraet: dict[str, Any]
+    enet_device: dict[str, Any]
     nr: int
     art: str
     offset: int
 
     @property
     def key(self) -> str:
-        return f"{self.geraet['sn']}/{self.nr}"
+        return f"{self.enet_device['sn']}/{self.nr}"
 
 
 @dataclass
-class ParamGruppe:
-    """Parameter eines Aktors: Kanal-Parameter (kanal = Nr.) oder Geräte-Parameter (kanal = None)."""
+class ParamGroup:
+    """Parameters of an actuator: channel parameters (channel = no.) or device parameters (channel = None)."""
 
-    geraet: dict[str, Any]
-    kanal: int | None
+    enet_device: dict[str, Any]
+    channel: int | None
     params: list[Param]
-    geraet_obj: int
+    device_obj: int
 
 
 @dataclass
 class Diagnose:
     rssi: float | None = None
-    zeit: Any = None  # datetime der letzten Meldung
-    versuche: int | None = None
+    time_: Any = None  # datetime of the last report
+    attempts: int | None = None
 
 
 @dataclass
-class Zustand:
+class ChannelState:
     on: bool = False
-    percent: int = 0  # Jalousie: Position wie im Aktor (0 % = oben)
-    lamelle: int | None = None  # nur Jalousie
-    bewegung: int | None = None  # nur Jalousie: Fahrinfo 0 steht oben, 1 steht unten, 2 fährt auf, 3 fährt ab
+    percent: int = 0  # blind: position as in the actuator (0 % = top)
+    slat: int | None = None  # blind only
+    motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
-    gemeldet: float = 0.0  # time.monotonic() der letzten Meldung, die keine Antwort auf eine Statusabfrage war
+    reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
 
 
 @dataclass
@@ -143,73 +143,73 @@ class Hub:
     hass: HomeAssistant
     entry_id: str
     bridge: Bridge
-    anlage: dict[str, Any]
-    kanaele: list[Kanal] = field(default_factory=list)  # Lampen (Schalten, Dimmen)
-    jalousien: list[Kanal] = field(default_factory=list)
-    tasten: list[Taste] = field(default_factory=list)
-    zustand: dict[str, Zustand] = field(default_factory=dict)
-    definitionen: dict[str, Any] = field(default_factory=dict)
-    speicher: AnlageSpeicher | None = None
-    real_server_zeit: Any = None  # datetime der letzten Meldung „echter Server“ (nur Anzeige, schaltet nichts)
-    keine_bridge: bool = False  # am Port antwortet nichts auf hello (leerer ESP32, fremdes Gerät)
-    flasht: bool = False
-    fw_bundle: str | None = None  # Version der mitgelieferten Firmware (firmware.mitgeliefert)
-    _auto_update: set = field(default_factory=set)  # (Bridge-ID, alte, neue Version): je Start nur einmal
+    installation: dict[str, Any]
+    channels_: list[Channel] = field(default_factory=list)  # lamps (switching, dimming)
+    blinds: list[Channel] = field(default_factory=list)
+    keys_: list[Key] = field(default_factory=list)
+    state_: dict[str, ChannelState] = field(default_factory=dict)
+    definitions: dict[str, Any] = field(default_factory=dict)
+    store: InstallationStore | None = None
+    real_server_time: Any = None  # datetime of the last "real server" report (display only, switches nothing)
+    no_bridge: bool = False  # nothing on the port answers hello (blank ESP32, foreign device)
+    flashing: bool = False
+    fw_bundle: str | None = None  # version of the bundled firmware (firmware.mitgeliefert)
+    _auto_update: set = field(default_factory=set)  # (bridge ID, old, new version): only once per start
     bridge_device_id: str | None = None
-    geraet_device_id: dict[str, str] = field(default_factory=dict)
+    device_ids: dict[str, str] = field(default_factory=dict)
     _sync_task: asyncio.Task | None = None
-    _kal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    _nachfuehren_task: asyncio.Task | None = None
-    _nachgefuehrt: float = 0.0  # time.monotonic() der letzten Nachführung
+    _cal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _tracking_task: asyncio.Task | None = None
+    _tracked_at: float = 0.0  # time.monotonic() of the last tracking adjustment
     _unsub: Any = None
 
     def __post_init__(self) -> None:
-        for g in self.anlage.get("geraete", []):
+        for g in self.installation.get("geraete", []):
             for k in g.get("kanaele", []):
-                if k["art"] in (ART_SCHALTEN, ART_DIMMEN):
-                    self.kanaele.append(Kanal(g, k["nr"], k["art"]))
-                elif k["art"] == ART_JALOUSIE:
-                    self.jalousien.append(Kanal(g, k["nr"], k["art"]))
+                if k["art"] in (KIND_SWITCH, KIND_DIMMER):
+                    self.channels_.append(Channel(g, k["nr"], k["art"]))
+                elif k["art"] == KIND_BLIND:
+                    self.blinds.append(Channel(g, k["nr"], k["art"]))
             for t in g.get("tasten", []):
                 if t["art"] in GA_SPAN:
-                    self.tasten.append(Taste(g, t["nr"], t["art"], t["offset"]))
-        self.zustand = {k.key: Zustand() for k in self.alle_kanaele}
-        self.messung = Messung(self)
+                    self.keys_.append(Key(g, t["nr"], t["art"], t["offset"]))
+        self.state_ = {k.key: ChannelState() for k in self.all_channels}
+        self.measurements = Measurements(self)
         self.diag: dict[str, Diagnose] = {}
-        self.helligkeit: dict[str, float] = {}  # Sonnensensor-SN → Helligkeit in Lux (Wert-Telegramm, DPT 9.004)
-        self.sensor_aktiv: dict[str, bool] = {}  # „SN/Kanal“ → Sonnenschutz bzw. Dämmerung aktiv (Szenentelegramm)
-        self._letzte_sensorszene: tuple[Any, float] = (None, 0.0)
-        self.batterie_schwach: dict[str, bool] = {}  # Sender-SN → Batterie schwach (aus dem RF-Info-Bit, ab FW 0.8.8)
-        self._batterie_gewarnt: dict[str, float] = {}  # Sender-SN → time.monotonic() der letzten Log-Warnung
-        self.unbekannte_geraete: dict[str, dict[str, Any]] = {}  # SN → Produktnummer beim Einlernen (Diagnose)
-        self.param_gruppen: list[ParamGruppe] = []
-        for g in self.anlage.get("geraete", []):
-            d = self.definitionen.get(g.get("typ", ""))
-            sensor = g.get("typ") in SENSOR_TYPEN or ist_messgeraet(g)  # Kanäle ohne Lampe, Parameter trotzdem
+        self.illuminance: dict[str, float] = {}  # sun sensor SN → brightness in lux (value telegram, DPT 9.004)
+        self.sensor_active: dict[str, bool] = {}  # "SN/channel" → sun protection or twilight active (scene telegram)
+        self._last_sensor_scene: tuple[Any, float] = (None, 0.0)
+        self.battery_low: dict[str, bool] = {}  # transmitter SN → battery low (from the RF info bit, FW 0.8.8+)
+        self._battery_warned: dict[str, float] = {}  # transmitter SN → time.monotonic() of the last log warning
+        self.unknown_devices: dict[str, dict[str, Any]] = {}  # SN → product number at pairing (diagnostics)
+        self.param_groups: list[ParamGroup] = []
+        for g in self.installation.get("geraete", []):
+            d = self.definitions.get(g.get("typ", ""))
+            sensor = g.get("typ") in SENSOR_TYPES or is_measuring_device(g)  # no lamp channels, but parameters
             if not d or (g.get("rolle") != "aktor" and not sensor):
                 continue
             gp = [Param(p) for p in d.get("geraet", [])]
-            if gp := [p for p in gp if p.nutzbar]:
-                self.param_gruppen.append(ParamGruppe(g, None, gp, d["geraet_obj"]))
+            if gp := [p for p in gp if p.usable]:
+                self.param_groups.append(ParamGroup(g, None, gp, d["geraet_obj"]))
             for k in d.get("kanaele", []):
-                kp = [p for p in map(Param, k["parameter"]) if p.nutzbar]
-                if kp and (sensor or any(c.geraet is g and c.nr == k["nr"] for c in self.alle_kanaele)):
-                    self.param_gruppen.append(ParamGruppe(g, k["nr"], kp, d["geraet_obj"]))
-        self.params = ParamSpeicher(self.hass, self.entry_id, self.bridge, self.signal("params"))
-        self.params.zustaende_merken = self._zustaende_merken
-        self.params.zustaende_wiederherstellen = self._zustaende_wiederherstellen
-        self.params.rahmen_meldung = self._rahmen_meldung
-        self.programmiert: set[str] = set()  # IAs, deren Aktor gerade im Programmier-Rahmen ist
-        self.sender_aktiv: set[str] = set()  # SNs der Sender, die gerade (gewartet oder laufend) programmiert werden
-        self.szene_in_arbeit: str | None = None  # HA-Szene, deren eNet-Teil gerade übertragen wird
-        self.szenen = SzenenVerwaltung(self)
-        self.ha_szenen = HaSzenen(self)
-        self.ha_wippe = HaWippe(self)
-        self.pruefung = Pruefung(self)
-        self._letzte_taste: tuple[Any, float] = (None, 0.0)
-        self.bridge.nur_hoeren = self.mithoeren
+                kp = [p for p in map(Param, k["parameter"]) if p.usable]
+                if kp and (sensor or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
+                    self.param_groups.append(ParamGroup(g, k["nr"], kp, d["geraet_obj"]))
+        self.params = ParamStore(self.hass, self.entry_id, self.bridge, self.signal("params"))
+        self.params.remember_states = self._remember_states
+        self.params.restore_states = self._restore_states
+        self.params.frame_report = self._frame_report
+        self.programmed: set[str] = set()  # IAs whose actuator is currently in a programming frame
+        self.senders_active: set[str] = set()  # SNs of transmitters currently being programmed (waiting or running)
+        self.scene_in_progress: str | None = None  # HA scene whose eNet part is currently being transferred
+        self.scenes = SceneManager(self)
+        self.ha_scenes = HaScenes(self)
+        self.ha_rocker = HaRocker(self)
+        self.check = Check(self)
+        self._last_key: tuple[Any, float] = (None, 0.0)
+        self.bridge.listen_only_mode = self.listen_only
 
-    # Signale an die Entitäten
+    # signals to the entities
     def signal(self, name: str) -> str:
         return f"{DOMAIN}_{self.entry_id}_{name}"
 
@@ -218,138 +218,138 @@ class Hub:
         return bool(self.bridge.info.get("server", {}).get("on"))
 
     @property
-    def server_soll(self) -> bool:
-        """Gewünschter Server-Schalter (HA verwaltet ihn und setzt ihn auf jeder Bridge durch)."""
-        return bool(self.anlage["server"].get("funktionen", True))
+    def server_wanted(self) -> bool:
+        """Desired server switch (HA manages it and enforces it on every bridge)."""
+        return bool(self.installation["server"].get("funktionen", True))
 
     @property
-    def mithoeren(self) -> bool:
-        """„Nur mithören“: die Bridge empfängt nur (Tasten als Ereignisse, Zustände aus Meldungen der Aktoren),
-        sendet nichts – zum Betrieb neben dem echten eNet Server vor dem Umzug. Server-Funktionen sind dann aus."""
-        return bool(self.anlage["server"].get("mithoeren", False))
+    def listen_only(self) -> bool:
+        """"Listen only": the bridge only receives (keys as events, states from actuator reports) and sends
+        nothing – for operation alongside the real eNet Server before migration. Server functions are then off."""
+        return bool(self.installation["server"].get("mithoeren", False))
 
-    async def mithoeren_setzen(self, on: bool) -> None:
-        self.anlage["server"]["mithoeren"] = on
-        self.bridge.nur_hoeren = on
-        await self.anlage_speichern()
+    async def set_listen_only(self, on: bool) -> None:
+        self.installation["server"]["mithoeren"] = on
+        self.bridge.listen_only_mode = on
+        await self.save_installation()
         _LOGGER.info("Bridge: listen only %s", "on" if on else "off")
-        self.pruefung.szenen_pruefen()  # Hinweis „Szenen nach dem Mithören“ ↔ „nicht umgewandelt“ sofort umstellen
+        self.check.check_scenes()  # switch the "scenes after listening" ↔ "not converted" notice immediately
         async_dispatcher_send(self.hass, self.signal("bridge"))
         if self.bridge.connected:
-            await self.server_setzen(self.server_soll)
-        self._schedule_sync(0.5)  # aus: Kalibrieren, Abfragen, Szenen-Abgleich nachholen; ein: passiv kalibrieren
+            await self.set_server(self.server_wanted)
+        self._schedule_sync(0.5)  # off: catch up on calibration, queries, scene sync; on: calibrate passively
 
-    def neu_laden_nach_funk(self) -> None:
-        """Eintrag neu laden (Entitäten neu aufbauen), aber erst, wenn keine Funk-Sitzung mehr läuft oder wartet:
-        Das Neuladen schließt den seriellen Port, eine laufende Programmierung bräche mit „Bad file descriptor“ ab.
-        Der Lock bedient Wartende der Reihe nach, das Neuladen kommt also nach allen schon gestarteten."""
-        async def warten_und_laden() -> None:
+    def reload_after_radio(self) -> None:
+        """Reload the entry (rebuild entities), but only once no radio session is running or waiting:
+        reloading closes the serial port, and a running programming would abort with "Bad file descriptor".
+        The lock serves waiters in order, so the reload comes after all sessions already started."""
+        async def wait_and_reload() -> None:
             async with self.params.lock:
                 pass
-            if not self.sender_aktiv:  # sonst lädt der letzte Programmierlauf neu
+            if not self.senders_active:  # otherwise the last programming run reloads
                 self.hass.config_entries.async_schedule_reload(self.entry_id)
 
-        self.hass.async_create_background_task(warten_und_laden(), f"{DOMAIN} neu laden nach Funk")
+        self.hass.async_create_background_task(wait_and_reload(), f"{DOMAIN} neu laden nach Funk")
 
-    async def anlage_speichern(self) -> None:
-        if self.speicher:
-            await self.speicher.speichern(self.anlage)
+    async def save_installation(self) -> None:
+        if self.store:
+            await self.store.save(self.installation)
 
-    async def server_setzen(self, on: bool) -> None:
-        """Server-Schalter setzen und merken; wirksam auf der Bridge nur, solange nicht „Nur mithören“ an ist."""
-        wirksam = on and not self.mithoeren
-        reply = await self.bridge.command("server", on=wirksam)
-        self.bridge.info.setdefault("server", {})["on"] = bool(reply.get("on", wirksam))
-        if self.server_soll != on:
-            self.anlage["server"]["funktionen"] = on
-            await self.anlage_speichern()
+    async def set_server(self, on: bool) -> None:
+        """Set and remember the server switch; effective on the bridge only while "listen only" is not on."""
+        effective = on and not self.listen_only
+        reply = await self.bridge.command("server", on=effective)
+        self.bridge.info.setdefault("server", {})["on"] = bool(reply.get("on", effective))
+        if self.server_wanted != on:
+            self.installation["server"]["funktionen"] = on
+            await self.save_installation()
         async_dispatcher_send(self.hass, self.signal("bridge"))
 
     @property
     def real_server(self) -> bool:
-        z = self.real_server_zeit
+        z = self.real_server_time
         return z is not None and (dt_util.now() - z).total_seconds() < REAL_SERVER_S
 
     @property
-    def alle_kanaele(self) -> list[Kanal]:
-        """Alle Aktor-Kanäle (Lampen und Jalousien): Zustand, Abfragen, Parameter, GA-Basis."""
-        return self.kanaele + self.jalousien
+    def all_channels(self) -> list[Channel]:
+        """All actuator channels (lamps and blinds): state, queries, parameters, GA base."""
+        return self.channels_ + self.blinds
 
     @property
     def radio(self) -> dict[str, Any]:
         return self.bridge.info.get("radio", {})
 
-    def kanal(self, geraet: dict[str, Any], nr: int | None) -> Kanal | None:
-        return next((k for k in self.alle_kanaele if k.geraet is geraet and k.nr == nr), None)
+    def channel(self, enet_device: dict[str, Any], nr: int | None) -> Channel | None:
+        return next((k for k in self.all_channels if k.enet_device is enet_device and k.nr == nr), None)
 
     @callback
-    def _rahmen_meldung(self, ia: str, aktiv: bool, zweck: str, fehler: str | None) -> None:
-        """Anzeige: Sensor „Programmierung“, Symbol der Lampen dieses Aktors und Eintrag in seiner Aktivität
-        (am Knopf „Parameter lesen“ der Geräteseite)."""
-        (self.programmiert.add if aktiv else self.programmiert.discard)(ia)
-        self.programmierung_melden()
-        if g := next((g for g in self.anlage["geraete"] if g["ia"] == ia), None):
-            text = (tr("akt_wird_programmiert", zweck=zweck) if aktiv else tr("akt_programmiert", zweck=zweck)
-                    if fehler is None else tr("akt_programmierung_fehler", zweck=zweck, fehler=fehler))
+    def _frame_report(self, ia: str, active: bool, purpose: str, errors: str | None) -> None:
+        """Display: "Programming" sensor, icon of this actuator's lamps and an entry in its activity
+        (on the "Read parameters" button of the device page)."""
+        (self.programmed.add if active else self.programmed.discard)(ia)
+        self.report_programming()
+        if g := next((g for g in self.installation["geraete"] if g["ia"] == ia), None):
+            text = (tr("akt_wird_programmiert", zweck=purpose) if active else tr("akt_programmiert", zweck=purpose)
+                    if errors is None else tr("akt_programmierung_fehler", zweck=purpose, fehler=errors))
             entity_id = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{g['sn']}_parameter_lesen")
             async_log_entry(self.hass, g["name"], text, DOMAIN, entity_id)
-        for k in self.alle_kanaele:
+        for k in self.all_channels:
             if k.ia == ia:
                 async_dispatcher_send(self.hass, self.signal(f"state_{k.key}"))
 
     @callback
-    def programmierung_melden(self) -> None:
-        """Sensor „Programmierung“ auffrischen und – solange etwas übertragen wird – einen Hinweis oben in den
-        Einstellungen zeigen (Eintrag unter Reparaturen, verschwindet von selbst; Wunsch Nutzer 2026-11-02)."""
+    def report_programming(self) -> None:
+        """Refresh the "Programming" sensor and – while something is being transferred – show a notice at the top
+        of Settings (entry under Repairs, disappears by itself; user request 2026-11-02)."""
         async_dispatcher_send(self.hass, self.signal("programmierung"))
-        namen = sorted({g["name"] for g in self.anlage["geraete"] if g["ia"] in self.programmiert})
-        hinweise = {"szene_wird_uebertragen": {"szene": self.szene_in_arbeit} if self.szene_in_arbeit else None,
-                    "aktor_wird_programmiert": {"geraete": ", ".join(namen)}
-                    if namen and not self.szene_in_arbeit else None}
-        for key, platzhalter in hinweise.items():
+        names_ = sorted({g["name"] for g in self.installation["geraete"] if g["ia"] in self.programmed})
+        hints = {"szene_wird_uebertragen": {"szene": self.scene_in_progress} if self.scene_in_progress else None,
+                    "aktor_wird_programmiert": {"geraete": ", ".join(names_)}
+                    if names_ and not self.scene_in_progress else None}
+        for key, placeholder in hints.items():
             issue_id = f"{key}_{self.entry_id}"
-            if platzhalter is None:
+            if placeholder is None:
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             else:
                 ir.async_create_issue(self.hass, DOMAIN, issue_id, is_fixable=False, is_persistent=False,
                                       severity=ir.IssueSeverity.WARNING, translation_key=key,
-                                      translation_placeholders=platzhalter)
+                                      translation_placeholders=placeholder)
 
     @callback
-    def aktivitaet(self, text: str) -> None:
-        """Eintrag in der Aktivität der Bridge (am Sensor „Programmierung“) – für Vorgänge, die zu keinem
-        bestehenden Gerät gehören (Einlernen, Entfernen, Szenen-Abgleich)."""
+    def activity(self, text: str) -> None:
+        """Entry in the bridge's activity (on the "Programming" sensor) – for operations that belong to no
+        existing device (pairing, removal, scene sync)."""
         entity_id = er.async_get(self.hass).async_get_entity_id("sensor", DOMAIN, f"{self.entry_id}_programmierung")
         async_log_entry(self.hass, "eNet-Bridge", text, DOMAIN, entity_id)
 
-    def _zustaende_merken(self, ia: str) -> dict[str, tuple[bool, int]]:
-        """Bekannte Zustände der Kanäle eines Aktors vor einem Programmier-Rahmen."""
-        return {k.key: (z.on, z.percent) for k in self.kanaele if k.ia == ia and (z := self.zustand[k.key]).known}
+    def _remember_states(self, ia: str) -> dict[str, tuple[bool, int]]:
+        """Known states of an actuator's channels before a programming frame."""
+        return {k.key: (z.on, z.percent) for k in self.channels_ if k.ia == ia and (z := self.state_[k.key]).known}
 
-    async def _zustaende_wiederherstellen(self, ia: str, vorher: dict[str, tuple[bool, int]]) -> None:
-        """Nach dem Rahmen sind die Ausgänge aus (Neustart der Anwendung): eingeschaltete Kanäle wieder setzen."""
-        for k in self.kanaele:
-            if k.key not in vorher or not vorher[k.key][0]:
+    async def _restore_states(self, ia: str, before: dict[str, tuple[bool, int]]) -> None:
+        """After the frame the outputs are off (application restart): set the channels that were on again."""
+        for k in self.channels_:
+            if k.key not in before or not before[k.key][0]:
                 continue
-            an, prozent = vorher[k.key]
+            on_, percent_ = before[k.key]
             try:
-                if k.art == ART_DIMMEN:
-                    await self.bridge.request("dim", ia=k.ia, ch=k.nr, percent=max(1, prozent))
+                if k.art == KIND_DIMMER:
+                    await self.bridge.request("dim", ia=k.ia, ch=k.nr, percent=max(1, percent_))
                 else:
                     await self.bridge.request("switch", ia=k.ia, ch=k.nr, on=True)
             except BridgeError as err:
                 _LOGGER.warning("%s: state not restored after programming: %s", k.key, err)
                 continue
-            z = self.zustand[k.key]
-            z.on, z.percent, z.known = True, prozent, True
+            z = self.state_[k.key]
+            z.on, z.percent, z.known = True, percent_, True
             async_dispatcher_send(self.hass, self.signal(f"state_{k.key}"))
 
-    def geraet_obj(self, geraet: dict[str, Any]) -> int:
-        """Geräte-Objekt (Zeitstempel beim Programmieren): aus den Gerätedefinitionen, sonst 4."""
-        return self.definitionen.get(geraet.get("typ", ""), {}).get("geraet_obj") or 4
+    def device_obj(self, enet_device: dict[str, Any]) -> int:
+        """Device object (timestamp when programming): from the device definitions, otherwise 4."""
+        return self.definitions.get(enet_device.get("typ", ""), {}).get("geraet_obj") or 4
 
-    def _geraet_versionen(self, info: dict[str, Any]) -> None:
-        """Firmware, Funkchip und Kennung der Bridge am HA-Gerät (Geräteseite: „Firmware: 0.8.9“)."""
+    def _device_versions(self, info: dict[str, Any]) -> None:
+        """Firmware, radio chip and ID of the bridge on the HA device (device page: "Firmware: 0.8.9")."""
         if not getattr(self, "bridge_device_id", None):
             return
         v = self.radio.get("version")
@@ -358,200 +358,200 @@ class Hub:
             hw_version=f"CC1101 0x{v:02X}" if isinstance(v, int) and v else None,
             serial_number=info.get("id"))
 
-    def modell(self, geraet: dict[str, Any]) -> str:
-        """Gerätebezeichnung für die Anzeige: deutsch aus der Anlage (Katalogname beim Import/Einlernen), sonst der
-        englische Produktname aus dem Katalog."""
-        modell = geraet.get("beschreibung") or geraet.get("typ", "")
-        if not deutsch():
-            modell = self.definitionen.get(geraet.get("typ", ""), {}).get("produktname") or modell
-        return tr("ungetestet_zusatz", modell=modell) if geraet.get("typ") in UNGETESTET else modell
+    def model(self, enet_device: dict[str, Any]) -> str:
+        """Device designation for display: German from the installation (catalog name at import/pairing), otherwise
+        the English product name from the catalog."""
+        model = enet_device.get("beschreibung") or enet_device.get("typ", "")
+        if not german():
+            model = self.definitions.get(enet_device.get("typ", ""), {}).get("produktname") or model
+        return tr("ungetestet_zusatz", modell=model) if enet_device.get("typ") in UNTESTED else model
 
-    def geraet_params(self, geraet: dict[str, Any]) -> list[ParamGruppe]:
-        return [g for g in self.param_gruppen if g.geraet is geraet]
+    def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
+        return [g for g in self.param_groups if g.enet_device is enet_device]
 
-    async def parameter_lesen(self, geraet: dict[str, Any], nur_fehlende: bool = False) -> int:
-        params = [p for g in self.geraet_params(geraet) for p in g.params]
-        if nur_fehlende:
-            params = self.params.fehlend(geraet["sn"], params)
+    async def read_parameters(self, enet_device: dict[str, Any], only_missing: bool = False) -> int:
+        params = [p for g in self.device_params(enet_device) for p in g.params]
+        if only_missing:
+            params = self.params.missing(enet_device["sn"], params)
         if not params:
             return 0
-        return await self.geweckt(geraet, lambda: self.params.lesen(geraet["ia"], geraet["sn"], params))
+        return await self.woken(enet_device, lambda: self.params.read(enet_device["ia"], enet_device["sn"], params))
 
-    async def geweckt(self, geraet: dict[str, Any], aufgabe):
-        """aufgabe() ausführen; ein schlafendes Gerät (Sonnensensor) vorher wecken wie einen Sender: Weckruf
-        wiederholen, bis es nach einem Druck auf eine Testtaste antwortet, dabei wach halten, danach entlassen."""
-        if geraet.get("typ") not in SENSOR_TYPEN:
-            return await aufgabe()
-        from .einlernen import Funk
+    async def woken(self, enet_device: dict[str, Any], job):
+        """Run job(); wake a sleeping device (sun sensor) first like a transmitter: repeat the wake-up call until
+        it answers after a press on a test key, keep it awake meanwhile, release it afterwards."""
+        if enet_device.get("typ") not in SENSOR_TYPES:
+            return await job()
+        from .pair import RadioSession
         from .sender import Sender
 
-        def aktivitaet(text: str) -> None:  # Logbuch am Knopf „Parameter lesen“ des Sensors
-            eid = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{geraet['sn']}_parameter_lesen")
-            async_log_entry(self.hass, geraet["name"], text, DOMAIN, eid)
+        def activity(text: str) -> None:  # logbook on the sensor's "Read parameters" button
+            eid = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{enet_device['sn']}_parameter_lesen")
+            async_log_entry(self.hass, enet_device["name"], text, DOMAIN, eid)
 
-        aktivitaet(tr("akt_sensor_wecken"))
-        async with Funk(self) as funk:
-            s = Sender(self, geraet, funk)
-            await s.wecken()
-            aktivitaet(tr("akt_sensor_wach"))
-            halten = self.hass.async_create_background_task(s.wach_halten(), f"{DOMAIN} keep sensor awake")
+        activity(tr("akt_sensor_wecken"))
+        async with RadioSession(self) as radio_session:
+            s = Sender(self, enet_device, radio_session)
+            await s.wake()
+            activity(tr("akt_sensor_wach"))
+            hold = self.hass.async_create_background_task(s.keep_awake(), f"{DOMAIN} keep sensor awake")
             try:
-                return await aufgabe()
+                return await job()
             finally:
-                halten.cancel()
+                hold.cancel()
                 with contextlib.suppress(BridgeError):
-                    await s.pw(self.geraet_obj(geraet), 0x48, b"\x03")  # entlassen
+                    await s.pw(self.device_obj(enet_device), 0x48, b"\x03")  # release
 
     @callback
-    def _einschalthelligkeit_pruefen(self, taste: Taste, msg: dict[str, Any]) -> None:
-        """Beide Tasten einer Wippe ≥ 4 s: die Dimmer speichern ihre Helligkeit als Einschalthelligkeit (OSV),
-        ohne es zu melden (auch der eNet Server liest nicht nach; Mitschnitt 2026-10-30) – also neu lesen."""
-        if self.mithoeren or msg.get("press") or int(msg.get("cmd", "0") or "0", 16) & 0xC000 != 0xC000 \
-                or int(msg.get("hold_ms", 0)) < OSV_HALTEN_MS:
+    def _check_switch_on_brightness(self, key_obj: Key, msg: dict[str, Any]) -> None:
+        """Both keys of a rocker ≥ 4 s: the dimmers store their brightness as switch-on brightness (OSV) without
+        reporting it (the eNet Server doesn't re-read either; capture 2026-10-30) – so read it again."""
+        if self.listen_only or msg.get("press") or int(msg.get("cmd", "0") or "0", 16) & 0xC000 != 0xC000 \
+                or int(msg.get("hold_ms", 0)) < OSV_HOLD_MS:
             return
-        eintrag = next((t for t in taste.geraet.get("tasten", []) if t["nr"] == taste.nr), {})
-        ziele = {f"{z['ia']}/{z['ch']}" for z in eintrag.get("ziele", [])}
-        gruppen = [g for g in self.param_gruppen if g.kanal is not None and f"{g.geraet['ia']}/{g.kanal}" in ziele]
-        if not gruppen:
+        entry_ = next((t for t in key_obj.enet_device.get("tasten", []) if t["nr"] == key_obj.nr), {})
+        targets = {f"{z['ia']}/{z['ch']}" for z in entry_.get("ziele", [])}
+        groups_ = [g for g in self.param_groups if g.channel is not None and f"{g.enet_device['ia']}/{g.channel}" in targets]
+        if not groups_:
             return
 
-        async def lesen() -> None:
-            await asyncio.sleep(2)  # Dimmer blinkt zur Bestätigung
-            for g in gruppen:
+        async def read() -> None:
+            await asyncio.sleep(2)  # dimmer blinks as confirmation
+            for g in groups_:
                 params = [p for p in g.params if p.id == "OSV"]
                 if params:
                     try:
-                        await self.params.lesen(g.geraet["ia"], g.geraet["sn"], params)
+                        await self.params.read(g.enet_device["ia"], g.enet_device["sn"], params)
                     except BridgeError as err:
-                        _LOGGER.warning("%s: switch-on brightness not read: %s", g.geraet["name"], err)
+                        _LOGGER.warning("%s: switch-on brightness not read: %s", g.enet_device["name"], err)
 
-        self.hass.async_create_background_task(lesen(), f"{DOMAIN} Einschalthelligkeit lesen")
+        self.hass.async_create_background_task(read(), f"{DOMAIN} Einschalthelligkeit lesen")
 
-    async def _parameter_vorladen(self) -> None:
-        """Fehlende Aktor-Parameter lesen (beim ersten Start alle; Neu-Lesen per Taste „Parameter lesen“)."""
-        for g in {id(x.geraet): x.geraet for x in self.param_gruppen}.values():
-            if g.get("typ") in SENSOR_TYPEN:
-                continue  # schläft: nur auf Knopfdruck (mit Wecken)
-            if n := await self.parameter_lesen(g, nur_fehlende=True):
+    async def _preload_parameters(self) -> None:
+        """Read missing actuator parameters (all on first start; re-read via the "Read parameters" button)."""
+        for g in {id(x.enet_device): x.enet_device for x in self.param_groups}.values():
+            if g.get("typ") in SENSOR_TYPES:
+                continue  # sleeps: only on button press (with wake-up)
+            if n := await self.read_parameters(g, only_missing=True):
                 _LOGGER.info("%s: %d parameters read", g["name"], n)
 
-    def taste_fuer(self, sn: str, ga: int, basis: int | None = None) -> Taste | None:
-        for t in self.tasten:
-            if t.geraet["sn"] != sn:
+    def key_for(self, sn: str, ga: int, base: int | None = None) -> Key | None:
+        for t in self.keys_:
+            if t.enet_device["sn"] != sn:
                 continue
-            b = t.geraet.get("ga_basis", 0) if basis is None else basis
+            b = t.enet_device.get("ga_basis", 0) if base is None else base
             rel = ga - b * 256 - t.offset
             if 1 <= rel <= GA_SPAN[t.art]:
                 return t
         return None
 
-    def _batterie(self, msg: dict) -> None:
-        """Batteriezustand des Senders: steht im RF-Info-Byte jedes Telegramms (wie beim eNet Server)."""
+    def _battery(self, msg: dict) -> None:
+        """Transmitter battery state: in the RF info byte of every telegram (as with the eNet Server)."""
         if (b := msg.get("battery")) not in ("ok", "weak") or not (sn := msg.get("sn")):
             return
-        schwach = b == "weak"
-        if self.batterie_schwach.get(sn) != schwach:
-            # Der Sonnensensor wechselt das Bit bei fast jedem Telegramm → höchstens eine Warnung pro Stunde je Gerät
-            if schwach and time.monotonic() - self._batterie_gewarnt.get(sn, -BATTERIE_WARNUNG_S) >= BATTERIE_WARNUNG_S:
+        weak = b == "weak"
+        if self.battery_low.get(sn) != weak:
+            # the sun sensor toggles the bit on almost every telegram → at most one warning per hour per device
+            if weak and time.monotonic() - self._battery_warned.get(sn, -BATTERY_WARNING_S) >= BATTERY_WARNING_S:
                 _LOGGER.warning("Battery low: transmitter %s", sn)
-                self._batterie_gewarnt[sn] = time.monotonic()
-            self.batterie_schwach[sn] = schwach
+                self._battery_warned[sn] = time.monotonic()
+            self.battery_low[sn] = weak
             async_dispatcher_send(self.hass, self.signal(f"batterie_{sn}"))
 
-    def _sensorwert(self, msg: dict) -> bool:
-        """Wert-Telegramm eines Sonnensensors: Helligkeit (2 Byte DPT 9.004, gemessen GA Basis·256 + 4).
-        Liefert True, wenn das Telegramm damit erledigt ist."""
+    def _sensor_value(self, msg: dict) -> bool:
+        """Value telegram of a sun sensor: brightness (2-byte DPT 9.004, measured GA base·256 + 4).
+        Returns True if the telegram has been handled."""
         sn = msg.get("sn")
-        if not sn or not any(g["sn"] == sn and g.get("typ") in SENSOR_TYPEN for g in self.anlage["geraete"]):
+        if not sn or not any(g["sn"] == sn and g.get("typ") in SENSOR_TYPES for g in self.installation["geraete"]):
             return False
         if msg.get("kind") == "wert1" and msg.get("cmd"):
-            self._sensorszene(sn, int(msg.get("ga", -1)), int(msg["cmd"], 16))
+            self._sensor_scene(sn, int(msg.get("ga", -1)), int(msg["cmd"], 16))
             return True
         if msg.get("kind") != "wert" or not msg.get("cmd"):
             _LOGGER.info("Sun sensor %s: telegram not evaluated yet: %s", sn, msg)
             return True
-        lux = round(dpt9_dekodiere(bytes.fromhex(msg["cmd"])), 2)
-        if self.helligkeit.get(sn) != lux:
-            self.helligkeit[sn] = lux
+        lux = round(dpt9_decode(bytes.fromhex(msg["cmd"])), 2)
+        if self.illuminance.get(sn) != lux:
+            self.illuminance[sn] = lux
             async_dispatcher_send(self.hass, self.signal(f"helligkeit_{sn}"))
         return True
 
-    def _sensorszene(self, sn: str, ga: int, wert: int) -> None:
-        """Szenentelegramm des Sonnensensors (1 Byte, Szenennummer in Bit 5–0; das erste trägt zusätzlich Bit 6,
-        die Wiederholungen nicht). Kanal aus der GA: Basis·256 + 3 = K1 Sonnenschutz, + 7 = K2 Dämmerung
-        (GO-Offset 0/4 + 3). Werkseinstellung: K1 Szene 48 Sonnenschutz ein / 49 aus, K2 50 Dämmerung ein / 51 aus
-        (Testtasten am Sensor lösen die Ein-Szene aus: K1 → 48, K2 → 50, gemessen 2026-11-06).
-        Die Dämmerungsschwelle liegt weit unter der Sonnenschutzschwelle: ein Kanal ein setzt den anderen aus."""
-        kanal = {3: 1, 7: 2}.get(ga & 0xFF)
-        szene = wert & 0x3F
-        if kanal is None:
-            _LOGGER.info("Sun sensor %s: scene %d to unknown GA %d", sn, szene, ga)
+    def _sensor_scene(self, sn: str, ga: int, value: int) -> None:
+        """Scene telegram of the sun sensor (1 byte, scene number in bits 5–0; the first one also carries bit 6,
+        the repetitions do not). Channel from the GA: base·256 + 3 = K1 sun protection, + 7 = K2 twilight
+        (GO offset 0/4 + 3). Factory setting: K1 scene 48 sun protection on / 49 off, K2 50 twilight on / 51 off
+        (the test keys on the sensor trigger the on scene: K1 → 48, K2 → 50, measured 2026-11-06).
+        The twilight threshold is far below the sun protection threshold: one channel on sets the other off."""
+        channel = {3: 1, 7: 2}.get(ga & 0xFF)
+        scene = value & 0x3F
+        if channel is None:
+            _LOGGER.info("Sun sensor %s: scene %d to unknown GA %d", sn, scene, ga)
             return
-        kennung, jetzt = (sn, kanal, szene), time.monotonic()
-        if self._letzte_sensorszene[0] == kennung and jetzt - self._letzte_sensorszene[1] < WIEDERHOLUNG_S:
-            return  # Wiederholungen des Sensors (4× nach dem ersten Telegramm)
-        self._letzte_sensorszene = (kennung, jetzt)
-        # Szenennummern aus dem Gerät (ASNVE/ASNVU, Kanal-Objekt 3 bzw. 4, PID 79 Byte 6/7; gelesen 2026-11-06:
-        # K1 48 über / 49 unter, K2 51 über / 50 unter). Sonnenschutz ein = über, Dämmerung ein = unter der Schwelle.
-        werte = self.params.werte.get(sn, {})
-        obj = kanal + 2
-        ueber, unter = werte.get(f"{obj}/79/6"), werte.get(f"{obj}/79/7")
-        if ueber is not None and unter is not None and szene in (int(ueber, 16), int(unter, 16)):
-            ein = szene == int(ueber if kanal == 1 else unter, 16)
+        ident, now_ = (sn, channel, scene), time.monotonic()
+        if self._last_sensor_scene[0] == ident and now_ - self._last_sensor_scene[1] < REPEAT_S:
+            return  # repetitions of the sensor (4× after the first telegram)
+        self._last_sensor_scene = (ident, now_)
+        # Scene numbers from the device (ASNVE/ASNVU, channel object 3 or 4, PID 79 bytes 6/7; read 2026-11-06:
+        # K1 48 above / 49 below, K2 51 above / 50 below). Sun protection on = above, twilight on = below threshold.
+        values_ = self.params.values_.get(sn, {})
+        obj = channel + 2
+        above, below = values_.get(f"{obj}/79/6"), values_.get(f"{obj}/79/7")
+        if above is not None and below is not None and scene in (int(above, 16), int(below, 16)):
+            on = scene == int(above if channel == 1 else below, 16)
         else:
-            ein = szene % 2 == 0  # Werkseinstellung (48/49, 50/51), solange die Parameter nicht gelesen sind
-        self.sensor_aktiv[f"{sn}/{kanal}"] = ein
-        if ein:
-            self.sensor_aktiv[f"{sn}/{3 - kanal}"] = False
-        _LOGGER.debug("Sun sensor %s ch%d: scene %d (%s)", sn, kanal, szene, "ein" if ein else "aus")
+            on = scene % 2 == 0  # factory setting (48/49, 50/51) as long as the parameters have not been read
+        self.sensor_active[f"{sn}/{channel}"] = on
+        if on:
+            self.sensor_active[f"{sn}/{3 - channel}"] = False
+        _LOGGER.debug("Sun sensor %s ch%d: scene %d (%s)", sn, channel, scene, "on" if on else "off")
         async_dispatcher_send(self.hass, self.signal(f"sensor_aktiv_{sn}"))
-        async_dispatcher_send(self.hass, self.signal(f"sensor_szene_{sn}_{kanal}"), {"ein": ein, "szene": szene})
-        g = next((g for g in self.anlage["geraete"] if g["sn"] == sn), {})
-        aktion = g.get("sensor_aktionen", {}).get(sensor_aktion_key(kanal, ein))
-        if aktion and not self.mithoeren:
-            self.hass.async_create_background_task(self._sensor_aktion(g, kanal, ein, aktion), "enet Sensoraktion")
+        async_dispatcher_send(self.hass, self.signal(f"sensor_szene_{sn}_{channel}"), {"ein": on, "szene": scene})
+        g = next((g for g in self.installation["geraete"] if g["sn"] == sn), {})
+        action = g.get("sensor_aktionen", {}).get(sensor_action_key(channel, on))
+        if action and not self.listen_only:
+            self.hass.async_create_background_task(self._sensor_action(g, channel, on, action), "enet Sensoraktion")
 
-    async def _sensor_aktion(self, g: dict, kanal: int, ein: bool, aktion: str) -> None:
-        """Gewählte Szene des Sonnensensors aufrufen (Auswahl auf der Geräteseite). HA-Szene über scene.turn_on –
-        ihr eNet-Teil geht dabei als Szenentelegramm (HaSzenen); eNet-Szene direkt als Szenentelegramm."""
-        art, _, wert = aktion.partition(":")
-        name = f"{g.get('name', g['sn'])} K{kanal} {'ein' if ein else 'aus'}"
+    async def _sensor_action(self, g: dict, channel: int, on: bool, action: str) -> None:
+        """Recall the sun sensor's selected scene (selection on the device page). HA scene via scene.turn_on –
+        its eNet part goes out as a scene telegram (HaScenes); eNet scene directly as a scene telegram."""
+        art, _, value = action.partition(":")
+        name = f"{g.get('name', g['sn'])} K{channel} {'ein' if on else 'aus'}"
         try:
             if art == "ha":
                 eid = next((st.entity_id for st in self.hass.states.async_all("scene")
-                            if str(st.attributes.get("id")) == wert), None)
+                            if str(st.attributes.get("id")) == value), None)
                 if eid is None:
-                    _LOGGER.warning("%s: scene %s not found", name, wert)
+                    _LOGGER.warning("%s: scene %s not found", name, value)
                     return
                 _LOGGER.debug("%s → %s", name, eid)
                 await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=True)
             elif art == "enet":
-                s = next((s for s in self.szenen.szenen if str(s.id) == wert), None)
+                s = next((s for s in self.scenes.scenes if str(s.id) == value), None)
                 if s is None:
-                    _LOGGER.warning("%s: eNet scene %s not found", name, wert)
+                    _LOGGER.warning("%s: eNet scene %s not found", name, value)
                     return
                 _LOGGER.debug("%s → eNet scene %s", name, s.name)
-                await self.szenen.aufrufen(s)
-        except Exception as err:  # noqa: BLE001 – Fehler der Szene nur melden, Sensor-Auswertung läuft weiter
+                await self.scenes.call_scene(s)
+        except Exception as err:  # noqa: BLE001 – only report scene errors, sensor evaluation continues
             _LOGGER.warning("%s: scene failed: %s", name, err)
 
-    def _sender_basis_lernen(self, sn: str, ga: int) -> Taste | None:
-        """Tastendruck passt nicht zur bekannten GA-Basis: Sender schlafen (Link-Tabelle nicht lesbar), also
-        die Basis aus dem Telegramm ableiten (GA = Basis·256 + Offset + 1…n), wenn sie noch nicht gesichert ist."""
-        t = self.taste_fuer(sn, ga, basis=ga >> 8)
-        if t is None or t.geraet.get("ga_basis_geprueft"):
+    def _learn_sender_base(self, sn: str, ga: int) -> Key | None:
+        """Key press doesn't match the known GA base: transmitters sleep (link table not readable), so derive
+        the base from the telegram (GA = base·256 + offset + 1…n) if it is not yet confirmed."""
+        t = self.key_for(sn, ga, base=ga >> 8)
+        if t is None or t.enet_device.get("ga_basis_geprueft"):
             return None
-        t.geraet["ga_basis"], t.geraet["ga_basis_geprueft"] = ga >> 8, True
-        _LOGGER.info("%s: GA base %d taken from button press", t.geraet["name"], ga >> 8)
-        self.hass.async_create_task(self.anlage_speichern())
+        t.enet_device["ga_basis"], t.enet_device["ga_basis_geprueft"] = ga >> 8, True
+        _LOGGER.info("%s: GA base %d taken from button press", t.enet_device["name"], ga >> 8)
+        self.hass.async_create_task(self.save_installation())
         return t
 
-    async def _aktor_basis_lesen(self) -> None:
-        """GA-Basis der Aktoren aus dem Werkseintrag der Link-Tabelle (GO 1: Typ 01, eigene SN, GA = Basis·256
-        + Offset + 1). Einmal je Gerät; ändert sich etwas, wird die Konfiguration der Bridge neu übertragen."""
-        geaendert = False
-        for g in self.anlage["geraete"]:
-            k = next((k for k in self.alle_kanaele if k.geraet is g), None)
+    async def _read_actuator_bases(self) -> None:
+        """GA base of the actuators from the factory entry of the link table (GO 1: type 01, own SN, GA = base·256
+        + offset + 1). Once per device; if anything changes, the bridge configuration is transferred again."""
+        changed = False
+        for g in self.installation["geraete"]:
+            k = next((k for k in self.all_channels if k.enet_device is g), None)
             if k is None or g.get("ga_basis_geprueft"):
                 continue
             for idx in range(8):
@@ -560,40 +560,40 @@ class Hub:
                                                   data=f"000001{idx:02x}")
                 except BridgeError as err:
                     _LOGGER.debug("%s: link table (entry %d): %s", g["name"], idx, err)
-                    break  # Ende der Tabelle (rc 255) oder nicht erreichbar → später erneut
+                    break  # end of table (rc 255) or not reachable → retry later
                 v = bytes.fromhex(r.get("value", ""))
                 if len(v) >= 9 and v[0] == 0x01 and v[1:7].hex() == g["sn"]:
-                    basis = v[7]
-                    if basis != g.get("ga_basis", 0):
-                        _LOGGER.warning("%s: GA base %d (installation had %d)", g["name"], basis, g.get("ga_basis", 0))
-                        geaendert = True
-                    g["ga_basis"], g["ga_basis_geprueft"] = basis, True
-                    await self.anlage_speichern()
+                    base = v[7]
+                    if base != g.get("ga_basis", 0):
+                        _LOGGER.warning("%s: GA base %d (installation had %d)", g["name"], base, g.get("ga_basis", 0))
+                        changed = True
+                    g["ga_basis"], g["ga_basis_geprueft"] = base, True
+                    await self.save_installation()
                     break
-        if geaendert:
-            await self._config_abgleichen(self.bridge.info)
+        if changed:
+            await self._sync_config(self.bridge.info)
 
-    # --- Lebenszyklus -------------------------------------------------------
+    # --- Lifecycle ----------------------------------------------------------
     async def async_start(self) -> None:
-        self.fw_bundle = await self.hass.async_add_executor_job(firmware.mitgeliefert)
+        self.fw_bundle = await self.hass.async_add_executor_job(firmware.bundled)
         await self.params.laden()
         self._unsub = self.bridge.add_listener(self._on_message)
         self.bridge.start()
-        self.ha_szenen.start()
-        self.messung.start()
-        self._nachfuehren_task = self.hass.async_create_background_task(self._nachfuehren(),
+        self.ha_scenes.start()
+        self.measurements.start()
+        self._tracking_task = self.hass.async_create_background_task(self._track_frequency(),
                                                                         f"{DOMAIN} frequency tracking")
 
     async def async_stop(self) -> None:
-        self.ha_szenen.stop()
-        self.ha_wippe.stop()
-        self.messung.stop()
+        self.ha_scenes.stop()
+        self.ha_rocker.stop()
+        self.measurements.stop()
         if self._unsub:
             self._unsub()
         if self._sync_task:
             self._sync_task.cancel()
-        if self._nachfuehren_task:
-            self._nachfuehren_task.cancel()
+        if self._tracking_task:
+            self._tracking_task.cancel()
         await self.hass.async_add_executor_job(self.bridge.stop)
 
     def _schedule_sync(self, delay: float) -> None:
@@ -602,91 +602,91 @@ class Hub:
         self._sync_task = self.hass.async_create_background_task(self._sync(delay), f"{DOMAIN} sync")
 
     async def _sync(self, delay: float) -> None:
-        """Ablauf 10.1: hello (Uhr), dann Zustände aus der Tabelle, unbekannte Kanäle abfragen."""
+        """Sequence 10.1: hello (clock), then states from the table, query unknown channels."""
         await asyncio.sleep(delay)
-        if self.flasht:
+        if self.flashing:
             return
         try:
             info = await self._hello()
             if info is None:
                 return
-            if self._update_noetig(info):
-                self.hass.async_create_background_task(self.firmware_aktualisieren(), f"{DOMAIN} firmware")
+            if self._update_needed(info):
+                self.hass.async_create_background_task(self.update_firmware(), f"{DOMAIN} firmware")
                 return
             _LOGGER.info("eNet bridge connected: firmware %s, protocol %s, configuration %s",
                          info.get("fw"), info.get("proto"), info.get("config"))
-            self._geraet_versionen(info)
+            self._device_versions(info)
             async_dispatcher_send(self.hass, self.signal("bridge"))
             if not self.radio.get("ok"):
                 _LOGGER.warning("Bridge: radio module (CC1101) not reachable – check the wiring")
                 return
-            await self._config_abgleichen(info)
-            if self.server_on != (self.server_soll and not self.mithoeren):
-                _LOGGER.info("Bridge: Server-Funktionen → %s (wie in HA eingestellt)", self.server_soll)
-                await self.server_setzen(self.server_soll)
-            if self.mithoeren:  # nichts senden: Zustände nur aus der Tabelle, Kalibrierung aus fremden Telegrammen
-                self.pruefung.szenen_pruefen()  # Szenen bleiben eNet-Szenen, bis „Nur mithören“ aus ist: Hinweis
+            await self._sync_config(info)
+            if self.server_on != (self.server_wanted and not self.listen_only):
+                _LOGGER.info("Bridge: server functions → %s (as set in HA)", self.server_wanted)
+                await self.set_server(self.server_wanted)
+            if self.listen_only:  # send nothing: states only from the table, calibration from foreign telegrams
+                self.check.check_scenes()  # scenes stay eNet scenes until "listen only" is off: notice
                 await self.bridge.command("state")
                 if not self.radio.get("calibrated"):
-                    await self._passiv_kalibrieren()
+                    await self._calibrate_passive()
                 return
-            kalibriert = not self.radio.get("calibrated")
-            if kalibriert:
-                await self.kalibrieren()
-            elif self.alle_kanaele and not await self._antwortet(list({k.ia: k for k in self.alle_kanaele}.values())
-                                                             [:KAL_TESTKANAELE]):
-                # Zustände kommen sonst aus der Tabelle der Bridge, ohne dass ein Aktor antworten muss: Nach einem
-                # Modultausch bliebe die alte Korrektur stehen und die Bridge taub (Nachführen braucht Empfang).
+            calibrated = not self.radio.get("calibrated")
+            if calibrated:
+                await self.calibrate()
+            elif self.all_channels and not await self._answers(list({k.ia: k for k in self.all_channels}.values())
+                                                             [:CAL_TEST_CHANNELS]):
+                # Otherwise states come from the bridge's table without any actuator having to answer: after a
+                # module swap the old correction would remain and the bridge would be deaf (tracking needs reception).
                 _LOGGER.warning("No actuator answers – searching the frequency correction again")
-                await self.kalibrieren()
-                kalibriert = True  # nicht gleich noch einmal suchen
-            for z in self.zustand.values():
+                await self.calibrate()
+                calibrated = True  # don't search again right away
+            for z in self.state_.values():
                 z.known = False
             await self.bridge.command("state")
-            await asyncio.sleep(0.5)  # state-Ereignisse aus der Tabelle abwarten
-            for versuch in range(3):
-                offen = [k for k in self.alle_kanaele if not self.zustand[k.key].known]
-                if not offen:
+            await asyncio.sleep(0.5)  # wait for state events from the table
+            for attempt in range(3):
+                open_items = [k for k in self.all_channels if not self.state_[k.key].known]
+                if not open_items:
                     break
-                if versuch:
+                if attempt:
                     await asyncio.sleep(2)
-                for k in offen:
+                for k in open_items:
                     try:
                         await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                     except BridgeError as err:
-                        _LOGGER.debug("poll %s (Versuch %d): %s", k.key, versuch + 1, err)
-            if not kalibriert and self.alle_kanaele and not any(self.zustand[k.key].known for k in self.alle_kanaele):
+                        _LOGGER.debug("poll %s (Versuch %d): %s", k.key, attempt + 1, err)
+            if not calibrated and self.all_channels and not any(self.state_[k.key].known for k in self.all_channels):
                 _LOGGER.warning("No actuator answers – searching the frequency correction again")
-                if await self.kalibrieren():
-                    for k in self.alle_kanaele:
+                if await self.calibrate():
+                    for k in self.all_channels:
                         try:
                             await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                         except BridgeError:
                             pass
-            for k in self.alle_kanaele:
-                if not self.zustand[k.key].known:
-                    _LOGGER.warning("%s (%s) does not answer the status request", k.geraet["name"], k.key)
-            await self._aktor_basis_lesen()
-            await self._parameter_vorladen()
-            self.pruefung.geraete_pruefen()
-            for schritt in (self.ha_szenen.umwandeln,  # eNet-Szenen aus dem Import → HA-Szenen (einmalig)
-                            self.ha_szenen.abgleichen,  # nur Abweichungen gehen per Funk hinaus
-                            self.pruefung.links_pruefen,  # Anlagenprüfung: liest nur
-                            self.pruefung.verknuepfungen_pruefen):  # Link-Tabellen (je Aktor einmal), liest nur
+            for k in self.all_channels:
+                if not self.state_[k.key].known:
+                    _LOGGER.warning("%s (%s) does not answer the status request", k.enet_device["name"], k.key)
+            await self._read_actuator_bases()
+            await self._preload_parameters()
+            self.check.check_devices()
+            for step in (self.ha_scenes.convert,  # eNet scenes from the import → HA scenes (once)
+                            self.ha_scenes.reconcile,  # only differences go out over the radio
+                            self.check.check_links,  # installation check: read only
+                            self.check.check_links_tables):  # link tables (once per actuator), read only
                 try:
-                    await schritt()
+                    await step()
                 except BridgeError:
                     raise
-                except Exception:  # noqa: BLE001 – unerwartete Anlage/scenes.yaml: melden, Bridge läuft weiter
-                    _LOGGER.exception("Scenes: %s failed", schritt.__name__)
-            self.pruefung.szenen_pruefen()
+                except Exception:  # noqa: BLE001 – unexpected installation/scenes.yaml: report, bridge keeps running
+                    _LOGGER.exception("Scenes: %s failed", step.__name__)
+            self.check.check_scenes()
         except BridgeError as err:
             _LOGGER.warning("Synchronisation with the bridge failed: %s", err)
 
     async def _hello(self) -> dict[str, Any] | None:
-        """hello mit Wiederholung; antwortet keine Bridge, Hinweis zur Firmware-Installation."""
-        for versuch in range(HELLO_VERSUCHE):
-            if versuch:
+        """hello with retries; if no bridge answers, a notice about firmware installation."""
+        for attempt in range(HELLO_ATTEMPTS):
+            if attempt:
                 await asyncio.sleep(2)
             try:
                 info = await self.bridge.hello()
@@ -695,66 +695,66 @@ class Hub:
                     raise
                 continue
             if info.get("product", "enet-bridge") == "enet-bridge" and "proto" in info:
-                self.keine_bridge = False
+                self.no_bridge = False
                 return info
             break
         self.bridge.info = {}
-        if not self.keine_bridge:
-            self.keine_bridge = True
+        if not self.no_bridge:
+            self.no_bridge = True
             _LOGGER.warning("No eNet bridge answers on port %s – install the firmware via the update entity "
                             "\"Bridge firmware\"", self.bridge.port)
         async_dispatcher_send(self.hass, self.signal("bridge"))
         return None
 
-    def _update_noetig(self, info: dict[str, Any]) -> bool:
-        """Bridge antwortet als Bridge, mitgelieferte Firmware ist neuer → automatisch. Je Bridge und
-        Ausgangsversion nur einmal: meldet sie nach dem Flashen noch die alte Version, keine Schleife."""
-        neu = self.fw_bundle
-        if not neu or firmware.version_tupel(info.get("fw")) >= firmware.version_tupel(neu):
+    def _update_needed(self, info: dict[str, Any]) -> bool:
+        """Bridge answers as a bridge and the bundled firmware is newer → automatic. Only once per bridge and
+        starting version: if it still reports the old version after flashing, no loop."""
+        new = self.fw_bundle
+        if not new or firmware.version_tuple(info.get("fw")) >= firmware.version_tuple(new):
             return False
-        versuch = (info.get("id"), info.get("fw"), neu)
-        if versuch in self._auto_update:
+        attempt = (info.get("id"), info.get("fw"), new)
+        if attempt in self._auto_update:
             return False
-        self._auto_update.add(versuch)
-        _LOGGER.warning("Bridge firmware %s is outdated – updating to %s automatically", info.get("fw"), neu)
+        self._auto_update.add(attempt)
+        _LOGGER.warning("Bridge firmware %s is outdated – updating to %s automatically", info.get("fw"), new)
         return True
 
-    async def firmware_aktualisieren(self) -> None:
-        """Port freigeben, mitgelieferte Firmware flashen, wieder verbinden (danach neuer Abgleich)."""
-        if self.flasht or not self.fw_bundle:
+    async def update_firmware(self) -> None:
+        """Release the port, flash the bundled firmware, reconnect (followed by a new sync)."""
+        if self.flashing or not self.fw_bundle:
             return
-        if fremdes_funkmodul(self.bridge.port):
+        if foreign_radio(self.bridge.port):
             raise BridgeError("fremd", tr("keine_bridge_port", port=self.bridge.port))
-        self.flasht = True
+        self.flashing = True
         async_dispatcher_send(self.hass, self.signal("bridge"))
         try:
             await self.hass.async_add_executor_job(self.bridge.release)
-            # Chip aus dem hello; leerer ESP (keine Bridge) → esptool erkennt ihn
-            chip = None if self.keine_bridge else self.bridge.info.get("chip", firmware.STANDARD_CHIP)
-            await self.hass.async_add_executor_job(firmware.flashen, self.bridge.port, chip)
+            # chip from the hello; blank ESP (no bridge) → esptool detects it
+            chip = None if self.no_bridge else self.bridge.info.get("chip", firmware.DEFAULT_CHIP)
+            await self.hass.async_add_executor_job(firmware.flash, self.bridge.port, chip)
             _LOGGER.warning("Bridge firmware %s installed", self.fw_bundle)
-        except Exception as err:  # noqa: BLE001 – esptool wirft beliebige Fehler
+        except Exception as err:  # noqa: BLE001 – esptool raises arbitrary errors
             _LOGGER.error("Flashing the bridge failed: %s", err)
             raise BridgeError("flash", str(err)) from err
         finally:
-            self.flasht = False
+            self.flashing = False
             self.bridge.reconnect()
             async_dispatcher_send(self.hass, self.signal("bridge"))
 
-    async def _config_abgleichen(self, info: dict[str, Any]) -> None:
-        """Server-Konfiguration aus anlage.json übertragen, wenn die Bridge eine andere (oder keine) hat."""
-        blob = esp_config.build(self.anlage)[0]
+    async def _sync_config(self, info: dict[str, Any]) -> None:
+        """Transfer the server configuration from anlage.json if the bridge has a different one (or none)."""
+        blob = esp_config.build(self.installation)[0]
         crc = blob[-2:].hex()
         cfg = info.get("config", {})
         if cfg.get("valid") and cfg.get("crc") == crc:
             return
         _LOGGER.info("Bridge: transferring configuration %s → %s", cfg.get("crc"), crc)
-        ergebnis = await self.bridge.config_hochladen(esp_config.teile(blob))
-        self.bridge.info["config"] = {"valid": True, **{k: ergebnis.get(k) for k in
+        outcome = await self.bridge.upload_config(esp_config.split_parts(blob))
+        self.bridge.info["config"] = {"valid": True, **{k: outcome.get(k) for k in
                                                          ("crc", "channels", "scenes", "keys")}}
 
-    async def _antwortet(self, kanaele: list[Kanal]) -> bool:
-        for k in kanaele:
+    async def _answers(self, channels_: list[Channel]) -> bool:
+        for k in channels_:
             try:
                 await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                 return True
@@ -762,113 +762,113 @@ class Hub:
                 continue
         return False
 
-    async def kalibrieren(self) -> int | None:
-        """Frequenzkorrektur suchen (nur Statusabfragen), fein abgleichen und auf der Bridge speichern.
+    async def calibrate(self) -> int | None:
+        """Search for the frequency correction (status requests only), fine-tune and store it on the bridge.
 
-        Grob: Kandidaten durchprobieren, bis ein Aktor antwortet. Fein: FREQEST der Antworten mitteln
-        (FSCTRL0 += FREQEST). Liefert den gespeicherten Wert oder None (kein Aktor erreichbar)."""
-        async with self._kal_lock:
-            # je Gerät ein Kanal, damit die Grobsuche verschiedene Aktoren probiert
-            test = list({k.ia: k for k in self.alle_kanaele}.values())[:KAL_TESTKANAELE]
+        Coarse: try candidates until an actuator answers. Fine: average the FREQEST of the replies
+        (FSCTRL0 += FREQEST). Returns the stored value or None (no actuator reachable)."""
+        async with self._cal_lock:
+            # one channel per device, so the coarse search tries different actuators
+            test = list({k.ia: k for k in self.all_channels}.values())[:CAL_TEST_CHANNELS]
             if not test:
                 return None
-            start = self.radio.get("freq_offset", KAL_KANDIDATEN[0])
-            for f in dict.fromkeys((start, *KAL_KANDIDATEN)):
+            start = self.radio.get("freq_offset", CAL_CANDIDATES[0])
+            for f in dict.fromkeys((start, *CAL_CANDIDATES)):
                 await self._radio(freq_offset=f)
-                if await self._antwortet(test):
+                if await self._answers(test):
                     break
             else:
                 await self._radio(freq_offset=start)
                 _LOGGER.warning("Calibration: no actuator answers at any frequency correction")
                 return None
-            for _ in range(2):  # Telegramme für den Mittelwert sammeln
-                for k in self.alle_kanaele:
+            for _ in range(2):  # collect telegrams for the average
+                for k in self.all_channels:
                     try:
                         await self.bridge.request("poll", ia=k.ia, ch=k.nr)
                     except BridgeError:
                         pass
             r = await self._radio()
-            if r.get("freqest_n", 0) >= KAL_PROBEN:
+            if r.get("freqest_n", 0) >= CAL_SAMPLES:
                 f = max(-128, min(127, f + round(r["freqest"])))
             await self._radio(freq_offset=f, save=True)
             _LOGGER.info("Calibration: frequency correction %d saved (previous offset %.1f from %d telegrams)",
                          f, r.get("freqest", 0.0), r.get("freqest_n", 0))
             return f
 
-    async def _nachfuehren(self) -> None:
-        """Frequenzkorrektur im Betrieb nachführen, ohne zu senden: Die Bridge mittelt FREQEST aller gültigen
-        Telegramme seit der letzten Änderung. Liegt der Mittelwert um mindestens NACHFUEHREN_SCHWELLE Schritte
-        daneben, FSCTRL0 um diesen Betrag verstellen und speichern (höchstens einmal je NACHFUEHREN_ABSTAND_S).
-        Fängt Drift (Temperatur, Alterung) und einen Modultausch ab; ersetzt den früheren Knopf „Funk kalibrieren“."""
+    async def _track_frequency(self) -> None:
+        """Track the frequency correction during operation without sending: the bridge averages the FREQEST of all
+        valid telegrams since the last change. If the average is off by at least TRACKING_THRESHOLD steps,
+        adjust FSCTRL0 by that amount and store it (at most once per TRACKING_INTERVAL_S).
+        Catches drift (temperature, ageing) and a module swap; replaces the former "calibrate radio" button."""
         while True:
-            await asyncio.sleep(NACHFUEHREN_S)
-            if (self.flasht or not self.bridge.connected or self._kal_lock.locked()
+            await asyncio.sleep(TRACKING_S)
+            if (self.flashing or not self.bridge.connected or self._cal_lock.locked()
                     or not self.radio.get("ok") or not self.radio.get("calibrated")):
                 continue
             try:
-                async with self._kal_lock:
+                async with self._cal_lock:
                     r = await self._radio()
                     n, est, f = r.get("freqest_n", 0), r.get("freqest"), r.get("freq_offset")
-                    if (n < NACHFUEHREN_PROBEN or est is None or f is None or abs(est) < NACHFUEHREN_SCHWELLE
-                            or time.monotonic() - self._nachgefuehrt < NACHFUEHREN_ABSTAND_S):
+                    if (n < TRACKING_SAMPLES or est is None or f is None or abs(est) < TRACKING_THRESHOLD
+                            or time.monotonic() - self._tracked_at < TRACKING_INTERVAL_S):
                         continue
-                    neu = max(-128, min(127, f + round(est)))
-                    await self._radio(freq_offset=neu, save=True)
-                    self._nachgefuehrt = time.monotonic()
+                    new = max(-128, min(127, f + round(est)))
+                    await self._radio(freq_offset=new, save=True)
+                    self._tracked_at = time.monotonic()
                     _LOGGER.info("Frequency correction adjusted: %d → %d (offset %.1f from %d telegrams)",
-                                 f, neu, est, n)
+                                 f, new, est, n)
             except BridgeError as err:
                 _LOGGER.debug("Frequency tracking: %s", err)
 
-    async def _passiv_kalibrieren(self) -> int | None:
-        """Frequenzkorrektur ohne Senden: je Kandidat warten, bis genug fremde Telegramme (Tasten, Aktor-Meldungen,
-        echter Server) empfangen sind, dann mit ihrem FREQEST fein abgleichen und speichern. Läuft, bis es klappt
-        (oder „Nur mithören“ aus ist – dann übernimmt die normale Kalibrierung)."""
-        start = self.radio.get("freq_offset", KAL_KANDIDATEN[0])
+    async def _calibrate_passive(self) -> int | None:
+        """Frequency correction without sending: per candidate, wait until enough foreign telegrams (keys, actuator
+        reports, real server) have been received, then fine-tune with their FREQEST and store. Runs until it
+        succeeds (or "listen only" is off – then the normal calibration takes over)."""
+        start = self.radio.get("freq_offset", CAL_CANDIDATES[0])
         _LOGGER.info("Listen only: determining frequency correction from received telegrams")
-        while self.mithoeren:
-            for f in dict.fromkeys((start, *KAL_KANDIDATEN)):
+        while self.listen_only:
+            for f in dict.fromkeys((start, *CAL_CANDIDATES)):
                 await self._radio(freq_offset=f)
-                ende = time.monotonic() + KAL_PASSIV_S
-                while time.monotonic() < ende and self.mithoeren:
+                end = time.monotonic() + CAL_PASSIVE_S
+                while time.monotonic() < end and self.listen_only:
                     await asyncio.sleep(15)
                     r = await self._radio()
-                    if r.get("freqest_n", 0) >= KAL_PROBEN:
+                    if r.get("freqest_n", 0) >= CAL_SAMPLES:
                         f = max(-128, min(127, f + round(r["freqest"])))
                         await self._radio(freq_offset=f, save=True)
                         _LOGGER.info("Listen only: frequency correction %d saved (from %d telegrams)",
                                      f, r["freqest_n"])
                         return f
-                if not self.mithoeren:
+                if not self.listen_only:
                     return None
         return None
 
-    async def _radio(self, **felder: Any) -> dict[str, Any]:
-        reply = await self.bridge.command("radio", **felder)
+    async def _radio(self, **fields_: Any) -> dict[str, Any]:
+        reply = await self.bridge.command("radio", **fields_)
         self.bridge.info["radio"] = reply["radio"]
-        try:  # Empfangszähler zur Diagnose (gültig / CRC-Fehler / unlesbar), Anzeige am Sensor Frequenzkorrektur
+        try:  # receive counters for diagnostics (valid / CRC error / unreadable), shown on the freq. correction sensor
             self.bridge.info["stats"] = await self.bridge.command("stats")
         except BridgeError:
             pass
         async_dispatcher_send(self.hass, self.signal("bridge"))
         return reply["radio"]
 
-    # --- Ereignisse ---------------------------------------------------------
+    # --- Events -------------------------------------------------------------
     @callback
-    def _nach_bridge_szene(self, nr: int) -> None:
-        """Lokale Szene der Bridge fertig: enthielt sie einen Szenenaufruf (IA 0), wie nach einem Aufruf aus HA
-        den Status der Mitglieder abfragen (die Bridge selbst fragt nur nach Einzelbefehlen nach)."""
-        namen = list(self.anlage.get("esp", {}).get("szenen", {}))
-        if not 0 <= nr < len(namen):
+    def _after_bridge_scene(self, nr: int) -> None:
+        """Local bridge scene finished: if it contained a scene recall (IA 0), query the members' status as after
+        a recall from HA (the bridge itself only follows up on single commands)."""
+        names_ = list(self.installation.get("esp", {}).get("szenen", {}))
+        if not 0 <= nr < len(names_):
             return
-        for a in self.anlage["esp"]["szenen"][namen[nr]]:
+        for a in self.installation["esp"]["szenen"][names_[nr]]:
             if a["ia"] == "0.0.0":
-                s = next((s for s in self.szenen.szenen if s.ga == a["handle"] and s.nr == int(a["wert"], 16)), None)
+                s = next((s for s in self.scenes.scenes if s.ga == a["handle"] and s.nr == int(a["wert"], 16)), None)
                 if s:
-                    self.szenen.status_abfragen(s)
+                    self.scenes.poll_status(s)
 
     @callback
-    def _bridge_neu_zeichnen(self, _now: Any = None) -> None:
+    def _redraw_bridge(self, _now: Any = None) -> None:
         async_dispatcher_send(self.hass, self.signal("bridge"))
 
     @callback
@@ -889,60 +889,60 @@ class Hub:
                 _LOGGER.warning("Bridge: radio module (CC1101) stopped answering – check the wiring")
             async_dispatcher_send(self.hass, self.signal("bridge"))
         elif ev == "start":
-            _LOGGER.info("Bridge gestartet (%s)", msg.get("reset_reason"))
+            _LOGGER.info("Bridge started (%s)", msg.get("reset_reason"))
             self._schedule_sync(0.2)
         if ev in ("state", "result") and msg.get("rssi") is not None and msg.get("ia"):
             d = self.diag.setdefault(msg["ia"], Diagnose())
-            d.rssi, d.zeit = msg["rssi"], dt_util.now()
+            d.rssi, d.time_ = msg["rssi"], dt_util.now()
             if ev == "result":
-                d.versuche = msg.get("tries")
+                d.attempts = msg.get("tries")
             async_dispatcher_send(self.hass, self.signal(f"diag_{msg['ia']}"))
         if ev == "state":
             key = f"{msg.get('ia')}/{msg.get('ch')}"
-            if (z := self.zustand.get(key)) is not None:
+            if (z := self.state_.get(key)) is not None:
                 _LOGGER.debug("State %s: %s", key, msg)
-                self.pruefung.antwortet(msg.get("ia"))
+                self.check.answers(msg.get("ia"))
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
                 if msg.get("kind") == "blind":
-                    z.lamelle = msg.get("slat")
+                    z.slat = msg.get("slat")
                     if msg.get("move") is not None:
-                        z.bewegung = int(msg["move"])
+                        z.motion = int(msg["move"])
                 if msg.get("source") != "poll":
-                    z.gemeldet = time.monotonic()
+                    z.reported = time.monotonic()
                 async_dispatcher_send(self.hass, self.signal(f"state_{key}"))
         elif ev == "key":
-            self._batterie(msg)
-            if self.messung.telegramm(msg) or self._sensorwert(msg):
+            self._battery(msg)
+            if self.measurements.telegram(msg) or self._sensor_value(msg):
                 return
-            taste = self.taste_fuer(msg.get("sn", ""), int(msg.get("ga", -1))) \
-                or self._sender_basis_lernen(msg.get("sn", ""), int(msg.get("ga", -1)))
-            # seq (Statusabfragen): neuer Druck = neue seq, Wiederholung (Sender sah keine Antwort) = gleiche seq
-            kennung = (msg.get("sn"), msg.get("ga"), msg.get("cmd"), msg.get("seq"))
-            jetzt = time.monotonic()
-            if self._letzte_taste[0] == kennung and jetzt - self._letzte_taste[1] < WIEDERHOLUNG_S:
+            key_obj = self.key_for(msg.get("sn", ""), int(msg.get("ga", -1))) \
+                or self._learn_sender_base(msg.get("sn", ""), int(msg.get("ga", -1)))
+            # seq (status requests): new press = new seq, repetition (transmitter saw no reply) = same seq
+            ident = (msg.get("sn"), msg.get("ga"), msg.get("cmd"), msg.get("seq"))
+            now_ = time.monotonic()
+            if self._last_key[0] == ident and now_ - self._last_key[1] < REPEAT_S:
                 _LOGGER.debug("Repeated button telegram discarded: %s", msg)
-                return  # Sender wiederholt unbeantwortete Telegramme (z. B. Loslassen nach „beide Tasten“)
-            self._letzte_taste = (kennung, jetzt)
-            if taste is None:
+                return  # transmitter repeats unanswered telegrams (e.g. release after "both keys")
+            self._last_key = (ident, now_)
+            if key_obj is None:
                 _LOGGER.debug("Button press without assignment: %s", msg)
-                self.pruefung.unbekannter_sender(msg.get("sn", ""))
+                self.check.unknown_sender(msg.get("sn", ""))
                 return
-            if taste.art == ART_WIPPE and msg.get("kind") == "server":
-                wippe_als_server_taste(msg)
-            async_dispatcher_send(self.hass, self.signal(f"key_{taste.key}"), msg)
-            if taste.art == ART_WIPPE:
-                self.ha_wippe.tastendruck(taste, msg)
-            self.ha_szenen.tastendruck(msg)
-            self._einschalthelligkeit_pruefen(taste, msg)
+            if key_obj.art == KIND_ROCKER and msg.get("kind") == "server":
+                rocker_as_server_key(msg)
+            async_dispatcher_send(self.hass, self.signal(f"key_{key_obj.key}"), msg)
+            if key_obj.art == KIND_ROCKER:
+                self.ha_rocker.key_press(key_obj, msg)
+            self.ha_scenes.key_press(msg)
+            self._check_switch_on_brightness(key_obj, msg)
         elif ev == "scene_done":
-            self._nach_bridge_szene(int(msg.get("nr", -1)))
+            self._after_bridge_scene(int(msg.get("nr", -1)))
         elif ev == "real_server":
             if not self.real_server and self.server_on:
                 _LOGGER.warning("Real eNet server active – bridge and server both answer the server buttons. "
                                 "Switch off the server or the bridge's \"Server functions\"")
-            self.real_server_zeit = dt_util.now()
+            self.real_server_time = dt_util.now()
             async_dispatcher_send(self.hass, self.signal("bridge"))
-            async_call_later(self.hass, REAL_SERVER_S + 1, self._bridge_neu_zeichnen)
+            async_call_later(self.hass, REAL_SERVER_S + 1, self._redraw_bridge)
         elif ev == "error":
-            _LOGGER.warning("Bridge meldet Fehler: %s", msg)
+            _LOGGER.warning("Bridge reports an error: %s", msg)
 

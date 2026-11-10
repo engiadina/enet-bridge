@@ -6,9 +6,9 @@ namespace knxrf {
 
 size_t frameLenOnAir(uint8_t L) {
   if (L < 10 || L > 100) return 0;
-  size_t rest = L - 9;                    // Datenbytes nach Block 1
+  size_t rest = L - 9;                    // data bytes after block 1
   size_t blocks = (rest + 15) / 16;
-  return 12 + rest + 2 * blocks;          // Block 1 (10+2) + Rest + CRCs
+  return 12 + rest + 2 * blocks;          // block 1 (10+2) + rest + CRCs
 }
 
 uint16_t crc16(const uint8_t* data, size_t len) {
@@ -30,7 +30,7 @@ size_t manchesterDecode(const uint8_t* chips, size_t chipBytes, uint8_t* out, bo
       uint8_t pair = (w >> (2 * k)) & 0x3;
       if (pair == 0x1) v = (uint8_t)((v << 1) | 1);
       else if (pair == 0x2) v = (uint8_t)(v << 1);
-      else return n;  // ungueltiges Chip-Paar -> Ende
+      else return n;  // invalid chip pair -> end
     }
     out[n++] = v;
   }
@@ -90,7 +90,7 @@ bool stripCrc(const uint8_t* raw, size_t rawLen, Frame& out) {
   size_t pos = 0;
   int block = 0;
   size_t blockLen = 10;
-  size_t remaining = (size_t)raw[0] + 1;  // L zaehlt sich selbst nicht mit
+  size_t remaining = (size_t)raw[0] + 1;  // L does not count itself
   bool ok = true;
   while (remaining > 0) {
     size_t take = remaining < blockLen ? remaining : blockLen;
@@ -136,7 +136,7 @@ size_t buildTxChips(const uint8_t* data, size_t len, uint8_t* chips, size_t cap,
   if (total > cap) return 0;
   size_t o = 0;
   while (o < preambleBytes) chips[o++] = 0x55;
-  chips[o++] = 0x54;  // 010101 + "00" vor dem Sync
+  chips[o++] = 0x54;  // 010101 + "00" before the sync
   chips[o++] = 0x76;
   chips[o++] = 0x96;
   manchesterEncode(raw, rawLen, chips + o);

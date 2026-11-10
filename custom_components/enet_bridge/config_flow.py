@@ -1,10 +1,10 @@
-"""Einrichtung: Port der Bridge und Herkunft der Anlage.
+"""Setup: port of the bridge and origin of the installation.
 
-Drei Wege: Export des eNet Servers hochladen (Umzug), neue Anlage (ohne Server, eigene Domäne und
-Server-Kennung) oder eine bestehende anlage.json (tools/iex.py). Danach liegt die Anlage im Speicher von HA.
+Three ways: upload an eNet Server export (migration), a new installation (without server, own domain and
+server identity) or an existing anlage.json (tools/iex.py). Afterwards the installation lives in HA's store.
 
-„+ Gerät hinzufügen“ (Untereintrag-Dialog): Name/Raum, Suche mit Fortschrittsanzeige, Ergebnis als Meldung.
-Es bleibt kein Untereintrag stehen – die Geräte verwaltet die Anlage.
+"+ Add device" (subentry dialog): name/room, search with progress indicator, result as a message.
+No subentry is left behind – the installation manages the devices.
 """
 from __future__ import annotations
 
@@ -41,15 +41,15 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from . import einlernen, iex, sender
-from .anlage import lade_datei, neue_anlage
-from .bridge import BridgeError, fremdes_funkmodul, list_ports
-from .const import CONF_ANLAGE, CONF_ANLAGE_DATEN, CONF_PORT, DEFAULT_ANLAGE, DOMAIN
-from . import texte
-from .texte import tr
+from . import pair, iex, sender
+from .installation import load_file, new_installation
+from .bridge import BridgeError, foreign_radio, list_ports
+from .const import CONF_INSTALLATION, CONF_INSTALLATION_DATA, CONF_PORT, DEFAULT_INSTALLATION, DOMAIN
+from . import texts
+from .texts import tr
 
 CONF_EXPORT = "export"
-CONF_SERVER_AUS = "server_aus"
+CONF_SERVER_OFF = "server_aus"
 
 
 class EnetConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -58,15 +58,15 @@ class EnetConfigFlow(ConfigFlow, domain=DOMAIN):
     @classmethod
     @callback
     def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
-        return {"geraet": GeraetHinzufuegen}
+        return {"geraet": AddDevice}
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return EnetOptionen()
+        return EnetOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        texte.setzen(self.hass.config.language)  # Erst-Einrichtung läuft vor async_setup_entry
+        texts.set_language(self.hass.config.language)  # initial setup runs before async_setup_entry
         return self.async_show_menu(step_id="user", menu_options=["export", "neu", "datei"])
 
     async def _port_schema(self) -> dict:
@@ -75,14 +75,14 @@ class EnetConfigFlow(ConfigFlow, domain=DOMAIN):
             SelectSelectorConfig(options=ports, custom_value=True, mode=SelectSelectorMode.DROPDOWN))}
 
     async def _port_ok(self, port: str, errors: dict[str, str]) -> bool:
-        if fremdes_funkmodul(port):
+        if foreign_radio(port):
             errors[CONF_PORT] = "port_fremd"
         elif not await self.hass.async_add_executor_job(os.path.exists, port):
             errors[CONF_PORT] = "port_missing"
         return not errors
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Port der Bridge ändern (z. B. nach Umstecken); die Anlage bleibt unverändert."""
+        """Change the bridge port (e.g. after replugging); the installation stays unchanged."""
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None and await self._port_ok(user_input[CONF_PORT], errors):
@@ -91,241 +91,241 @@ class EnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="port_in_use")
             return self.async_update_reload_and_abort(entry, data_updates={CONF_PORT: port})
         schema = await self._port_schema()
-        if not fremdes_funkmodul(entry.data[CONF_PORT]):
+        if not foreign_radio(entry.data[CONF_PORT]):
             schema = {vol.Required(CONF_PORT, default=entry.data[CONF_PORT]): schema[next(iter(schema))]}
         return self.async_show_form(step_id="reconfigure", data_schema=vol.Schema(schema), errors=errors)
 
-    async def _anlegen(self, port: str, anlage: dict[str, Any], **daten: Any) -> ConfigFlowResult:
-        srv = anlage["server"]
+    async def _create(self, port: str, installation: dict[str, Any], **data_: Any) -> ConfigFlowResult:
+        srv = installation["server"]
         if any(e.data.get(CONF_PORT) == port for e in self._async_current_entries()):
             return self.async_abort(reason="port_in_use")
         await self.async_set_unique_id(srv["domain"])
         self._abort_if_unique_id_configured()
-        return self.async_create_entry(title=f"eNet {srv['domain']}", data={CONF_PORT: port, **daten})
+        return self.async_create_entry(title=f"eNet {srv['domain']}", data={CONF_PORT: port, **data_})
 
     async def async_step_export(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Umzug: Projektexport (.iex) des eNet Servers übernehmen (Domäne, Server-Kennung, Geräte, Szenen)."""
+        """Migration: take over the eNet Server project export (.iex) (domain, server identity, devices, scenes)."""
         errors: dict[str, str] = {}
         if user_input is not None and await self._port_ok(user_input[CONF_PORT], errors):
-            def lesen() -> dict[str, Any]:
-                with process_uploaded_file(self.hass, user_input[CONF_EXPORT]) as pfad:
-                    return iex.read_iex(pfad)
+            def read() -> dict[str, Any]:
+                with process_uploaded_file(self.hass, user_input[CONF_EXPORT]) as path_:
+                    return iex.read_iex(path_)
 
             try:
-                anlage = await self.hass.async_add_executor_job(lesen)
-            except Exception:  # noqa: BLE001 – beliebiges Dateiformat; Ursache steht im Formular
+                installation = await self.hass.async_add_executor_job(read)
+            except Exception:  # noqa: BLE001 – arbitrary file format; the cause is shown in the form
                 errors[CONF_EXPORT] = "export_invalid"
             else:
-                if anlage["server"].get("verschluesselt"):
+                if installation["server"].get("verschluesselt"):
                     errors[CONF_EXPORT] = "export_encrypted"
                 else:
-                    # Läuft der echte Server noch: „Nur mithören“ – die Bridge sendet nichts (sonst antworten beide);
-                    # ausschalten, sobald der Server aus ist, dann sind auch die Server-Funktionen aktiv
-                    anlage["server"]["funktionen"] = True
-                    anlage["server"]["mithoeren"] = not user_input[CONF_SERVER_AUS]
-                    return await self._anlegen(user_input[CONF_PORT], anlage, **{CONF_ANLAGE_DATEN: anlage})
+                    # If the real server is still running: "listen only" – the bridge sends nothing (otherwise both
+                    # answer); switch it off once the server is off, then the server functions are active too
+                    installation["server"]["funktionen"] = True
+                    installation["server"]["mithoeren"] = not user_input[CONF_SERVER_OFF]
+                    return await self._create(user_input[CONF_PORT], installation, **{CONF_INSTALLATION_DATA: installation})
         schema = vol.Schema({
             vol.Required(CONF_EXPORT): FileSelector(FileSelectorConfig(accept=".iex")),
             **await self._port_schema(),
-            vol.Required(CONF_SERVER_AUS, default=False): BooleanSelector(),
+            vol.Required(CONF_SERVER_OFF, default=False): BooleanSelector(),
         })
         return self.async_show_form(step_id="export", data_schema=schema, errors=errors)
 
     async def async_step_neu(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Neue Anlage ohne eNet Server: Domäne und Server-Kennung werden erzeugt, Geräte später einlernen."""
+        """New installation without eNet Server: domain and server identity are generated, devices are paired later."""
         errors: dict[str, str] = {}
         if user_input is not None and await self._port_ok(user_input[CONF_PORT], errors):
-            anlage = neue_anlage()
-            return await self._anlegen(user_input[CONF_PORT], anlage, **{CONF_ANLAGE_DATEN: anlage})
+            installation = new_installation()
+            return await self._create(user_input[CONF_PORT], installation, **{CONF_INSTALLATION_DATA: installation})
         return self.async_show_form(step_id="neu", data_schema=vol.Schema(await self._port_schema()),
                                     errors=errors)
 
     async def async_step_datei(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Bestehende anlage.json (tools/iex.py) einmalig übernehmen."""
+        """Take over an existing anlage.json (tools/iex.py) once."""
         errors: dict[str, str] = {}
         if user_input is not None and await self._port_ok(user_input[CONF_PORT], errors):
             try:
-                anlage = await self.hass.async_add_executor_job(lade_datei, user_input[CONF_ANLAGE])
+                installation = await self.hass.async_add_executor_job(load_file, user_input[CONF_INSTALLATION])
             except FileNotFoundError:
-                errors[CONF_ANLAGE] = "anlage_missing"
+                errors[CONF_INSTALLATION] = "anlage_missing"
             except (ValueError, KeyError):
-                errors[CONF_ANLAGE] = "anlage_invalid"
+                errors[CONF_INSTALLATION] = "anlage_invalid"
             else:
-                return await self._anlegen(user_input[CONF_PORT], anlage, **{CONF_ANLAGE_DATEN: anlage})
+                return await self._create(user_input[CONF_PORT], installation, **{CONF_INSTALLATION_DATA: installation})
         schema = vol.Schema({**await self._port_schema(),
-                             vol.Required(CONF_ANLAGE, default=DEFAULT_ANLAGE): str})
+                             vol.Required(CONF_INSTALLATION, default=DEFAULT_INSTALLATION): str})
         return self.async_show_form(step_id="datei", data_schema=schema, errors=errors)
 
 
-class GeraetHinzufuegen(ConfigSubentryFlow):
-    """„+ Gerät hinzufügen“: Aktor oder Sender in den Lernmodus versetzen, HA sucht und lernt ein."""
+class AddDevice(ConfigSubentryFlow):
+    """"+ Add device": put an actuator or transmitter into learning mode, HA searches and pairs it."""
 
     def __init__(self) -> None:
-        self._eingabe: dict[str, Any] = {}
-        self._aufgabe: asyncio.Task | None = None
-        self._geraet: dict[str, Any] | None = None
-        self._fehler: str | None = None
+        self._input: dict[str, Any] = {}
+        self._job: asyncio.Task | None = None
+        self._device: dict[str, Any] | None = None
+        self._errors: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         if self._get_entry().state is not ConfigEntryState.LOADED:
             return self.async_abort(reason="nicht_geladen")
         if user_input is not None:
-            self._eingabe = user_input
+            self._input = user_input
             return await self.async_step_suchen()
         schema = vol.Schema({vol.Optional("name"): str, vol.Optional("raum"): AreaSelector()})
         return self.async_show_form(step_id="user", data_schema=schema)
 
-    async def _einlernen(self) -> None:
+    async def _pair(self) -> None:
         hub = self._get_entry().runtime_data
-        raum = None
-        if area_id := self._eingabe.get("raum"):
+        room = None
+        if area_id := self._input.get("raum"):
             area = ar.async_get(self.hass).async_get_area(area_id)
-            raum = area.name if area else None
+            room = area.name if area else None
         try:
-            self._geraet = await einlernen.aufnehmen(hub, self._eingabe.get("name") or None, raum)
+            self._device = await pair.add(hub, self._input.get("name") or None, room)
         except BridgeError as err:
-            self._fehler = str(err)
+            self._errors = str(err)
 
     async def async_step_suchen(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        if self._aufgabe is None:
-            self._aufgabe = self.hass.async_create_task(self._einlernen(), "enet Gerät hinzufügen")
-        if not self._aufgabe.done():
-            return self.async_show_progress(step_id="suchen", progress_action="suchen", progress_task=self._aufgabe)
+        if self._job is None:
+            self._job = self.hass.async_create_task(self._pair(), "enet Gerät hinzufügen")
+        if not self._job.done():
+            return self.async_show_progress(step_id="suchen", progress_action="suchen", progress_task=self._job)
         return self.async_show_progress_done(next_step_id="fertig")
 
     async def async_step_fertig(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         self.hass.config_entries.async_schedule_reload(self._get_entry().entry_id)
-        if self._geraet is None:
+        if self._device is None:
             return self.async_abort(reason="fehlgeschlagen",
-                                    description_placeholders={"fehler": self._fehler or tr("unbekannt")})
-        g = self._geraet
+                                    description_placeholders={"fehler": self._errors or tr("unbekannt")})
+        g = self._device
         return self.async_abort(reason="eingelernt", description_placeholders={
-            "name": g["name"], "ia": g["ia"], "typ": self._get_entry().runtime_data.modell(g)})
+            "name": g["name"], "ia": g["ia"], "typ": self._get_entry().runtime_data.model(g)})
 
 
-class EnetOptionen(OptionsFlow):
-    """„Konfigurieren“ an der eNet-Anlage: Menü – Sender belegen, Gerät entfernen (mit Übersicht und Bestätigung)."""
+class EnetOptionsFlow(OptionsFlow):
+    """"Configure" on the eNet installation: menu – assign transmitter, remove device (with overview and confirm)."""
 
     def __init__(self) -> None:
         self._sn: str | None = None
-        self._arten: dict[int, str] = {}
-        self._bel: dict[int, dict[str, Any]] = {}
-        self._aktionen: dict[int, str] = {}
-        self._programmiert = False
+        self._kinds: dict[int, str] = {}
+        self._assignment: dict[int, dict[str, Any]] = {}
+        self._actions: dict[int, str] = {}
+        self._programmed = False
         self._name = ""
-        self._aufgabe: asyncio.Task | None = None
-        self._bericht: dict[str, Any] | None = None
-        self._fehler: str | None = None
+        self._job: asyncio.Task | None = None
+        self._report: dict[str, Any] | None = None
+        self._errors: str | None = None
 
     def _hub(self):
         return self.config_entry.runtime_data if self.config_entry.state is ConfigEntryState.LOADED else None
 
-    def _geraet(self) -> dict[str, Any] | None:
+    def _device(self) -> dict[str, Any] | None:
         hub = self._hub()
-        return next((g for g in hub.anlage["geraete"] if g["sn"] == self._sn), None) if hub else None
+        return next((g for g in hub.installation["geraete"] if g["sn"] == self._sn), None) if hub else None
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if self._hub() is None:
             return self.async_abort(reason="nicht_geladen")
         return self.async_show_menu(step_id="init", menu_options=["sender", "entfernen"])
 
-    # --- Sender belegen -----------------------------------------------------
+    # --- Assign transmitter -------------------------------------------------
     async def async_step_sender(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         hub = self._hub()
         if user_input is not None:
             self._sn = user_input["geraet"]
             return await self.async_step_betriebsart()
-        optionen = [SelectOptionDict(value=g["sn"], label=f"{g['name']} ({g['ia']}, {hub.modell(g)})")
-                    for g in sorted(hub.anlage["geraete"], key=lambda g: einlernen.ia_int(g["ia"]))
+        options_ = [SelectOptionDict(value=g["sn"], label=f"{g['name']} ({g['ia']}, {hub.model(g)})")
+                    for g in sorted(hub.installation["geraete"], key=lambda g: pair.ia_int(g["ia"]))
                     if g.get("rolle") == "sender"]
-        if not optionen:
+        if not options_:
             return self.async_abort(reason="keine_sender")
-        schema = vol.Schema({vol.Required("geraet"): SelectSelector(SelectSelectorConfig(options=optionen))})
+        schema = vol.Schema({vol.Required("geraet"): SelectSelector(SelectSelectorConfig(options=options_))})
         return self.async_show_form(step_id="sender", data_schema=schema)
 
     async def async_step_betriebsart(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        hub, g = self._hub(), self._geraet()
+        hub, g = self._hub(), self._device()
         if g is None:
             return self.async_abort(reason="nicht_geladen")
         try:
-            alt = sender.belegung(g)
+            old = sender.assignment(g)
         except BridgeError as err:
             return self.async_abort(reason="fehlgeschlagen", description_placeholders={"fehler": str(err)})
-        n_wippen = sender.wippen_anzahl(hub, g)
+        n_rockers = sender.rocker_count(hub, g)
         if user_input is not None:
-            self._arten = {n: user_input[f"wippe_{n}"] for n in range(1, n_wippen + 1)}
+            self._kinds = {n: user_input[f"wippe_{n}"] for n in range(1, n_rockers + 1)}
             return await self.async_step_details()
-        optionen = ["wippe", "tasten"]  # Beschriftung: strings.json „selector.wippen_art“
-        felder = {}
-        for n in range(1, n_wippen + 1):
-            a = alt.get(n)
-            jetzt = "tasten" if a is not None and a["art"] == "tasten" else "wippe"  # ohne Lampen = nicht benutzt
-            felder[vol.Required(f"wippe_{n}", default=jetzt)] = SelectSelector(SelectSelectorConfig(
-                options=optionen, translation_key="wippen_art"))
-        return self.async_show_form(step_id="betriebsart", data_schema=vol.Schema(felder),
+        options_ = ["wippe", "tasten"]  # labels: strings.json `selector.wippen_art`
+        fields_ = {}
+        for n in range(1, n_rockers + 1):
+            a = old.get(n)
+            now_ = "tasten" if a is not None and a["art"] == "tasten" else "wippe"  # without lamps = not used
+            fields_[vol.Required(f"wippe_{n}", default=now_)] = SelectSelector(SelectSelectorConfig(
+                options=options_, translation_key="wippen_art"))
+        return self.async_show_form(step_id="betriebsart", data_schema=vol.Schema(fields_),
                                     description_placeholders={"name": g["name"]})
 
     async def async_step_details(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        hub, g = self._hub(), self._geraet()
+        hub, g = self._hub(), self._device()
         if g is None:
             return self.async_abort(reason="nicht_geladen")
-        alt = sender.belegung(g)
+        old = sender.assignment(g)
         if user_input is not None:
-            self._bel, self._aktionen = {}, {}
-            for n, art in self._arten.items():
+            self._assignment, self._actions = {}, {}
+            for n, art in self._kinds.items():
                 if art == "wippe":
-                    ziele = [{"ia": k.split("/")[0], "ch": int(k.split("/")[1])} for k in user_input.get(f"lampen_{n}", [])]
+                    targets = [{"ia": k.split("/")[0], "ch": int(k.split("/")[1])} for k in user_input.get(f"lampen_{n}", [])]
                     ha = list(user_input.get(f"ha_lampen_{n}", []))
-                    if ziele or ha or n in alt:  # unbelegte Wippe ohne Lampen: nichts zu schreiben
-                        vorher = alt.get(n, {}) if alt.get(n, {}).get("art") == "wippe" else {}
-                        self._bel[n] = {"art": "wippe", "ziele": ziele, "ha_ziele": ha,
-                                        "antwort_ga": vorher.get("antwort_ga")}
+                    if targets or ha or n in old:  # unassigned rocker without lamps: nothing to write
+                        before = old.get(n, {}) if old.get(n, {}).get("art") == "wippe" else {}
+                        self._assignment[n] = {"art": "wippe", "ziele": targets, "ha_ziele": ha,
+                                        "antwort_ga": before.get("antwort_ga")}
                 elif art == "tasten":
-                    vorher = alt.get(n, {}).get("tasten", {}) if alt.get(n, {}).get("art") == "tasten" else {}
-                    self._bel[n] = {"art": "tasten", "tasten": {k: dict(vorher.get(k, {})) for k in (2 * n - 1, 2 * n)}}
+                    before = old.get(n, {}).get("tasten", {}) if old.get(n, {}).get("art") == "tasten" else {}
+                    self._assignment[n] = {"art": "tasten", "tasten": {k: dict(before.get(k, {})) for k in (2 * n - 1, 2 * n)}}
                     for k in (2 * n - 1, 2 * n):
-                        self._aktionen[k] = user_input.get(f"taste_{k}", sender.MELDEN)
-            self._programmiert = sender.muss_programmieren(g, self._bel)
+                        self._actions[k] = user_input.get(f"taste_{k}", sender.REPORT)
+            self._programmed = sender.needs_programming(g, self._assignment)
             return await self.async_step_uebernehmen()
-        lampen = [SelectOptionDict(value=k.key, label=f"{k.geraet['name']} K{k.nr} ({k.key})") for k in hub.kanaele]
-        aktionen = [SelectOptionDict(value=w, label=t) for w, t in sender.aktion_optionen(hub)]
-        eigene = [e.entity_id for e in er.async_entries_for_config_entry(er.async_get(self.hass), self.config_entry.entry_id)]
-        felder = {}
-        for n, art in self._arten.items():
+        lamps = [SelectOptionDict(value=k.key, label=f"{k.enet_device['name']} K{k.nr} ({k.key})") for k in hub.channels_]
+        actions = [SelectOptionDict(value=w, label=t) for w, t in sender.action_options(hub)]
+        own = [e.entity_id for e in er.async_entries_for_config_entry(er.async_get(self.hass), self.config_entry.entry_id)]
+        fields_ = {}
+        for n, art in self._kinds.items():
             if art == "wippe":
-                jetzt = [f"{z['ia']}/{z['ch']}" for z in alt.get(n, {}).get("ziele", [])]
-                felder[vol.Optional(f"lampen_{n}", default=jetzt)] = SelectSelector(
-                    SelectSelectorConfig(options=lampen, multiple=True))
-                # Lampen anderer Integrationen: HA schaltet/dimmt sie, die Bridge quittiert die Wippe
-                felder[vol.Optional(f"ha_lampen_{n}", default=alt.get(n, {}).get("ha_ziele", []))] = EntitySelector(
-                    EntitySelectorConfig(domain=["light", "switch"], multiple=True, exclude_entities=eigene))
+                now_ = [f"{z['ia']}/{z['ch']}" for z in old.get(n, {}).get("ziele", [])]
+                fields_[vol.Optional(f"lampen_{n}", default=now_)] = SelectSelector(
+                    SelectSelectorConfig(options=lamps, multiple=True))
+                # lamps of other integrations: HA switches/dims them, the bridge acknowledges the rocker
+                fields_[vol.Optional(f"ha_lampen_{n}", default=old.get(n, {}).get("ha_ziele", []))] = EntitySelector(
+                    EntitySelectorConfig(domain=["light", "switch"], multiple=True, exclude_entities=own))
             elif art == "tasten":
                 for k in (2 * n - 1, 2 * n):
-                    felder[vol.Required(f"taste_{k}", default=sender.aktion_der_taste(hub, g, k))] = SelectSelector(
-                        SelectSelectorConfig(options=aktionen))
-        return self.async_show_form(step_id="details", data_schema=vol.Schema(felder),
+                    fields_[vol.Required(f"taste_{k}", default=sender.key_action(hub, g, k))] = SelectSelector(
+                        SelectSelectorConfig(options=actions))
+        return self.async_show_form(step_id="details", data_schema=vol.Schema(fields_),
                                     description_placeholders={"name": g["name"]})
 
-    async def _belegen(self) -> None:
+    async def _assign(self) -> None:
         try:
-            self._programmiert = await sender.belegung_aendern(self._hub(), self._geraet(), self._bel, self._aktionen)
+            self._programmed = await sender.change_assignment(self._hub(), self._device(), self._assignment, self._actions)
         except BridgeError as err:
-            self._fehler = str(err)
+            self._errors = str(err)
 
     async def async_step_uebernehmen(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        if self._aufgabe is None:
-            self._aufgabe = self.hass.async_create_task(self._belegen(), "enet Sender belegen")
-        if not self._aufgabe.done():
-            return self.async_show_progress(step_id="uebernehmen", progress_task=self._aufgabe,
-                                            progress_action="programmieren" if self._programmiert else "uebertragen")
+        if self._job is None:
+            self._job = self.hass.async_create_task(self._assign(), "enet Sender belegen")
+        if not self._job.done():
+            return self.async_show_progress(step_id="uebernehmen", progress_task=self._job,
+                                            progress_action="programmieren" if self._programmed else "uebertragen")
         return self.async_show_progress_done(next_step_id="belegt")
 
     async def async_step_belegt(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)  # Tasten-Entitäten neu
-        g = self._geraet()
-        if self._fehler:
-            return self.async_abort(reason="fehlgeschlagen", description_placeholders={"fehler": self._fehler})
-        return self.async_abort(reason="belegt_programmiert" if self._programmiert else "belegt",
+        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)  # recreate key entities
+        g = self._device()
+        if self._errors:
+            return self.async_abort(reason="fehlgeschlagen", description_placeholders={"fehler": self._errors})
+        return self.async_abort(reason="belegt_programmiert" if self._programmed else "belegt",
                                 description_placeholders={"name": g["name"] if g else ""})
 
     async def async_step_entfernen(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -333,13 +333,13 @@ class EnetOptionen(OptionsFlow):
         if user_input is not None:
             self._sn = user_input["geraet"]
             return await self.async_step_bestaetigen()
-        optionen = [SelectOptionDict(value=g["sn"], label=f"{g['name']} ({g['ia']}, {hub.modell(g)})")
-                    for g in sorted(hub.anlage["geraete"], key=lambda g: einlernen.ia_int(g["ia"]))]
-        schema = vol.Schema({vol.Required("geraet"): SelectSelector(SelectSelectorConfig(options=optionen))})
+        options_ = [SelectOptionDict(value=g["sn"], label=f"{g['name']} ({g['ia']}, {hub.model(g)})")
+                    for g in sorted(hub.installation["geraete"], key=lambda g: pair.ia_int(g["ia"]))]
+        schema = vol.Schema({vol.Required("geraet"): SelectSelector(SelectSelectorConfig(options=options_))})
         return self.async_show_form(step_id="entfernen", data_schema=schema)
 
     async def async_step_bestaetigen(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        g = self._geraet()
+        g = self._device()
         if g is None:
             return self.async_abort(reason="nicht_geladen")
         errors: dict[str, str] = {}
@@ -347,50 +347,50 @@ class EnetOptionen(OptionsFlow):
             if user_input.get("verstanden"):
                 return await self.async_step_laeuft()
             errors["verstanden"] = "nicht_bestaetigt"
-        a = einlernen.auswirkungen(self._hub(), g)
-        zeilen = []
+        a = pair.impact(self._hub(), g)
+        rows = []
         if g.get("rolle") == "sender":
-            zeilen.append(tr("folge_sender_wecken"))
+            rows.append(tr("folge_sender_wecken"))
             if a["aktoren"]:
-                zeilen.append(tr("folge_links_geloescht", liste=", ".join(a["aktoren"])))
+                rows.append(tr("folge_links_geloescht", liste=", ".join(a["aktoren"])))
             if a["tasten"]:
-                zeilen.append(tr("folge_tasten_entfallen", liste=", ".join(a["tasten"])))
+                rows.append(tr("folge_tasten_entfallen", liste=", ".join(a["tasten"])))
         else:
             if a["verweise"]:
-                zeilen.append(tr("folge_verweise", liste=", ".join(a["verweise"])))
+                rows.append(tr("folge_verweise", liste=", ".join(a["verweise"])))
             if a["esp_szenen"]:
-                zeilen.append(tr("folge_esp_szenen", liste=", ".join(a["esp_szenen"])))
+                rows.append(tr("folge_esp_szenen", liste=", ".join(a["esp_szenen"])))
         if a["szenen"]:
-            zeilen.append(tr("folge_szenen", liste=", ".join(a["szenen"])))
+            rows.append(tr("folge_szenen", liste=", ".join(a["szenen"])))
         self._name = g["name"]
         schema = vol.Schema({vol.Required("verstanden", default=False): BooleanSelector()})
         return self.async_show_form(step_id="bestaetigen", data_schema=schema, errors=errors,
                                     description_placeholders={
-                                        "name": g["name"], "ia": g["ia"], "typ": self._hub().modell(g),
-                                        "details": "\n".join(zeilen) or tr("folge_nichts")})
+                                        "name": g["name"], "ia": g["ia"], "typ": self._hub().model(g),
+                                        "details": "\n".join(rows) or tr("folge_nichts")})
 
-    async def _entfernen(self) -> None:
+    async def _remove(self) -> None:
         try:
-            self._bericht = await einlernen.entfernen(self._hub(), self._geraet())
+            self._report = await pair.remove(self._hub(), self._device())
         except BridgeError as err:
-            self._fehler = str(err)
+            self._errors = str(err)
 
     async def async_step_laeuft(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        if self._aufgabe is None:
-            self._aufgabe = self.hass.async_create_task(self._entfernen(), "enet Gerät entfernen")
-        if not self._aufgabe.done():
-            return self.async_show_progress(step_id="laeuft", progress_action="laeuft", progress_task=self._aufgabe)
+        if self._job is None:
+            self._job = self.hass.async_create_task(self._remove(), "enet Gerät entfernen")
+        if not self._job.done():
+            return self.async_show_progress(step_id="laeuft", progress_action="laeuft", progress_task=self._job)
         return self.async_show_progress_done(next_step_id="fertig")
 
     async def async_step_fertig(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        if self._bericht is None:
-            return self.async_abort(reason="fehlgeschlagen", description_placeholders={"fehler": self._fehler or "?"})
+        if self._report is None:
+            return self.async_abort(reason="fehlgeschlagen", description_placeholders={"fehler": self._errors or "?"})
         reg = dr.async_get(self.hass)
         for dev in dr.async_entries_for_config_entry(reg, self.config_entry.entry_id):
             if any(i[0] == DOMAIN and i[1].split("_")[0] == self._sn for i in dev.identifiers):
-                reg.async_remove_device(dev.id)  # Gerät und ggf. seine Kanal-Geräte
+                reg.async_remove_device(dev.id)  # the device and, if any, its channel devices
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
-        offen = self._bericht["offen"]
-        return self.async_abort(reason="entfernt_offen" if offen else "entfernt",
-                                description_placeholders={"name": self._name, "offen": "; ".join(offen)})
+        open_items = self._report["offen"]
+        return self.async_abort(reason="entfernt_offen" if open_items else "entfernt",
+                                description_placeholders={"name": self._name, "offen": "; ".join(open_items)})
 

@@ -1,7 +1,7 @@
-"""Geräteparameter: Definitionen (aus tools/katalog.py), Umrechnung, Lesen und Schreiben per Funk.
+"""Device parameters: definitions (from tools/katalog.py), conversion, reading and writing over the radio.
 
-Parameterspeicher eines Kanals = Kanal-Objekt PID 79 (0x4F), Element = Byte (NOTES.md „Gerätekatalog“).
-Schreiben wie der eNet Server (Mitschnitt 2026-10-23, NOTES.md „Parameter übertragen“).
+Parameter memory of a channel = channel object PID 79 (0x4F), element = byte (NOTES.md "Gerätekatalog").
+Writing as the eNet Server does (capture 2026-10-23, NOTES.md "Parameter übertragen").
 """
 from __future__ import annotations
 
@@ -21,16 +21,16 @@ from homeassistant.helpers.storage import Store
 
 from .bridge import Bridge, BridgeError
 from .const import DOMAIN
-from .texte import deutsch, tr
+from .texts import german, tr
 
 _LOGGER = logging.getLogger(__name__)
 
 PID_PARAM = 79
-MAX_BLOCK = 15  # A_PropertyValue: Anzahl 4 Bit
+MAX_BLOCK = 15  # A_PropertyValue: count is 4 bits
 
-# Eigene Bezeichnungen (App-Begriffe, Deutsch/Englisch) und ob die Entität standardmäßig aktiv ist. Parameter ohne
-# Eintrag heißen wie im Katalog (englisch).
-NAMEN: dict[str, tuple[str, str, bool]] = {
+# Own names (app terms, German/English) and whether the entity is enabled by default. Parameters without an entry
+# are named as in the catalog (English).
+NAMES: dict[str, tuple[str, str, bool]] = {
     "OSV": ("Einschalthelligkeit", "Switch-on brightness", True),
     "MIN_SV": ("Minimalhelligkeit", "Minimum brightness", True),
     "MAX_SV": ("Maximalhelligkeit", "Maximum brightness", True),
@@ -58,7 +58,7 @@ NAMEN: dict[str, tuple[str, str, bool]] = {
     "REPEATER_MODE_ENABLE": ("Repeater", "Repeater", False),
     "LEARN_MODE_ENABLE": ("Lernmodus", "Learn mode", False),
     "SUMSTATE_MAX_TIMEOUT": ("Statusmeldung Wartezeit", "Status message timeout", False),
-    # Sonnensensor (DVT_SF1S, Kanaltyp CT_1F18); Kanal-Vorsatz „Sonnenschutz“/„Dämmerung“ aus KANAL_NAMEN
+    # sun sensor (DVT_SF1S, channel type CT_1F18); channel prefix "sun protection"/"twilight" from CHANNEL_NAMES
     "PT_INThScS.THV1": ("Schwelle", "Threshold", True),
     "PT_INThScS.ASNVE": ("Szene bei Überschreitung", "Scene when exceeded", True),
     "PT_INThScS.ASNVU": ("Szene bei Unterschreitung", "Scene when below", True),
@@ -72,10 +72,10 @@ NAMEN: dict[str, tuple[str, str, bool]] = {
     "CHANNEL_2_SUMSTATE_MODE": ("Statusmeldung", "Status message", False),
     "CHARGE_VOLTAGE": ("Ladespannung", "Charging voltage", True),
 }
-# Kanalnamen je Gerätetyp (Vorsatz der Parameter-Entitäten bei Geräten ohne eigene Kanal-Geräte)
-KANAL_NAMEN: dict[str, dict[int, tuple[str, str]]] = {
+# channel names per device type (prefix of the parameter entities for devices without their own channel devices)
+CHANNEL_NAMES: dict[str, dict[int, tuple[str, str]]] = {
     "DVT_SF1S": {1: ("Sonnenschutz", "Sun protection"), 2: ("Dämmerung", "Twilight")}}
-AUSWAHL: dict[str, tuple[str, str]] = {
+CHOICE: dict[str, tuple[str, str]] = {
     "OFF": ("Aus", "Off"), "ON": ("Ein", "On"), "NO_CHANGE": ("Keine Änderung", "No change"),
     "VALUE_BEFORE_LOCKING": ("Wert vor Sperre", "Value before lock"),
     "LAST_VALUE_BEFORE_POWER_DOWN": ("Wert vor Netzausfall", "Value before power failure"),
@@ -90,33 +90,33 @@ AUSWAHL: dict[str, tuple[str, str]] = {
     "TF_TWILIGHT_FNC": ("Dämmerung", "Twilight"), "NO_OPTIONALS": ("Keine", "None"),
     "OFF_3_REPETITIONS_UNLINKED": ("Aus (3 Wiederholungen, unverknüpft)", "Off (3 repetitions, unlinked)"),
 }
-ZAEHLER = {"SWITCH_COUNTER": ("Schaltspiele", "Switching cycles"),
+COUNTERS = {"SWITCH_COUNTER": ("Schaltspiele", "Switching cycles"),
            "ACTIVE_COUNTER_RESETABLE": ("Betriebsstunden (rücksetzbar)", "Operating hours (resettable)"),
-           "ACTIVE_COUNTER": ("Betriebsstunden", "Operating hours")}  # Reihenfolge: RESETABLE vor ACTIVE_COUNTER
+           "ACTIVE_COUNTER": ("Betriebsstunden", "Operating hours")}  # order: RESETABLE before ACTIVE_COUNTER
 
 
-def _sprache(paar: tuple[str, str]) -> str:
-    return paar[0] if deutsch() else paar[1]
+def _language(paar: tuple[str, str]) -> str:
+    return paar[0] if german() else paar[1]
 
 
-def auswahl(wert: str) -> str:
-    """Anzeige eines Auswahlwerts (Katalog-Kennung) in der eingestellten Sprache."""
-    return _sprache(AUSWAHL[wert]) if wert in AUSWAHL else wert
+def choice(value: str) -> str:
+    """Display of a choice value (catalog identifier) in the configured language."""
+    return _language(CHOICE[value]) if value in CHOICE else value
 
 
-def kanal_name(typ: str, kanal: int | None) -> str | None:
-    """Kanal-Vorsatz für Parameter-Entitäten (z. B. Sonnensensor: „Sonnenschutz“), sonst None."""
-    paar = KANAL_NAMEN.get(typ, {}).get(kanal) if kanal is not None else None
-    return _sprache(paar) if paar else None
+def channel_name(typ: str, channel: int | None) -> str | None:
+    """Channel prefix for parameter entities (e.g. sun sensor: "sun protection"), otherwise None."""
+    paar = CHANNEL_NAMES.get(typ, {}).get(channel) if channel is not None else None
+    return _language(paar) if paar else None
 
 
-# Szenenspeicher und Sonderfunktionen gehören zur Szenenbehandlung, nicht zu den Einstellungen
-AUSGESCHLOSSEN = ("SCV1[", "SNA[", "PSN[", "CHANNEL_CONFIG")
+# scene memory and special functions belong to scene handling, not to the settings
+EXCLUDED = ("SCV1[", "SNA[", "PSN[", "CHANNEL_CONFIG")
 
 
 @dataclass
 class Param:
-    """Ein Parameter eines Geräts/Kanals mit Funk-Adresse und Wertebeschreibung."""
+    """A parameter of a device/channel with radio address and value description."""
 
     d: dict[str, Any]
 
@@ -137,44 +137,44 @@ class Param:
         return self.typ.get("art", "")
 
     @property
-    def nur_lesen(self) -> bool:
+    def read_only(self) -> bool:
         return self.d.get("schreiben", 0) == 0 or self.d.get("schreibgeschuetzt", False)
 
     @property
     def name(self) -> str:
-        for kennung, paar in ZAEHLER.items():
-            if kennung in self.id:
-                return _sprache(paar)
-        if self.id in NAMEN:
-            de, en, _ = NAMEN[self.id]
-            return de if deutsch() else en
+        for ident, paar in COUNTERS.items():
+            if ident in self.id:
+                return _language(paar)
+        if self.id in NAMES:
+            de, en, _ = NAMES[self.id]
+            return de if german() else en
         return self.d.get("name") or self.id
 
     @property
-    def standard_aktiv(self) -> bool:
-        return NAMEN.get(self.id, ("", "", False))[2]
+    def default_active(self) -> bool:
+        return NAMES.get(self.id, ("", "", False))[2]
 
     @property
-    def laenge(self) -> int:
-        """Bytes im Gerät: PID 79 = 1 Byte je Element, sonst Elementgröße aus der Bitlänge."""
+    def length(self) -> int:
+        """Bytes in the device: PID 79 = 1 byte per element, otherwise element size from the bit length."""
         if self.d["pid"] == PID_PARAM:
             return self.d["anzahl"]
         return self.d["anzahl"] * max(1, self.typ.get("bits", 8) // 8)
 
     @property
-    def nutzbar(self) -> bool:
+    def usable(self) -> bool:
         return (self.d.get("aktiv", True) and self.typ.get("kodierung") not in (None, "unbekannt")
-                and not self.id.startswith(AUSGESCHLOSSEN))
+                and not self.id.startswith(EXCLUDED))
 
-    # --- Umrechnung --------------------------------------------------------
-    def dekodiere(self, raw: bytes) -> Any:
-        kod = self.typ.get("kodierung")
-        if kod == "dpt9":
-            v = dpt9_dekodiere(raw[:2])
-        elif kod == "prozent255":
+    # --- Conversion ------------------------------------------------------
+    def decode(self, raw: bytes) -> Any:
+        enc = self.typ.get("kodierung")
+        if enc == "dpt9":
+            v = dpt9_decode(raw[:2])
+        elif enc == "prozent255":
             v = round(raw[0] * 100 / 255)
         else:
-            v = int.from_bytes(raw[: self.laenge], "big")
+            v = int.from_bytes(raw[: self.length], "big")
         if self.art == "bool":
             return v != 0
         if self.art == "auswahl":
@@ -184,23 +184,23 @@ class Param:
             return None
         return v * self.typ.get("faktor", 1)
 
-    def kodiere(self, wert: Any) -> bytes:
-        kod = self.typ.get("kodierung")
+    def encode(self, value: Any) -> bytes:
+        enc = self.typ.get("kodierung")
         if self.art == "bool":
-            n = 1 if wert else 0
+            n = 1 if value else 0
         elif self.art == "auswahl":
-            n = self.typ["werte"][wert]
-        elif kod == "dpt9":
-            return dpt9_kodiere(float(wert))
-        elif kod == "prozent255":
-            return bytes([min(255, math.floor(float(wert) * 255 / 100))])
+            n = self.typ["werte"][value]
+        elif enc == "dpt9":
+            return dpt9_encode(float(value))
+        elif enc == "prozent255":
+            return bytes([min(255, math.floor(float(value) * 255 / 100))])
         else:
-            n = int(round(float(wert) / self.typ.get("faktor", 1)))
-        return n.to_bytes(self.laenge, "big")
+            n = int(round(float(value) / self.typ.get("faktor", 1)))
+        return n.to_bytes(self.length, "big")
 
 
-def dpt9_dekodiere(b: bytes) -> float:
-    """KNX 2-Byte-Gleitkomma: Wert = 0,01 · M · 2^E (M 12 Bit Zweierkomplement mit Vorzeichen in Bit 15)."""
+def dpt9_decode(b: bytes) -> float:
+    """KNX 2-byte float: value = 0.01 · M · 2^E (M 12-bit two's complement with the sign in bit 15)."""
     raw = b[0] << 8 | b[1]
     exp = (raw >> 11) & 0x0F
     mant = raw & 0x07FF
@@ -209,31 +209,31 @@ def dpt9_dekodiere(b: bytes) -> float:
     return round(0.01 * mant * (1 << exp), 2)
 
 
-def dpt9_kodiere(v: float) -> bytes:
+def dpt9_encode(v: float) -> bytes:
     m = int(round(v * 100))
     exp = 0
     while not -2048 <= m <= 2047:
-        m = int(round(m / 2))  # wie der Server: Rundung bei großen Werten (2000 s → 3e1a)
+        m = int(round(m / 2))  # like the server: rounding for large values (2000 s → 3e1a)
         exp += 1
     raw = (exp << 11) | (m & 0x07FF) | (0x8000 if m < 0 else 0)
     return raw.to_bytes(2, "big")
 
 
-def lade_definitionen(pfad: str) -> dict[str, Any]:
-    """definitionen.json lesen (Executor); fehlt sie, leer (die Integration bringt eine mit)."""
+def load_definitions(path_: str) -> dict[str, Any]:
+    """Read definitionen.json (executor); empty if missing (the integration ships one)."""
     try:
-        with open(pfad, encoding="utf-8") as f:
+        with open(path_, encoding="utf-8") as f:
             return json.load(f).get("typen", {})
     except FileNotFoundError:
         return {}
 
 
-def bloecke(params: list[Param]) -> list[tuple[int, int, int, int]]:
-    """Lesezugriffe (obj, pid, start, anzahl): PID 79 zu Blöcken ≤ 15 Byte zusammengefasst, sonst einzeln."""
+def blocks(params: list[Param]) -> list[tuple[int, int, int, int]]:
+    """Read accesses (obj, pid, start, count): PID 79 merged into blocks ≤ 15 bytes, otherwise individually."""
     out: list[tuple[int, int, int, int]] = []
     p79 = sorted((p for p in params if p.d["pid"] == PID_PARAM), key=lambda p: (p.d["obj"], p.d["start"]))
     for p in p79:
-        o, s, n = p.d["obj"], p.d["start"], p.laenge
+        o, s, n = p.d["obj"], p.d["start"], p.length
         if out and out[-1][0] == o and out[-1][1] == PID_PARAM and s + n - out[-1][2] <= MAX_BLOCK \
                 and s >= out[-1][2]:
             lo = out[-1]
@@ -244,68 +244,68 @@ def bloecke(params: list[Param]) -> list[tuple[int, int, int, int]]:
     return out
 
 
-class ParamSpeicher:
-    """Zwischenspeicher der Rohwerte je Gerät (SN → {key: hex}) mit Lesen/Schreiben über die Bridge."""
+class ParamStore:
+    """Cache of the raw values per device (SN → {key: hex}) with reading/writing via the bridge."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str, bridge: Bridge, signal: str) -> None:
         self.hass = hass
         self.bridge = bridge
         self.signal = signal
         self._store: Store = Store(hass, 1, f"{DOMAIN}_parameter_{entry_id}")
-        self.werte: dict[str, dict[str, str]] = {}
+        self.values_: dict[str, dict[str, str]] = {}
         self.lock = asyncio.Lock()
-        self._programmierung: dict[str, asyncio.Lock] = {}
-        # Nach dem Rahmen startet der Aktor neu und schaltet seine Ausgänge ab (Test 2026-10-30): der Hub merkt
-        # sich vorher die Zustände seiner Kanäle und stellt sie danach wieder her
-        self.zustaende_merken: Callable[[str], Any] = lambda ia: None
-        # Anzeige „wird programmiert“ und Aktivität des Aktors: (ia, aktiv, zweck, fehler)
-        self.rahmen_meldung: Callable[[str, bool, str, str | None], None] = lambda ia, aktiv, zweck, fehler: None
-        self.zustaende_wiederherstellen: Callable[[str, Any], Awaitable[None]] | None = None
+        self._programming: dict[str, asyncio.Lock] = {}
+        # After the frame the actuator restarts and switches its outputs off (test 2026-10-30): the hub remembers
+        # the states of its channels beforehand and restores them afterwards
+        self.remember_states: Callable[[str], Any] = lambda ia: None
+        # "being programmed" indicator and actuator activity: (ia, active, purpose, errors)
+        self.frame_report: Callable[[str, bool, str, str | None], None] = lambda ia, active, purpose, errors: None
+        self.restore_states: Callable[[str, Any], Awaitable[None]] | None = None
 
-    def programmierung(self, ia: str) -> asyncio.Lock:
-        """Gesperrt, solange ein Aktor programmiert wird: im Lade-Status quittiert er Schaltbefehle, führt sie
-        aber nicht aus – Schaltbefehle an diesen Aktor warten deshalb darauf."""
-        return self._programmierung.setdefault(ia, asyncio.Lock())
+    def programming(self, ia: str) -> asyncio.Lock:
+        """Locked while an actuator is being programmed: in the load state it acknowledges switch commands but does
+        not execute them – switch commands to this actuator therefore wait for it."""
+        return self._programming.setdefault(ia, asyncio.Lock())
 
     async def laden(self) -> None:
-        self.werte = (await self._store.async_load()) or {}
+        self.values_ = (await self._store.async_load()) or {}
 
-    def roh(self, sn: str, p: Param) -> bytes | None:
-        h = self.werte.get(sn, {}).get(p.key)
+    def raw_(self, sn: str, p: Param) -> bytes | None:
+        h = self.values_.get(sn, {}).get(p.key)
         return bytes.fromhex(h) if h is not None else None
 
-    def wert(self, sn: str, p: Param) -> Any:
-        raw = self.roh(sn, p)
-        return p.dekodiere(raw) if raw is not None and len(raw) >= p.laenge else None
+    def value(self, sn: str, p: Param) -> Any:
+        raw = self.raw_(sn, p)
+        return p.decode(raw) if raw is not None and len(raw) >= p.length else None
 
-    async def lesen(self, ia: str, sn: str, params: list[Param]) -> int:
-        """Alle Parameter eines Geräts lesen; liefert die Anzahl gelesener Parameter."""
+    async def read(self, ia: str, sn: str, params: list[Param]) -> int:
+        """Read all parameters of a device; returns the number of parameters read."""
         async with self.lock:
-            werte = self.werte.setdefault(sn, {})
+            values_ = self.values_.setdefault(sn, {})
             n, last = 0, None
-            offen = bloecke(params)
-            for _ in range(3):  # fehlgeschlagene Blöcke am Ende erneut (schwache Funkstrecke)
-                fehler = []
-                for blk in offen:
+            open_items = blocks(params)
+            for _ in range(3):  # retry failed blocks at the end (weak radio link)
+                errors = []
+                for blk in open_items:
                     try:
-                        n += self._uebernehmen(werte, params, blk, await self.bridge.request(
+                        n += self._apply(values_, params, blk, await self.bridge.request(
                             "prop_read", ia=ia, obj=blk[0], pid=blk[1], start=blk[2], count=blk[3]))
                     except BridgeError as err:
-                        fehler.append(blk)
+                        errors.append(blk)
                         last = err
-                offen = fehler
-                if not offen:
+                open_items = errors
+                if not open_items:
                     break
-            if offen:
-                _LOGGER.warning("%s: %d of %d reads without answer (%s)", ia, len(offen),
-                                len(bloecke(params)), last)
-            werte["_gelesen"] = datetime.now().isoformat(timespec="seconds")
-            await self._store.async_save(self.werte)
+            if open_items:
+                _LOGGER.warning("%s: %d of %d reads without answer (%s)", ia, len(open_items),
+                                len(blocks(params)), last)
+            values_["_gelesen"] = datetime.now().isoformat(timespec="seconds")
+            await self._store.async_save(self.values_)
         async_dispatcher_send(self.hass, self.signal, sn)
         return n
 
     @staticmethod
-    def _uebernehmen(werte: dict, params: list[Param], blk: tuple, r: dict) -> int:
+    def _apply(values_: dict, params: list[Param], blk: tuple, r: dict) -> int:
         obj, pid, start, _ = blk
         n = 0
         data = bytes.fromhex(r.get("value", ""))
@@ -314,106 +314,106 @@ class ParamSpeicher:
                 continue
             if pid == PID_PARAM:
                 off = p.d["start"] - start
-                if 0 <= off and off + p.laenge <= len(data):
-                    werte[p.key] = data[off: off + p.laenge].hex()
+                if 0 <= off and off + p.length <= len(data):
+                    values_[p.key] = data[off: off + p.length].hex()
                     n += 1
             elif p.d["start"] == start:
-                werte[p.key] = data.hex()
+                values_[p.key] = data.hex()
                 n += 1
         return n
 
-    def fehlend(self, sn: str, params: list[Param]) -> list[Param]:
-        return [p for p in params if p.key not in self.werte.get(sn, {})]
+    def missing(self, sn: str, params: list[Param]) -> list[Param]:
+        return [p for p in params if p.key not in self.values_.get(sn, {})]
 
     async def _pw(self, ia: str, obj: int, pid: int, data: bytes, start: int = 1, count: int = 1) -> None:
         await self.bridge.request("prop_write", ia=ia, obj=obj, pid=pid, start=start, count=count, data=data.hex())
 
-    async def _rahmen(self, ia: str, geraet_obj: int, obj: int, schritte, parameter: bool, zweck: str) -> None:
-        """Programmier-Rahmen wie der eNet Server (Lade-Status, Zeitstempel); Sperren hält der Aufrufer.
-        parameter: zusätzlich Vorbereitung und Prüfsumme des Parameterspeichers (Mitschnitt Parameter),
-        sonst nur der Rahmen wie beim Verknüpfen (Mitschnitt Links). zweck: für die Aktivität des Aktors."""
-        vorher = self.zustaende_merken(ia)
-        self.rahmen_meldung(ia, True, zweck, None)
-        fehler: str | None = None
+    async def _frame(self, ia: str, device_obj: int, obj: int, steps, parameter: bool, purpose: str) -> None:
+        """Programming frame like the eNet Server (load state, timestamp); the caller holds the locks.
+        parameter: additionally preparation and checksum of the parameter memory (parameter capture),
+        otherwise only the frame as when linking (links capture). purpose: for the actuator's activity."""
+        before = self.remember_states(ia)
+        self.frame_report(ia, True, purpose, None)
+        errors: str | None = None
         try:
-            await self._pw(ia, 1, 6, bytes([2]) + bytes(9))  # Lade-Status: Laden beginnt
+            await self._pw(ia, 1, 6, bytes([2]) + bytes(9))  # load state: loading starts
         except BridgeError as err:
-            self.rahmen_meldung(ia, False, zweck, str(err))
+            self.frame_report(ia, False, purpose, str(err))
             raise
         try:
-            await self._rahmen_inhalt(ia, geraet_obj, obj, schritte, parameter)
+            await self._frame_content(ia, device_obj, obj, steps, parameter)
         except BridgeError as err:
-            fehler = str(err)
-            # Rahmen trotzdem schließen: sonst bleibt der Aktor im Laden (danach 00 = nicht geladen) und führt
-            # keine Schaltbefehle mehr aus (Indirekte 2026-10-30 nach nack beim Link-Abgleich)
+            errors = str(err)
+            # close the frame anyway: otherwise the actuator stays in loading (afterwards 00 = not loaded) and no longer
+            # executes switch commands (indirect lights 2026-10-30 after a nack during link reconciliation)
             with contextlib.suppress(BridgeError):
                 await self._pw(ia, 1, 6, bytes([1]) + bytes(9))
             raise
         finally:
-            if self.zustaende_wiederherstellen and vorher:
-                await self.zustaende_wiederherstellen(ia, vorher)
-            self.rahmen_meldung(ia, False, zweck, fehler)
+            if self.restore_states and before:
+                await self.restore_states(ia, before)
+            self.frame_report(ia, False, purpose, errors)
 
-    async def _rahmen_inhalt(self, ia: str, geraet_obj: int, obj: int, schritte, parameter: bool) -> None:
-        await self._pw(ia, geraet_obj, 0x39, bytes.fromhex("000000000003"))
+    async def _frame_content(self, ia: str, device_obj: int, obj: int, steps, parameter: bool) -> None:
+        await self._pw(ia, device_obj, 0x39, bytes.fromhex("000000000003"))
         if parameter:
-            await self._pw(ia, geraet_obj, 0x3A, b"\x00")
-            await self._pw(ia, geraet_obj, 0x41, b"\x01")
-            await self._pw(ia, geraet_obj, 0x42, b"\x07")
-        await schritte()
+            await self._pw(ia, device_obj, 0x3A, b"\x00")
+            await self._pw(ia, device_obj, 0x41, b"\x01")
+            await self._pw(ia, device_obj, 0x42, b"\x07")
+        await steps()
         if parameter:
-            await self.bridge.request("prop_read", ia=ia, obj=obj, pid=0xD1, start=1, count=1)  # Prüfsumme
+            await self.bridge.request("prop_read", ia=ia, obj=obj, pid=0xD1, start=1, count=1)  # checksum
             await self._pw(ia, obj, 0xD0, b"\x04")
         await self._pw(ia, obj, 0xD2, b"\x04")
         t = datetime.now()
-        await self._pw(ia, geraet_obj, 0x39, bytes([t.year % 100, t.month, t.day, t.hour, t.minute, t.second]))
+        await self._pw(ia, device_obj, 0x39, bytes([t.year % 100, t.month, t.day, t.hour, t.minute, t.second]))
         for _ in range(3):
             await self.bridge.request("np_write", ia=ia, data="00123c00")
-        await self._pw(ia, 1, 6, bytes([1]) + bytes(9))  # Lade-Status: geladen
+        await self._pw(ia, 1, 6, bytes([1]) + bytes(9))  # load state: loaded
         await asyncio.sleep(1)
         r = await self.bridge.request("prop_read", ia=ia, obj=1, pid=6, start=1, count=1)
         if not r.get("value", "").startswith("01"):
             _LOGGER.warning("%s: load state after programming %s instead of 01", ia, r.get("value"))
 
-    async def programmieren(self, ia: str, geraet_obj: int, obj: int, schritte, zweck: str | None = None) -> None:
-        """Beliebige Schritte (z. B. Links anlegen/löschen) im Programmier-Rahmen ausführen."""
-        async with self.lock, self.programmierung(ia):
-            await self._rahmen(ia, geraet_obj, obj, schritte, parameter=False,
-                               zweck=zweck or tr("zweck_verknuepfungen_kurz"))
+    async def program(self, ia: str, device_obj: int, obj: int, steps, purpose: str | None = None) -> None:
+        """Run arbitrary steps (e.g. create/delete links) inside the programming frame."""
+        async with self.lock, self.programming(ia):
+            await self._frame(ia, device_obj, obj, steps, parameter=False,
+                               purpose=purpose or tr("zweck_verknuepfungen_kurz"))
 
-    async def roh_schreiben(self, ia: str, geraet_obj: int, obj: int, start: int, data: bytes,
-                            zweck: str | None = None) -> None:
-        """Bytes in den Parameterspeicher (PID 79) schreiben und zurücklesen – z. B. Szenenwerte SCV1[Nr],
-        die keine Einstellungs-Entität haben (Schreibtest 2026-10-30, NOTES „Szenenwerte schreiben“)."""
-        async with self.lock, self.programmierung(ia):
-            async def wert_schreiben() -> None:
+    async def write_raw(self, ia: str, device_obj: int, obj: int, start: int, data: bytes,
+                            purpose: str | None = None) -> None:
+        """Write bytes to the parameter memory (PID 79) and read them back – e.g. scene values SCV1[nr], which have no
+        settings entity (write test 2026-10-30, NOTES "Szenenwerte schreiben")."""
+        async with self.lock, self.programming(ia):
+            async def write_value() -> None:
                 await self._pw(ia, obj, PID_PARAM, data, start, len(data))
 
-            await self._rahmen(ia, geraet_obj, obj, wert_schreiben, parameter=True,
-                               zweck=zweck or tr("zweck_parameterspeicher"))
+            await self._frame(ia, device_obj, obj, write_value, parameter=True,
+                               purpose=purpose or tr("zweck_parameterspeicher"))
             r = await self.bridge.request("prop_read", ia=ia, obj=obj, pid=PID_PARAM, start=start, count=len(data))
-        gelesen = bytes.fromhex(r.get("value", ""))[: len(data)]
-        if gelesen != data:
-            raise BridgeError("verify_failed", tr("verify_fehler", name=f"{ia} obj {obj} @{start}", neu=data.hex(), gelesen=gelesen.hex()))
+        read_values = bytes.fromhex(r.get("value", ""))[: len(data)]
+        if read_values != data:
+            raise BridgeError("verify_failed", tr("verify_fehler", name=f"{ia} obj {obj} @{start}", neu=data.hex(), gelesen=read_values.hex()))
 
-    async def schreiben(self, ia: str, sn: str, geraet_obj: int, p: Param, wert: Any) -> None:
-        """Einen Parameter schreiben, Ablauf wie der eNet Server (Lade-Status, Prüfsumme, Zeitstempel)."""
-        neu = p.kodiere(wert)
+    async def write(self, ia: str, sn: str, device_obj: int, p: Param, value: Any) -> None:
+        """Write one parameter, same sequence as the eNet Server (load state, checksum, timestamp)."""
+        new = p.encode(value)
         obj = p.d["obj"]
-        async with self.lock, self.programmierung(ia):
-            if p.d["pid"] != PID_PARAM:  # Geräte-/Kanaleigenschaft: direkt
-                await self._pw(ia, obj, p.d["pid"], neu, p.d["start"], p.d["anzahl"])
+        async with self.lock, self.programming(ia):
+            if p.d["pid"] != PID_PARAM:  # device/channel property: direct
+                await self._pw(ia, obj, p.d["pid"], new, p.d["start"], p.d["anzahl"])
             else:
-                async def wert_schreiben() -> None:
-                    await self._pw(ia, obj, PID_PARAM, neu, p.d["start"], len(neu))
+                async def write_value() -> None:
+                    await self._pw(ia, obj, PID_PARAM, new, p.d["start"], len(new))
 
-                await self._rahmen(ia, geraet_obj, obj, wert_schreiben, parameter=True, zweck=tr("zweck_einstellung", name=p.name))
-            # Kontrolle: Wert zurücklesen
+                await self._frame(ia, device_obj, obj, write_value, parameter=True, purpose=tr("zweck_einstellung", name=p.name))
+            # verify: read the value back
             r = await self.bridge.request("prop_read", ia=ia, obj=obj, pid=p.d["pid"], start=p.d["start"],
-                                          count=p.d["anzahl"] if p.d["pid"] != PID_PARAM else p.laenge)
-            gelesen = bytes.fromhex(r.get("value", ""))[: p.laenge]
-            self.werte.setdefault(sn, {})[p.key] = gelesen.hex()
-            await self._store.async_save(self.werte)
+                                          count=p.d["anzahl"] if p.d["pid"] != PID_PARAM else p.length)
+            read_values = bytes.fromhex(r.get("value", ""))[: p.length]
+            self.values_.setdefault(sn, {})[p.key] = read_values.hex()
+            await self._store.async_save(self.values_)
         async_dispatcher_send(self.hass, self.signal, sn)
-        if gelesen != neu:
-            raise BridgeError("verify_failed", tr("verify_fehler", name=p.name, neu=neu.hex(), gelesen=gelesen.hex()))
+        if read_values != new:
+            raise BridgeError("verify_failed", tr("verify_fehler", name=p.name, neu=new.hex(), gelesen=read_values.hex()))

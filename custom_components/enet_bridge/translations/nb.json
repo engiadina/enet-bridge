@@ -1,0 +1,530 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "eNet Bridge",
+        "description": "Hvor kommer anlegget fra?",
+        "menu_options": {
+          "export": "Overta fra en eNet Server-eksport (.iex)",
+          "neu": "Nytt anlegg uten eNet Server",
+          "datei": "Eksisterende anleggsfil (anlage.json)"
+        }
+      },
+      "export": {
+        "title": "Overta eNet Server",
+        "description": "Eksporter prosjektet i eNet Server (eller appen) og last opp .iex-filen. Domene, serveridentitet, enheter og scener overtas; ingenting må programmeres på nytt.",
+        "data": {
+          "export": "Prosjekteksport (.iex)",
+          "port": "Broport",
+          "server_aus": "eNet Server er slått av"
+        },
+        "data_description": {
+          "server_aus": "Mens den ekte serveren kjører: la stå uavkrysset. Broen lytter da bare (taster, lampestatus), og sender og programmerer ingenting. Når serveren er slått av, slår du av «Bare lytte» på broen."
+        }
+      },
+      "neu": {
+        "title": "Nytt anlegg",
+        "description": "Broen blir server for et nytt eNet-anlegg (eget domene og egen serveridentitet). Enheter legges til senere ved å lære dem inn.",
+        "data": {
+          "port": "Broport"
+        }
+      },
+      "datei": {
+        "title": "Anleggsfil",
+        "description": "Serieport for broen og sti til anleggsfilen (anlage.json fra tools/iex.py). Den importeres én gang; deretter tar Home Assistant vare på anlegget.",
+        "data": {
+          "port": "Broport",
+          "anlage": "Anlegg (JSON)"
+        }
+      },
+      "reconfigure": {
+        "title": "Broport",
+        "description": "Velg serieporten til eNet-broen. Radioer fra andre integrasjoner (Thread/Zigbee/Z-Wave) vises ikke.",
+        "data": {
+          "port": "Broport"
+        }
+      }
+    },
+    "error": {
+      "port_missing": "Fant ikke porten",
+      "anlage_missing": "Fant ikke filen",
+      "anlage_invalid": "Ikke en gyldig anleggsfil",
+      "export_invalid": "Ikke en gyldig eNet Server-eksport",
+      "export_encrypted": "Krypterte anlegg støttes ikke – slå av kryptering i eNet Server først",
+      "port_fremd": "Dette er radioen til en annen integrasjon (Thread/Zigbee/Z-Wave) – velg broporten"
+    },
+    "abort": {
+      "already_configured": "Dette anlegget er allerede satt opp",
+      "port_in_use": "Denne broporten brukes allerede av et annet eNet-anlegg",
+      "reconfigure_successful": "Broporten er endret"
+    }
+  },
+  "entity": {
+    "switch": {
+      "server": {
+        "name": "Serverfunksjoner"
+      },
+      "mithoeren": {
+        "name": "Bare lytte"
+      }
+    },
+    "binary_sensor": {
+      "real_server": {
+        "name": "Ekte eNet-server aktiv"
+      },
+      "funkmodul": {
+        "name": "Radiomodul"
+      },
+      "batterie": {
+        "name": "Batteri",
+        "state": {
+          "off": "OK",
+          "on": "Lavt"
+        }
+      },
+      "sonnenschutz": {
+        "name": "Solbeskyttelse"
+      },
+      "daemmerung": {
+        "name": "Skumring"
+      },
+      "bewegung": {
+        "name": "Bevegelse"
+      }
+    },
+    "event": {
+      "taste": {
+        "name": "Tast {nr}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "gedrueckt": "Trykket",
+              "losgelassen": "Sluppet"
+            }
+          }
+        }
+      },
+      "wippe": {
+        "name": "Taster {nr}/{nr2}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "links_gedrueckt": "Venstre trykket",
+              "links_losgelassen": "Venstre sluppet",
+              "rechts_gedrueckt": "Høyre trykket",
+              "rechts_losgelassen": "Høyre sluppet",
+              "beide_gedrueckt": "Begge trykket",
+              "beide_losgelassen": "Begge sluppet"
+            }
+          }
+        }
+      },
+      "sonnenschutz_szene": {
+        "name": "Solbeskyttelsesscene",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "På",
+              "aus": "Av"
+            }
+          }
+        }
+      },
+      "daemmerung_szene": {
+        "name": "Skumringsscene",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "På",
+              "aus": "Av"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "parameter_lesen": {
+        "name": "Les parametere"
+      },
+      "szene_speichern": {
+        "name": "Lagre {szene}"
+      },
+      "sender_programmieren": {
+        "name": "Programmer sender"
+      }
+    },
+    "sensor": {
+      "signal": {
+        "name": "Signal"
+      },
+      "letzte_meldung": {
+        "name": "Siste melding"
+      },
+      "frequenzkorrektur": {
+        "name": "Frekvenskorrigering"
+      },
+      "programmierung": {
+        "name": "Programmering",
+        "state": {
+          "bereit": "Klar",
+          "szene": "Overfører scene",
+          "aktor": "Programmerer aktuator"
+        },
+        "state_attributes": {
+          "szene": {
+            "name": "Scene"
+          },
+          "geraete": {
+            "name": "Enheter"
+          }
+        }
+      },
+      "helligkeit": {
+        "name": "Belysningsstyrke"
+      },
+      "spannung": {
+        "name": "Spenning"
+      },
+      "strom": {
+        "name": "Strøm"
+      },
+      "wirkleistung": {
+        "name": "Aktiv effekt"
+      },
+      "blindleistung": {
+        "name": "Reaktiv effekt"
+      },
+      "scheinleistung": {
+        "name": "Tilsynelatende effekt"
+      },
+      "energie": {
+        "name": "Energi"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Bro-fastvare"
+      }
+    },
+    "select": {
+      "wippe_betriebsart": {
+        "name": "Modus",
+        "state": {
+          "wippe": "Vippe",
+          "tasten": "To enkelttaster"
+        }
+      },
+      "wippe_lampe": {
+        "name": "Lampe {lampe}"
+      },
+      "wippe_abdimmen": {
+        "name": "Ved nedtoning",
+        "state": {
+          "aus": "Slå av (som eNet)",
+          "an": "Forbli på"
+        }
+      },
+      "taste_aktion": {
+        "name": "Tast {nr}: handling"
+      },
+      "sonnenschutz_ein_aktion": {
+        "name": "Solbeskyttelse på: scene"
+      },
+      "sonnenschutz_aus_aktion": {
+        "name": "Solbeskyttelse av: scene"
+      },
+      "daemmerung_ein_aktion": {
+        "name": "Skumring på: scene"
+      },
+      "daemmerung_aus_aktion": {
+        "name": "Skumring av: scene"
+      }
+    }
+  },
+  "services": {
+    "release": {
+      "name": "Frigi broen",
+      "description": "Lukker serieporten, f.eks. for å flashe fastvare."
+    },
+    "reconnect": {
+      "name": "Koble til broen på nytt",
+      "description": "Åpner serieporten på nytt."
+    },
+    "szene_anlegen": {
+      "name": "Opprett eNet-scene",
+      "description": "Oppretter en KNX-scene i aktuatorene (koblinger for sceneoppkall og samlet status). Med «Lær» blir lysenes nåværende tilstand til sceneverdiene.",
+      "fields": {
+        "name": {
+          "name": "Navn",
+          "description": "Navnet på scenen"
+        },
+        "entity_id": {
+          "name": "Lys",
+          "description": "eNet-lys som er med"
+        },
+        "lernen": {
+          "name": "Lær",
+          "description": "Lagre nåværende tilstand som sceneverdier"
+        }
+      }
+    },
+    "szene_loeschen": {
+      "name": "Slett eNet-scene",
+      "description": "Fjerner scenekoblingene fra alle medlemmer og sletter scenen.",
+      "fields": {
+        "entity_id": {
+          "name": "Scene",
+          "description": "eNet-scene som skal slettes"
+        }
+      }
+    },
+    "geraet_einlernen": {
+      "name": "Lær inn enhet",
+      "description": "Søker etter en eNet-enhet i læremodus (trykk på knappen på enheten), tar den inn i anlegget og kalibrerer radioen ved behov.",
+      "fields": {
+        "name": {
+          "name": "Navn",
+          "description": "Navnet på den nye enheten (valgfritt)."
+        }
+      }
+    },
+    "geraet_entfernen": {
+      "name": "Fjern enhet",
+      "description": "Tilbakestiller en eNet-enhet til fabrikkinnstilling og fjerner den fra anlegget.",
+      "fields": {
+        "device_id": {
+          "name": "Enhet",
+          "description": "eNet-enhet som skal fjernes."
+        }
+      }
+    },
+    "sender_programmieren": {
+      "name": "Programmer sender",
+      "description": "Vekker en hånd- eller veggsender (trykk på en tast på den) og skriver hele konfigurasjonen dens på nytt fra anlegget: modus for hver vippe, vippe → aktuatorer, enkelttast → servertast.",
+      "fields": {
+        "device_id": {
+          "name": "Sender",
+          "description": "eNet-sender som skal programmeres."
+        }
+      }
+    },
+    "verknuepfungen_lesen": {
+      "name": "Les koblinger",
+      "description": "Leser koblingstabellene til aktuatorer (alle, hvis ingen er valgt) og vurderer hver oppføring: fabrikkoppføring, scene, vippe, annen enhet, gammel kobling eller fremmed enhet. Gamle og fremmede koblinger meldes under Reparasjoner. Leser bare, endrer ingenting.",
+      "fields": {
+        "device_id": {
+          "name": "Aktuatorer",
+          "description": "eNet-aktuatorer som skal leses (tomt: alle)."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "geraet": {
+      "initiate_flow": {
+        "user": "Legg til enhet"
+      },
+      "entry_type": "eNet-enhet",
+      "step": {
+        "user": {
+          "title": "Legg til eNet-enhet",
+          "description": "Angi eventuelt et navn og et område. Etter at du har klikket Send, setter du enheten i læremodus (miniaktuatorer: hold knappen inne i 4 s; sendere: læreknapp eller tastekombinasjon). Søket varer i 2 minutter; en sender programmeres med en gang, og lære-LED-en slutter å blinke.",
+          "data": {
+            "name": "Navn",
+            "raum": "Område"
+          }
+        }
+      },
+      "progress": {
+        "suchen": "Søker – sett enheten i læremodus nå. Innlæring og programmering tar opptil 2 minutter."
+      },
+      "abort": {
+        "eingelernt": "{name} ({typ}) lært inn som {ia}.",
+        "fehlgeschlagen": "Innlæring mislyktes: {fehler}",
+        "nicht_geladen": "eNet-anlegget er ikke lastet (er broen tilkoblet?)."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "eNet-anlegg",
+        "menu_options": {
+          "sender": "Konfigurer sender",
+          "entfernen": "Fjern enhet"
+        }
+      },
+      "entfernen": {
+        "title": "Fjern enhet",
+        "description": "Hvilken enhet skal fjernes fra anlegget? Den tilbakestilles til fabrikkinnstilling.",
+        "data": {
+          "geraet": "Enhet"
+        }
+      },
+      "bestaetigen": {
+        "title": "Fjerne {name}?",
+        "description": "**{name}** ({typ}, {ia}) tilbakestilles til fabrikkinnstilling og fjernes fra anlegget. Den reagerer ikke lenger før den læres inn på nytt (navn og konfigurasjon huskes).\n\nBerøres også:\n{details}",
+        "data": {
+          "verstanden": "Jeg forstår – fjern enheten"
+        }
+      },
+      "sender": {
+        "title": "Konfigurer sender",
+        "description": "Hvilken hånd- eller veggsender skal konfigureres?",
+        "data": {
+          "geraet": "Sender"
+        }
+      },
+      "betriebsart": {
+        "title": "{name}: vipper",
+        "description": "Modus per vippe (vippe 1 = taster 1/2, vippe 2 = taster 3/4 …).\n\n- **Vippe**: slår av/på og dimmer de valgte lampene direkte, tilbakemelding fra lampene.\n- **Enkelttaster**: hver tast melder til broen (grønn LED) og utløser en eNet-scene, en broscene eller bare en hendelse for automasjoner i Home Assistant.",
+        "data": {
+          "wippe_1": "Vippe 1 (taster 1/2)",
+          "wippe_2": "Vippe 2 (taster 3/4)",
+          "wippe_3": "Vippe 3 (taster 5/6)",
+          "wippe_4": "Vippe 4 (taster 7/8)"
+        }
+      },
+      "details": {
+        "title": "{name}: tilordning",
+        "description": "Lamper for vippene eller handling for hver enkelttast. Hvis modus eller lamper endres, programmeres senderen etterpå (trykk på en tast på den); en endret handling trenger bare broen. Home Assistant-lamper (andre integrasjoner) slås av/på og dimmes av Home Assistant; broen bekrefter vippen (grønn LED, bare så lenge ingen eNet Server kjører).",
+        "data": {
+          "lampen_1": "Vippe 1: eNet-lamper",
+          "ha_lampen_1": "Vippe 1: Home Assistant-lamper",
+          "lampen_2": "Vippe 2: eNet-lamper",
+          "ha_lampen_2": "Vippe 2: Home Assistant-lamper",
+          "lampen_3": "Vippe 3: eNet-lamper",
+          "ha_lampen_3": "Vippe 3: Home Assistant-lamper",
+          "lampen_4": "Vippe 4: eNet-lamper",
+          "ha_lampen_4": "Vippe 4: Home Assistant-lamper",
+          "taste_1": "Tast 1",
+          "taste_2": "Tast 2",
+          "taste_3": "Tast 3",
+          "taste_4": "Tast 4",
+          "taste_5": "Tast 5",
+          "taste_6": "Tast 6",
+          "taste_7": "Tast 7",
+          "taste_8": "Tast 8"
+        }
+      }
+    },
+    "progress": {
+      "laeuft": "Fjerner enhet … (for en sender: trykk på en tast på den nå)",
+      "programmieren": "Programmerer sender … trykk på en tast på den nå (vekke) og hold den i nærheten i omtrent ett minutt.",
+      "uebertragen": "Overfører tilordning til broen …"
+    },
+    "error": {
+      "nicht_bestaetigt": "Bekreft først."
+    },
+    "abort": {
+      "entfernt": "{name} er fjernet.",
+      "entfernt_offen": "{name} er fjernet fra anlegget. Gjenstår: {offen}",
+      "fehlgeschlagen": "Fjerning mislyktes: {fehler}",
+      "nicht_geladen": "eNet-anlegget er ikke lastet (er broen tilkoblet?).",
+      "belegt": "{name}: tilordning tatt i bruk (bare broen, senderen er uendret).",
+      "belegt_programmiert": "{name}: sender programmert og tilordning tatt i bruk.",
+      "keine_sender": "Det finnes ingen sender i anlegget."
+    }
+  },
+  "exceptions": {
+    "geraet_loeschen": {
+      "message": "Fjern eNet-enheter via «Konfigurer → Fjern enhet» på eNet-anlegget – der tilbakestilles enheten og alt som hører til, ryddes opp."
+    }
+  },
+  "issues": {
+    "antwortet_nicht": {
+      "title": "eNet: {name} svarer ikke",
+      "description": "{name} ({ia}, serienummer {sn}) er en del av anlegget, men svarer ikke. Mulige årsaker: ingen strøm, utenfor radiorekkevidde, fjernet eller byttet ut (en ny enhet har et annet serienummer og må læres inn på nytt).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{name} svarer ikke",
+            "menu_options": {
+              "erneut": "Spør på nytt",
+              "entfernen": "Fjern fra anlegget"
+            }
+          },
+          "entfernen": {
+            "title": "Fjern {name}",
+            "description": "{name} fjernes fra anlegget, inkludert entiteter, scenemedlemskap og senderreferanser. Hvis enheten fortsatt finnes, tilbakestilles den til fabrikkinnstilling."
+          }
+        },
+        "abort": {
+          "antwortet_weiter_nicht": "{name} svarer fortsatt ikke.",
+          "erledigt": "Ferdig."
+        }
+      }
+    },
+    "szenen_mithoeren": {
+      "title": "eNet: scener konverteres etter lyttemodus",
+      "description": "Disse eNet-scenene kan ikke redigeres ennå: {szenen}. For å gjøre dem om til Home Assistant-scener må sceneverdiene leses fra aktuatorene, og broen sender ingenting mens «Bare lytte» er på. Slå av den ekte eNet Server, og slå deretter av «Bare lytte» på broen; scenene konverteres automatisk."
+    },
+    "szenen_nicht_umgewandelt": {
+      "title": "eNet: scener ikke konvertert ennå",
+      "description": "Disse eNet-scenene er ikke Home Assistant-scener ennå fordi ikke alle sceneverdier kunne leses fra aktuatorene: {szenen}. Konverteringen prøves på nytt ved hver oppstart."
+    },
+    "szenen_links_fehlen": {
+      "title": "eNet: scenekoblinger mangler",
+      "description": "{kanaele} mangler koblinger for scenene {szenen}. Disse lampene reagerer ikke på eNet-sceneoppkallet (Home Assistant slår dem av/på enkeltvis i stedet).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Opprett scenekoblinger",
+            "description": "De manglende koblingene skrives til aktuatorene. Aktuatorene starter kort på nytt; lamper som var på, slås på igjen etterpå."
+          }
+        },
+        "abort": {
+          "nicht_repariert": "Ikke alt ble opprettet: {fehler}",
+          "erledigt": "Ferdig."
+        }
+      }
+    },
+    "unbekannter_sender": {
+      "title": "eNet: ukjent sender ({sn})",
+      "description": "En sender med serienummer {sn} trykker på taster, men er ikke en del av anlegget. Legg den til: Innstillinger → Enheter og tjenester → eNet → «Legg til enhet»."
+    },
+    "szene_wird_uebertragen": {
+      "title": "eNet: scenen {szene} overføres – vent litt",
+      "description": "eNet-delen av scenen {szene} skrives til aktuatorene. Inntil dette er ferdig, kjøres scenen lampe for lampe via Home Assistant. Denne meldingen forsvinner av seg selv."
+    },
+    "aktor_wird_programmiert": {
+      "title": "eNet: programmerer {geraete} – vent litt",
+      "description": "{geraete} programmeres via radio. Lampene slukkes kort og gjenopprettes etterpå. Denne meldingen forsvinner av seg selv."
+    },
+    "links_auffaellig": {
+      "title": "eNet: {name} har uventede koblinger",
+      "description": "Koblingstabellen til {name} ({ia}) inneholder oppføringer som ikke passer til noen scene eller vippe i anlegget:\n\n{eintraege}\n\nSlike rester får lampen til å reagere på knapper eller telegrammer den burde ignorere (for eksempel dimme til en annen verdi når en serverknapp slippes). Vanligvis stammer de fra tidligere tilordninger i eNet Server.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Uventede koblinger i {name}",
+            "menu_options": {
+              "entfernen": "Fjern koblinger",
+              "behalten": "Behold (ikke meld igjen)"
+            }
+          },
+          "entfernen": {
+            "title": "Fjern koblinger fra {name}",
+            "description": "Tabellen leses på nytt, og de oppførte oppføringene slettes fra aktuatoren. Aktuatoren starter kort på nytt; en lampe som var på, slås på igjen etterpå. Fjern dem bare hvis ingen sender utenfor dette anlegget fortsatt bruker dem."
+          },
+          "behalten": {
+            "title": "Behold koblinger i {name}",
+            "description": "Oppføringene blir værende i aktuatoren og meldes ikke lenger. Nye uventede oppføringer meldes fortsatt."
+          }
+        },
+        "abort": {
+          "nicht_entfernt": "Ikke alt ble fjernet: {fehler}",
+          "erledigt": "Ferdig."
+        }
+      }
+    }
+  },
+  "selector": {
+    "wippen_art": {
+      "options": {
+        "wippe": "Vippe (slår av/på og dimmer lys direkte)",
+        "tasten": "To enkelttaster (servertaster, grønn LED)"
+      }
+    }
+  }
+}

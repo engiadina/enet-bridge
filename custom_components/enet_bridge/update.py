@@ -1,7 +1,7 @@
-"""Bridge: Firmware aus dem Bündel der Integration installieren.
+"""Bridge: install firmware from the integration's bundle.
 
-Antwortet die Bridge (hello, product „enet-bridge“) mit älterer Firmware, aktualisiert der Hub automatisch.
-Antwortet am Port keine Bridge (leerer ESP32), wird erst nach Bestätigung hier installiert.
+If the bridge answers (hello, product "enet-bridge") with older firmware, the hub updates automatically.
+If no bridge answers on the port (blank ESP32), installation happens here only after confirmation.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import EnetConfigEntry, bridge_info
 from .bridge import BridgeError
 from .entity import EnetEntity
-from .texte import tr
+from .texts import tr
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
@@ -37,31 +37,31 @@ class BridgeFirmware(EnetEntity, UpdateEntity):
 
     @property
     def available(self) -> bool:
-        return self.hub.flasht or super().available
+        return self.hub.flashing or super().available
 
     @property
     def installed_version(self) -> str | None:
-        # Leerer ESP: "0.0.0" statt None – mit None setzt HA den Zustand auf „unbekannt“ und zeigt kein Installieren
-        return "0.0.0" if self.hub.keine_bridge else self.hub.bridge.info.get("fw")
+        # Blank ESP: "0.0.0" instead of None – with None, HA sets the state to "unknown" and offers no install
+        return "0.0.0" if self.hub.no_bridge else self.hub.bridge.info.get("fw")
 
     @property
     def latest_version(self) -> str | None:
-        if self.hub.keine_bridge:  # leerer ESP32: als Update anbieten
+        if self.hub.no_bridge:  # blank ESP32: offer as an update
             return self.hub.fw_bundle
         return self.hub.fw_bundle or self.installed_version
 
     @property
     def in_progress(self) -> bool:
-        return self.hub.flasht
+        return self.hub.flashing
 
     @property
     def release_summary(self) -> str | None:
-        if self.hub.keine_bridge:
+        if self.hub.no_bridge:
             return tr("keine_bridge_am_port")
         return None
 
     async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         try:
-            await self.hub.firmware_aktualisieren()
+            await self.hub.update_firmware()
         except BridgeError as err:
             raise HomeAssistantError(tr("firmware_fehler", err=err)) from err

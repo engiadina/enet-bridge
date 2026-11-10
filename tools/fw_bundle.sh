@@ -1,23 +1,23 @@
 #!/bin/sh
-# Firmware bauen und als Bündel in die HA-Integration legen (custom_components/enet_bridge/bridge_fw/<chip>/).
+# Build the firmware and place it as a bundle in the HA integration (custom_components/enet_bridge/bridge_fw/<chip>/).
 #
 #   tools/fw_bundle.sh
 #
-# Die Integration flasht damit eine Bridge selbst (Update-Entität; automatisch, wenn die Bridge älter ist).
-# Version = kFwVersion aus src/main.cpp. Je Chip ein Bündel:
+# The integration uses it to flash a bridge itself (update entity; automatically if the bridge is older).
+# Version = kFwVersion from src/main.cpp. One bundle per chip:
 #   esp32    ESP32-DevKit      (env esp32dev,     Arduino 2.x)
 #   esp32c6  XIAO ESP32-C6     (env xiao_esp32c6, Arduino 3.x/pioarduino)
-# Der C6 baut in einem eigenen PlatformIO-Verzeichnis: beide Plattformen heißen „espressif32“ und tauschen sonst
-# bei jedem Wechsel tool-esptoolpy aus (der erste Lauf danach scheitert).
+# The C6 builds in its own PlatformIO directory: both platforms are called "espressif32" and would otherwise swap
+# tool-esptoolpy on every switch (the first run afterwards fails).
 set -e
 cd "$(dirname "$0")/.."
 OUT=custom_components/enet_bridge/bridge_fw
 
 PIO=~/.platformio/penv/bin/pio
-[ -x "$PIO" ] || PIO=pio  # z. B. Homebrew-Installation
+[ -x "$PIO" ] || PIO=pio  # e.g. Homebrew installation
 C6_CORE=~/.platformio-pioarduino
 
-bundle() {  # <env> <chip> <Core-Verzeichnis>
+bundle() {  # <env> <chip> <core directory>
   PLATFORMIO_CORE_DIR="$3" "$PIO" run -e "$1"
   mkdir -p "$OUT/$2"
   B=.pio/build/$1

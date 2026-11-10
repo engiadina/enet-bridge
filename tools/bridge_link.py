@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Verbindung zur Bridge: lokaler serieller Port oder über SSH zum Rechner, an dem sie hängt.
+Connection to the bridge: local serial port or via SSH to the computer it is attached to.
 
-  open_link("/dev/cu.usbserial-0001")              # lokal (pyserial)
-  open_link("ssh://root@<ha-host>")           # HA-Rechner, Standard-Port der Bridge
+  open_link("/dev/cu.usbserial-0001")              # local (pyserial)
+  open_link("ssh://root@<ha-host>")           # HA host, default port of the bridge
   open_link("ssh://root@<ha-host>/dev/ttyUSB0")
 
-Bei SSH läuft auf dem Raspi ein kleines Python-Skript, das stdin/stdout mit dem Port verbindet
-(DTR/RTS aus). Das Öffnen startet die Bridge neu; open_link wartet auf das start-Ereignis.
-Hält die HA-Integration den Port, schlägt das Öffnen fehl.
+With SSH a small Python script runs on the Raspberry Pi that connects stdin/stdout to the port
+(DTR/RTS off). Opening restarts the bridge; open_link waits for the start event.
+If the HA integration holds the port, opening fails.
 """
 import json, queue, subprocess, threading, time
 
@@ -49,14 +49,14 @@ class Link:
         self.write_line(json.dumps(obj, separators=(",", ":")))
 
     def readline(self, timeout=None):
-        """Nächste Zeile (str) oder None bei Zeitüberschreitung/Ende."""
+        """Next line (str), or None on timeout/end."""
         try:
             return self._q.get(timeout=timeout)
         except queue.Empty:
             return None
 
     def read_json(self, timeout=None):
-        """Nächste JSON-Nachricht oder None; Nicht-JSON-Zeilen (Bootmeldungen) werden übersprungen."""
+        """Next JSON message or None; non-JSON lines (boot messages) are skipped."""
         end = time.time() + (timeout if timeout is not None else 1e9)
         while True:
             line = self.readline(max(0.0, end - time.time()))

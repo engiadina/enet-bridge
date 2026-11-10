@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Erzeugt die Server-Konfiguration für die Bridge und lädt sie hoch.
+Builds the server configuration for the bridge and uploads it.
 
   python3 tools/server_cfg.py --anlage anlage.json [--szenen szenen.json] [--port ssh://root@<ha-host>]
 
---port: lokaler Port (/dev/cu.usbserial-0001) oder ssh://<host> (Bridge am Raspi). Ohne --port nur Anzeige.
-Kanäle kommen aus anlage.json (alle Aktor-Kanäle), Szenen und Server-Tasten aus der Szenendatei
-(ohne --szenen: aus anlage["esp"], wie die HA-Integration, die die Konfiguration selbst überträgt).
-Eine Taste ohne "szene" (oder "szene": null) wird nur gemeldet – dann entscheidet der Host/HA.
-Format: siehe src/server.h (Version 3).
+--port: local port (/dev/cu.usbserial-0001) or ssh://<host> (bridge on the Raspberry Pi). Without --port display only.
+Channels come from anlage.json (all actuator channels), scenes and server keys from the scene file
+(without --szenen: from anlage["esp"], like the HA integration, which transfers the configuration itself).
+A key without "szene" (or "szene": null) is only reported – the host/HA then decides.
+Format: see src/server.h (version 3).
 """
 import json, os, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "custom_components", "enet_bridge"))
-from esp_config import build, teile  # noqa: E402  (gemeinsam mit der HA-Integration)
+from esp_config import build, split_parts  # noqa: E402  (shared with the HA integration)
 
 
 def arg(name):
@@ -24,12 +24,12 @@ def main():
     if not arg("--anlage"):
         sys.exit(__doc__)
     with open(arg("--anlage"), encoding="utf-8") as f:
-        anlage = json.load(f)
-    szenen = None
+        installation = json.load(f)
+    scenes = None
     if arg("--szenen"):
         with open(arg("--szenen"), encoding="utf-8") as f:
-            szenen = json.load(f)
-    blob, channels, scene_names, keys = build(anlage, szenen)
+            scenes = json.load(f)
+    blob, channels, scene_names, keys = build(installation, scenes)
     print(f"{len(channels)} Kanäle, {len(scene_names)} Szenen, {len(keys)} Server-Tasten, {len(blob)} Byte")
     for i, n in enumerate(scene_names):
         print(f"  Szene {i}: {n}")
@@ -41,7 +41,7 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from bridge_link import open_link
     link = open_link(port)
-    parts = teile(blob)
+    parts = split_parts(blob)
     for n, part in enumerate(parts):
         last = n == len(parts) - 1
         link.send({"cmd": "config", "id": n + 1, "part": n, "data": part, "last": last})

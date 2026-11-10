@@ -1,37 +1,48 @@
-"""Feste Texte der Integration auf Deutsch und Englisch.
+"""Fixed texts of the integration in German, English and Norwegian (Bokmål, texts_nb.py).
 
-Für alles, was Home Assistant nicht selbst übersetzt: Einträge in der Aktivität (Logbuch), Fehlermeldungen in
-der Oberfläche, dynamische Auswahllisten, Parameternamen. Texte in Einrichtung, Entitäten, Diensten und
-Reparaturen stehen wie üblich in strings.json / translations/*.json.
+For everything Home Assistant does not translate itself: entries in the activity log (logbook), error messages in
+the UI, dynamic option lists, parameter names. Texts for setup, entities, services and repairs live in
+strings.json / translations/*.json as usual.
 
-Die Sprache kommt aus der HA-Einstellung (setzen() beim Einrichten des Eintrags); alles außer Deutsch → Englisch.
-Log-Meldungen (_LOGGER) sind Englisch und werden nicht übersetzt.
+The language comes from the HA setting (set_language() when the entry is set up); German, Norwegian, otherwise
+English.
+Log messages (_LOGGER) are in English and are not translated.
 
-Neue Texte: Schlüssel hier eintragen, (Deutsch, Englisch), Platzhalter im str.format-Stil.
+New texts: add the key here, (German, English), placeholders in str.format style; Norwegian in texts_nb.py
+(optional – missing keys fall back to English).
 """
 from __future__ import annotations
 
-_DE = True  # bis setzen() aufgerufen ist (Tests, Werkzeuge): Deutsch
+from .texts_nb import TEXTS_NB
+
+_LANG = "de"  # German until set_language() has been called (tests, tools)
+LANGUAGES = ("de", "en", "nb")
 
 
-def setzen(sprache: str | None) -> None:
-    """Sprache aus hass.config.language übernehmen."""
-    global _DE
-    _DE = (sprache or "").lower().startswith("de")
+def set_language(language: str | None) -> None:
+    """Take the language from hass.config.language: German, Norwegian (Bokmål), anything else English."""
+    global _LANG
+    code = (language or "").lower()
+    _LANG = "de" if code.startswith("de") else "nb" if code.startswith(("nb", "no")) else "en"
 
 
-def deutsch() -> bool:
-    return _DE
+def german() -> bool:
+    return _LANG == "de"
 
 
-def tr(schluessel: str, **werte: object) -> str:
-    """Text in der eingestellten Sprache, Platzhalter ersetzt."""
-    de, en = TEXTE[schluessel]
-    return (de if _DE else en).format(**werte)
+def language() -> str:
+    return _LANG
 
 
-TEXTE: dict[str, tuple[str, str]] = {
-    # --- Sender programmieren / Tasten ---------------------------------------------------------------
+def tr(key_: str, **values_: object) -> str:
+    """Text in the configured language, placeholders replaced. Norwegian falls back to English per text."""
+    de, en = TEXTS[key_]
+    text = de if _LANG == "de" else TEXTS_NB.get(key_, en) if _LANG == "nb" else en
+    return text.format(**values_)
+
+
+TEXTS: dict[str, tuple[str, str]] = {
+    # --- Program transmitter / keys ------------------------------------------------------------------
     "wippe_ziele_unbekannt": ("{name} Wippe {n}: Ziele unbekannt (Anlage neu importieren)",
                               "{name} rocker {n}: targets unknown (import the installation again)"),
     "links_reset_unbestaetigt": ("Kanal {kanal}: Links zurücksetzen nicht bestätigt",
@@ -68,7 +79,7 @@ TEXTE: dict[str, tuple[str, str]] = {
     "aktion_enet_szene": ("eNet-Szene: {name}", "eNet scene: {name}"),
     "aktion_bridge_szene": ("Bridge-Szene: {name}", "Bridge scene: {name}"),
     "taste_name": ("{name} Taste {k}", "{name} button {k}"),
-    # --- Dienste, Geräte löschen, Einrichten -------------------------------------------------------------
+    # --- Services, deleting devices, setup ---------------------------------------------------------------
     "fremdes_funkmodul_start": ("{port} ist ein Funkmodul einer anderen Integration (Thread/Zigbee/Z-Wave) – Port "
                                 "der Bridge über „Neu konfigurieren“ ändern",
                                 "{port} is the radio of another integration (Thread/Zigbee/Z-Wave) – change the "
@@ -98,7 +109,7 @@ TEXTE: dict[str, tuple[str, str]] = {
                        "A single channel cannot be deleted – please delete the device “{name}”."),
     "nicht_geloescht": ("{name} wurde nicht gelöscht: {err}", "{name} was not deleted: {err}"),
     "wippe_geraet": ("Wippe {n}", "Rocker {n}"),
-    # --- Aktivität beim Programmieren von Aktoren, Sensoren -------------------------------------------
+    # --- Activity while programming actuators, sensors ------------------------------------------------
     "akt_wird_programmiert": ("– {zweck} wird programmiert", "– programming {zweck}"),
     "akt_programmiert": ("– {zweck} programmiert", "– {zweck} programmed"),
     "akt_programmierung_fehler": ("– {zweck}: Programmierung fehlgeschlagen ({fehler})",
@@ -110,7 +121,7 @@ TEXTE: dict[str, tuple[str, str]] = {
                             "\"Listen only\" is on – the bridge sends nothing, not even read requests"),
     "links_noch_da": ("{name}: {n} Einträge nach dem Löschen noch vorhanden", "{name}: {n} entries still present after deleting"),
     "zweck_alt_links": ("Alt-Verknüpfungen entfernen", "removing old links"),
-    # --- Link-Tabelle (Reparatur „auffällige Verknüpfungen“) ---
+    # --- Link table (repair "suspicious links") ---
     "link_zeile": ("Kanal {ch}, GO {go} ← GA {ga}: {grund}", "channel {ch}, GO {go} ← GA {ga}: {grund}"),
     "link_kein_wippen_link": ("von {sender}, keine Wippen-Verknüpfung", "from {sender}, not a rocker link"),
     "link_keine_wippe": ("von {sender} Wippe {wippe}, die ist aber keine Wippe (Einzeltasten oder unbelegt)",
@@ -129,7 +140,7 @@ TEXTE: dict[str, tuple[str, str]] = {
     "akt_sensor_wach": ("– Sensor ist wach", "– sensor is awake"),
     "keine_bridge_port": ("{port} ist keine Bridge (Funkmodul einer anderen Integration)",
                           "{port} is not a bridge (radio of another integration)"),
-    # --- Einlernen / Entfernen --------------------------------------------------------------------------
+    # --- Pairing / removal ------------------------------------------------------------------------------
     "akt_einlernen_start": ("– Einlernen: Gerät jetzt in den Lernmodus versetzen (Mini-Aktoren: Taste am Gerät 4 s "
                             "drücken, Lernmodus 1 min), Suche läuft 2 Minuten",
                             "– pairing: put the device into learn mode now (mini actuators: press the button on "
@@ -160,7 +171,7 @@ TEXTE: dict[str, tuple[str, str]] = {
     "akt_entfernt": ("– {name} aus der Anlage genommen", "– {name} removed from the installation"),
     "akt_entfernt_offen": ("– {name} aus der Anlage genommen, offen: {offen}",
                            "– {name} removed from the installation, open: {offen}"),
-    # --- HA-Szenen ---------------------------------------------------------------------------------------
+    # --- HA scenes ---------------------------------------------------------------------------------------
     "akt_szene_uebertragen": ("– wird in die eNet-Aktoren übertragen", "– transferring to the eNet actuators"),
     "akt_szene_uebertragen_ok": ("– Übertragung beendet", "– transfer finished"),
     "akt_szene_uebertragen_teil": ("– Übertragung unvollständig: {fehler}", "– transfer incomplete: {fehler}"),
@@ -173,7 +184,7 @@ TEXTE: dict[str, tuple[str, str]] = {
                                "Szenen): {namen}",
                                "– taken over as Home Assistant scenes (Settings → Automations & scenes → Scenes): "
                                "{namen}"),
-    # --- Konfigurieren-Dialoge -------------------------------------------------------------------------
+    # --- Configure dialogs -----------------------------------------------------------------------------
     "unbekannt": ("unbekannt", "unknown"),
     "ungetestet_zusatz": ("{modell} (ungetestet)", "{modell} (untested)"),
     "folge_sender_wecken": ("- Sender: nach „Absenden“ eine Taste am Sender drücken (aufwecken)",
@@ -188,7 +199,7 @@ TEXTE: dict[str, tuple[str, str]] = {
     "folge_esp_szenen": ("- Lokale Szenen der Bridge verlieren den Befehl: {liste}",
                          "- Local scenes of the bridge lose the command: {liste}"),
     "folge_szenen": ("- Fällt aus den eNet-Szenen: {liste}", "- Removed from the eNet scenes: {liste}"),
-    # --- Geräteseite des Senders, Bridge, Szenen ------------------------------------------------------
+    # --- Transmitter device page, bridge, scenes ------------------------------------------------------
     "wippe_komplex": ("{name} Wippe {n} hat mehr als zwei Lampen – nur unter „eNet → Konfigurieren → Sender belegen“ "
                       "ändern, sonst gingen Verknüpfungen verloren.",
                       "{name} rocker {n} has more than two lights – change it only under “eNet → Configure → "
@@ -222,7 +233,7 @@ TEXTE: dict[str, tuple[str, str]] = {
     "keine_bridge_am_port": ("Am Port antwortet keine eNet-Bridge. Installieren überschreibt den angeschlossenen ESP (ESP32 oder ESP32-C6).",
                              "No eNet bridge answers on the port. Installing overwrites the connected ESP (ESP32 or ESP32-C6)."),
     "firmware_fehler": ("Bridge-Firmware: {err}", "Bridge firmware: {err}"),
-    # --- Parameter --------------------------------------------------------------------------------------
+    # --- Parameters -------------------------------------------------------------------------------------
     "verify_fehler": ("{name}: geschrieben {neu}, gelesen {gelesen}", "{name}: written {neu}, read {gelesen}"),
     "zweck_verknuepfungen_kurz": ("Verknüpfungen", "links"),
     "folge_nichts": ("- sonst nichts betroffen", "- nothing else affected"),

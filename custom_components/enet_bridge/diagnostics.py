@@ -1,9 +1,9 @@
-"""„Diagnosedaten herunterladen“: Anlage, Zustände, Prüfergebnisse und die letzten Bridge-Nachrichten als JSON.
+"""Download diagnostics: installation, states, check results and the last bridge messages as JSON.
 
-Für Fehlerberichte anderer Nutzer. Domäne und Seriennummern erlauben es, Geräte per Funk anzusprechen – sie werden
-überall ersetzt (auch in Funktelegrammen, wo sie als Hex-Teilstrings stehen), ebenso Namen, Räume und die
-entity_ids anderer Integrationen. Die Ersetzung ist innerhalb einer Datei eindeutig (SN1, SN2 …), damit die
-Bezüge zwischen Geräten, Tasten und Telegrammen lesbar bleiben.
+For bug reports from other users. Domain and serial numbers allow addressing devices over the radio – they are
+replaced everywhere (also in radio telegrams, where they appear as hex substrings), as are names, rooms and the
+entity_ids of other integrations. The replacement is unique within one file (SN1, SN2 …), so the references
+between devices, keys and telegrams stay readable.
 """
 from __future__ import annotations
 
@@ -21,118 +21,119 @@ from . import EnetConfigEntry
 from .bridge import BridgeError
 from .const import DOMAIN
 
-NAMENS_SCHLUESSEL = {"name", "raum", "szene", "titel"}
+NAME_KEYS = {"name", "raum", "szene", "titel"}
 ENTITY_ID = re.compile(r"^(light|switch|scene|script|automation)\.[a-z0-9_]+$")
 
 
-class _Anonym:
+class _Anonymizer:
     def __init__(self) -> None:
-        self.geheim: dict[str, str] = {}  # Hex-Kennung (klein) → Ersatz
-        self.namen: dict[str, str] = {}
-        self._muster: re.Pattern | None = None
+        self.secret: dict[str, str] = {}  # hex identifier (lower case) → replacement
+        self.names_: dict[str, str] = {}
+        self._pattern: re.Pattern | None = None
 
-    def kennung(self, wert: Any, art: str) -> None:
-        if isinstance(wert, str) and len(wert) >= 4 and wert.lower() not in self.geheim:
-            n = sum(1 for v in self.geheim.values() if v.startswith(art)) + 1
-            self.geheim[wert.lower()] = f"{art}{n}"
+    def ident(self, value: Any, art: str) -> None:
+        if isinstance(value, str) and len(value) >= 4 and value.lower() not in self.secret:
+            n = sum(1 for v in self.secret.values() if v.startswith(art)) + 1
+            self.secret[value.lower()] = f"{art}{n}"
 
-    def name(self, wert: str) -> str:
-        if wert not in self.namen:
-            self.namen[wert] = f"Name{len(self.namen) + 1}"
-        return self.namen[wert]
+    def name(self, value: str) -> str:
+        if value not in self.names_:
+            self.names_[value] = f"Name{len(self.names_) + 1}"
+        return self.names_[value]
 
-    def namen_sammeln(self, obj: Any) -> None:
+    def collect_names(self, obj: Any) -> None:
         if isinstance(obj, dict):
             for k, v in obj.items():
-                if k in NAMENS_SCHLUESSEL and isinstance(v, str) and v:
+                if k in NAME_KEYS and isinstance(v, str) and v:
                     self.name(v)
                 else:
-                    self.namen_sammeln(v)
+                    self.collect_names(v)
         elif isinstance(obj, list | tuple):
             for v in obj:
-                self.namen_sammeln(v)
+                self.collect_names(v)
 
     def _text(self, s: str) -> str:
         if ENTITY_ID.match(s):
             return f"{s.split('.')[0]}.{self.name(s)}"
-        if self._muster is None:
-            self._muster = re.compile("|".join(re.escape(k) for k in sorted(self.geheim, key=len, reverse=True))
+        if self._pattern is None:
+            self._pattern = re.compile("|".join(re.escape(k) for k in sorted(self.secret, key=len, reverse=True))
                                       or r"(?!)", re.IGNORECASE)
-        s = self._muster.sub(lambda m: f"<{self.geheim[m.group(0).lower()]}>", s)
-        for original in sorted(self.namen, key=len, reverse=True):
+        s = self._pattern.sub(lambda m: f"<{self.secret[m.group(0).lower()]}>", s)
+        for original in sorted(self.names_, key=len, reverse=True):
             if len(original) >= 3 and original in s:
-                s = s.replace(original, self.namen[original])
+                s = s.replace(original, self.names_[original])
         return s
 
-    def anwenden(self, obj: Any) -> Any:
+    def apply(self, obj: Any) -> Any:
         if isinstance(obj, dict):
-            return {self._text(k) if isinstance(k, str) else k: self._wert(k, v) for k, v in obj.items()}
+            return {self._text(k) if isinstance(k, str) else k: self._value(k, v) for k, v in obj.items()}
         if isinstance(obj, list | tuple):
-            return [self.anwenden(v) for v in obj]
+            return [self.apply(v) for v in obj]
         if isinstance(obj, str):
             return self._text(obj)
         return obj
 
-    def _wert(self, schluessel: Any, v: Any) -> Any:
-        if schluessel in NAMENS_SCHLUESSEL and isinstance(v, str) and v:
+    def _value(self, key_: Any, v: Any) -> Any:
+        if key_ in NAME_KEYS and isinstance(v, str) and v:
             return self.name(v)
-        return self.anwenden(v)
+        return self.apply(v)
 
 
-def _daten(obj: Any) -> Any:
+def _data(obj: Any) -> Any:
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return {f.name: _daten(getattr(obj, f.name)) for f in dataclasses.fields(obj)
+        return {f.name: _data(getattr(obj, f.name)) for f in dataclasses.fields(obj)
                 if not f.name.startswith("_") and f.name != "geraet"}
     if isinstance(obj, dict):
-        return {str(k): _daten(v) for k, v in obj.items()}
+        return {str(k): _data(v) for k, v in obj.items()}
     if isinstance(obj, list | tuple | set):
-        return [_daten(v) for v in obj]
+        return [_data(v) for v in obj]
     if isinstance(obj, str | int | float | bool) or obj is None:
         return obj
     return str(obj)
 
 
-def _seriennummern(obj: Any, anonym: _Anonym) -> None:
-    """Alle Seriennummern der Anlage (Geräte, entfernte Geräte, Sender der Server-Tasten)."""
+def _serial_numbers(obj: Any, anon: _Anonymizer) -> None:
+    """All serial numbers of the installation (devices, removed devices, transmitters of the server keys)."""
     if isinstance(obj, dict):
         for k, v in obj.items():
             if k in ("sn", "sender") and isinstance(v, str):
-                anonym.kennung(v, "SN")
+                anon.ident(v, "SN")
             else:
-                _seriennummern(v, anonym)
+                _serial_numbers(v, anon)
     elif isinstance(obj, list):
         for v in obj:
-            _seriennummern(v, anonym)
+            _serial_numbers(v, anon)
 
 
-async def _rauschen(hub) -> dict[str, Any] | None:
-    """Grundrauschen messen (Firmware-Befehl diag: 6 s RSSI min/max und Anteil Carrier Sense; Empfang so lange aus)."""
-    if not hub.bridge.connected or hub.keine_bridge:
+async def _noise(hub) -> dict[str, Any] | None:
+    """Measure the noise floor (firmware command diag: 6 s RSSI min/max and carrier sense share;
+    no reception meanwhile)."""
+    if not hub.bridge.connected or hub.no_bridge:
         return None
-    fertig = asyncio.get_running_loop().create_future()
+    done = asyncio.get_running_loop().create_future()
 
-    def warten(msg: dict[str, Any]) -> None:
-        if msg.get("ev") == "diag" and not fertig.done():
-            fertig.set_result(msg)
+    def wait(msg: dict[str, Any]) -> None:
+        if msg.get("ev") == "diag" and not done.done():
+            done.set_result(msg)
 
-    abmelden = hub.bridge.add_listener(warten)
+    unsubscribe = hub.bridge.add_listener(wait)
     try:
         await hub.bridge.command("diag")
-        ergebnis = dict(await asyncio.wait_for(fertig, 10.0))
+        outcome = dict(await asyncio.wait_for(done, 10.0))
     except (BridgeError, asyncio.TimeoutError) as err:
         return {"fehler": str(err) or type(err).__name__}
     finally:
-        abmelden()
-    ergebnis.pop("ev", None)
-    return ergebnis
+        unsubscribe()
+    outcome.pop("ev", None)
+    return outcome
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: EnetConfigEntry) -> dict[str, Any]:
     hub = entry.runtime_data
-    anlage = copy.deepcopy(hub.anlage)
+    installation = copy.deepcopy(hub.installation)
     integration = await async_get_integration(hass, DOMAIN)
 
-    roh = {
+    raw_ = {
         "versionen": {
             "integration": str(integration.version),
             "home_assistant": HA_VERSION,
@@ -141,30 +142,30 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: EnetCon
         "bridge": {
             "verbunden": hub.bridge.connected,
             "info": copy.deepcopy(hub.bridge.info),
-            "mithoeren": hub.mithoeren,
-            "keine_bridge": hub.keine_bridge,
+            "mithoeren": hub.listen_only,
+            "keine_bridge": hub.no_bridge,
         },
-        "anlage": anlage,
-        "szenen": _daten(hub.szenen.szenen),
-        "pruefung": {"fehlende_links": _daten(hub.pruefung.fehlende_links)},
-        "zustand": _daten(hub.zustand),
-        "funk": _daten(hub.diag),
-        "messung": hub.messung.diagnose(),
-        "rauschen": await _rauschen(hub),
-        "parameter": copy.deepcopy(hub.params.werte),
-        "sensoren": {"helligkeit": dict(hub.helligkeit), "aktiv": dict(hub.sensor_aktiv),
-                     "batterie_schwach": dict(hub.batterie_schwach)},
-        "unbekannte_geraete": copy.deepcopy(hub.unbekannte_geraete),
-        "laufend": {"sender_programmieren": sorted(hub.sender_aktiv), "aktoren_programmieren": sorted(hub.programmiert)},
-        "bridge_verlauf": [f"{zeit} {richtung} {text}" for zeit, richtung, text in hub.bridge.verlauf],
+        "anlage": installation,
+        "szenen": _data(hub.scenes.scenes),
+        "pruefung": {"fehlende_links": _data(hub.check.missing_links)},
+        "zustand": _data(hub.state_),
+        "funk": _data(hub.diag),
+        "messung": hub.measurements.diagnose(),
+        "rauschen": await _noise(hub),
+        "parameter": copy.deepcopy(hub.params.values_),
+        "sensoren": {"helligkeit": dict(hub.illuminance), "aktiv": dict(hub.sensor_active),
+                     "batterie_schwach": dict(hub.battery_low)},
+        "unbekannte_geraete": copy.deepcopy(hub.unknown_devices),
+        "laufend": {"sender_programmieren": sorted(hub.senders_active), "aktoren_programmieren": sorted(hub.programmed)},
+        "bridge_verlauf": [f"{time_} {direction} {text}" for time_, direction, text in hub.bridge.history],
     }
 
-    anonym = _Anonym()
-    server = anlage.get("server", {})
-    anonym.kennung(server.get("domain"), "DOMAENE")
-    anonym.kennung(server.get("sn"), "SERVER")
-    _seriennummern(anlage, anonym)
-    for sn in [*hub.params.werte, *hub.unbekannte_geraete]:
-        anonym.kennung(sn, "SN")
-    anonym.namen_sammeln(roh)
-    return anonym.anwenden(roh)
+    anon = _Anonymizer()
+    server = installation.get("server", {})
+    anon.ident(server.get("domain"), "DOMAENE")
+    anon.ident(server.get("sn"), "SERVER")
+    _serial_numbers(installation, anon)
+    for sn in [*hub.params.values_, *hub.unknown_devices]:
+        anon.ident(sn, "SN")
+    anon.collect_names(raw_)
+    return anon.apply(raw_)

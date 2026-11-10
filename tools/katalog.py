@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Gerätedefinitionen aus dem Insta-Katalog der eNet-Server-Firmware erzeugen.
+Generate device definitions from the Insta catalogue of the eNet Server firmware.
 
-  python3 tools/katalog.py --alle                      # alle Typen → custom_components/enet_bridge/definitionen.json
+  python3 tools/katalog.py --alle                      # all types → custom_components/enet_bridge/definitionen.json
   python3 tools/katalog.py [--katalog katalog/fw2.21] [--aus …] [--typen DVT_SD1M,…]
 
-Der Katalog (devices_2.x.0.tgz aus dem Server-Update) liegt lokal (katalog/, nicht im Repo). Die daraus erzeugten
-Definitionen aller Typen liegen seit 2026-10-29 in der Integration (Erlaubnis klärt der Nutzer); eine lokale
-/config/enet/definitionen.json ergänzt bzw. überschreibt sie.
+The catalogue (devices_2.x.0.tgz from the server update) is kept locally (katalog/, not in the repo). The definitions
+of all types generated from it have been part of the integration since 2026-10-29; a local
+/config/enet/definitionen.json extends or overrides them.
 
-Kette im Katalog (NOTES.md „Gerätekatalog“):
-  Herstellerkatalog DVT_x → GDVT_x (GenericDeviceCatalogue) → Kanäle (Kanaltyp CT_…, Objekt, GO-Offset)
-  Parameter (ChannelTypes + gerätespezifische) → KnxRfPropertyData (PID, index, elementCount)
-  → ValueTypeContainerType → ValueType (Standard, DataType) + KnxRfDatapointType (Bitlänge, Konverter)
-  → DataType (Bereich/Einheit, Auswahlliste, Bool).
-Parameterspeicher (PID 79 = 0x4F): Funk-Startelement = index + 1, Elemente = Bytes.
+Chain in the catalogue (NOTES.md "Gerätekatalog"):
+  manufacturer catalogue DVT_x → GDVT_x (GenericDeviceCatalogue) → channels (channel type CT_…, object, GO offset)
+  parameters (ChannelTypes + device-specific) → KnxRfPropertyData (PID, index, elementCount)
+  → ValueTypeContainerType → ValueType (default, DataType) + KnxRfDatapointType (bit length, converter)
+  → DataType (range/unit, choice list, bool).
+Parameter memory (PID 79 = 0x4F): radio start element = index + 1, elements = bytes.
 """
 import glob, json, os, re, sys
 import xml.etree.ElementTree as ET
@@ -35,7 +35,7 @@ def load(path):
     return strip_ns(ET.parse(path).getroot())
 
 
-class Katalog:
+class Catalogue:
     def __init__(self, d):
         self.d = d
         self.channel_types = {e.get("id"): e for e in load(f"{d}/ChannelTypes.xml").iter("KnxRfChannelType")}
@@ -46,16 +46,16 @@ class Katalog:
         self.dpt = {e.get("id"): e for e in load(f"{d}/KnxRfDatapointTypes.xml").iter("KnxRfDatapointType")}
         self.devtypes = {}
         for f in glob.glob(f"{d}/*/DeviceCatalogue.xml"):
-            hersteller = os.path.basename(os.path.dirname(f))
+            manufacturer_ = os.path.basename(os.path.dirname(f))
             for e in load(f).iter("KnxRfDeviceType"):
                 md = e.find("MetaData")
-                self.devtypes[e.get("id")] = (e.get("genericDeviceTypeID"), hersteller, e.get("productID"),
+                self.devtypes[e.get("id")] = (e.get("genericDeviceTypeID"), manufacturer_, e.get("productID"),
                                               md.get("articleNo") if md is not None else None,
                                               md.get("name") if md is not None else None)
 
-    # --- Wertetypen --------------------------------------------------------
-    def werttyp(self, vtct_id):
-        """Wertebeschreibung für einen ValueTypeContainerType (nur einfache Typen mit einem Datenfeld)."""
+    # --- Value types -------------------------------------------------------
+    def value_type(self, vtct_id):
+        """Value description for a ValueTypeContainerType (only simple types with one data field)."""
         c = self.vtct.get(vtct_id)
         if c is None:
             return {"art": "unbekannt", "vtct": vtct_id}
@@ -92,7 +92,7 @@ class Katalog:
                 for k_xml, k in (("minValue", "min"), ("maxValue", "max"), ("increment", "schritt")):
                     if num.get(k_xml) is not None:
                         out[k] = float(num.get(k_xml))
-                if num.get("unit") == "x 10":  # Schaltzähler: Rohwert × 10
+                if num.get("unit") == "x 10":  # switching counter: raw value × 10
                     out["faktor"] = 10
                 elif num.get("unit"):
                     out["einheit"] = num.get("unit")
@@ -103,44 +103,44 @@ class Katalog:
         else:
             out["art"] = typ.lower() if typ else "unbekannt"
             out["standard"] = default
-        out["kodierung"] = kodierung(out)
+        out["kodierung"] = encoding(out)
         return out
 
     # --- Parameter ---------------------------------------------------------
-    def parameter(self, el, kanal_obj):
-        """Parameter-Eintrag aus KnxRfDeviceParameterType (None, wenn ohne Funk-Adresse)."""
+    def parameter(self, el, channel_obj):
+        """Parameter entry from KnxRfDeviceParameterType (None if it has no radio address)."""
         pd = el.find("KnxRfPropertyData")
         if pd is None or pd.get("propertyID") is None:
             return None
         pid = int(pd.get("propertyID"))
         idx = int(pd.get("index") or 0)
         pt_id = el.get("id")
-        kurz = re.sub(r"^PT_[A-Z0-9]+[._]", "", pt_id)
+        short = re.sub(r"^PT_[A-Z0-9]+[._]", "", pt_id)
         p = {
-            "id": kurz,
+            "id": short,
             "katalog_id": pt_id,
             "name": el.get("name"),
-            "obj": int(pd.get("interfaceObjectIndex")) if pd.get("interfaceObjectIndex") else kanal_obj,
+            "obj": int(pd.get("interfaceObjectIndex")) if pd.get("interfaceObjectIndex") else channel_obj,
             "pid": pid,
             "start": idx + 1 if pid == 79 else idx,
             "anzahl": int(pd.get("elementCount") or 1),
             "lesen": int(el.get("accessLevelRead") or 0),
             "schreiben": int(el.get("accessLevelWrite") or 0),
             "aktiv": el.get("active", "true") != "false",
-            "typ": self.werttyp(el.get("valueTypeContainerTypeID")),
+            "typ": self.value_type(el.get("valueTypeContainerTypeID")),
         }
         if el.get("writeProtectedAtDevice") == "true":
             p["schreibgeschuetzt"] = True
         return p
 
-    def geraet(self, dvt):
-        gdvt_id, hersteller, produkt, artikel, produktname = self.devtypes.get(
+    def enet_device(self, dvt):
+        gdvt_id, manufacturer_, product, article, product_name = self.devtypes.get(
             dvt, (dvt.replace("DVT_", "GDVT_"), None, None, None, None))
         g = self.generic.get(gdvt_id)
         if g is None:
             return None
-        out = {"name": g.get("name"), "generisch": gdvt_id, "hersteller": hersteller, "produkt": produkt,
-               "artikel": artikel, "produktname": produktname,
+        out = {"name": g.get("name"), "generisch": gdvt_id, "hersteller": manufacturer_, "produkt": product,
+               "artikel": article, "produktname": product_name,
                "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0), "kanaele": [], "geraet": []}
         for grp in g.iter("KnxRfDeviceChannelConfigurationGroupType"):
             for ch in grp.iter("KnxRfDeviceChannelType"):
@@ -159,61 +159,61 @@ class Katalog:
                         p = self.parameter(el, obj)
                         if p:
                             params.append(p)
-                eintrag = {"nr": nr, "kanaltyp": ct_id, "obj": obj,
+                entry_ = {"nr": nr, "kanaltyp": ct_id, "obj": obj,
                            "go_offset": int(ch.get("groupObjectNumberOffset") or 0), "parameter": params}
                 if ct_id == "CT_DEVICE":
                     out["geraet"] = params
                 else:
                     if ct is not None:
-                        eintrag["alias"] = ct.get("aliasID")
-                    out["kanaele"].append(eintrag)
+                        entry_["alias"] = ct.get("aliasID")
+                    out["kanaele"].append(entry_)
         return out
 
 
-def kodierung(t):
-    """Wie der Wert im Parameterspeicher steht (HA rechnet damit um)."""
-    dpt, bits, konv = t.get("dpt", ""), t.get("bits", 0), t.get("konverter", "")
-    if konv == "CVT_2_OCTET_FLOAT_VALUE_TO_DOUBLE":
+def encoding(t):
+    """How the value is stored in parameter memory (HA converts with this)."""
+    dpt, bits, conv = t.get("dpt", ""), t.get("bits", 0), t.get("konverter", "")
+    if conv == "CVT_2_OCTET_FLOAT_VALUE_TO_DOUBLE":
         return "dpt9"
     if dpt.startswith("DPT_5.001") or dpt.startswith("DPT_5.004") and t.get("einheit") == "%":
         return "prozent255" if dpt.startswith("DPT_5.001") else "u8"
     if bits == 8 or t.get("art") in ("bool", "auswahl") and bits <= 8:
         return "u8"
     if bits == 16:
-        return "u16_x100" if "RESOLUTION_100" in konv else "u16"
+        return "u16_x100" if "RESOLUTION_100" in conv else "u16"
     if bits == 32:
         return "u32"
     return "unbekannt"
 
 
 def main():
-    kat = Katalog(arg("--katalog", "katalog/fw2.21"))
-    alle = "--alle" in sys.argv
-    aus = arg("--aus", "custom_components/enet_bridge/definitionen.json" if alle else "katalog/definitionen.json")
-    typen = arg("--typen")
-    if alle:
-        typen = sorted(kat.devtypes)
-    elif typen:
-        typen = typen.split(",")
-    else:  # alle Typen der eigenen Anlagen (anlage*.json), sonst alle bekannten
-        typen = sorted({g["typ"] for f in glob.glob("anlage*.json")
+    kat = Catalogue(arg("--katalog", "katalog/fw2.21"))
+    all_ = "--alle" in sys.argv
+    off = arg("--aus", "custom_components/enet_bridge/definitionen.json" if all_ else "katalog/definitionen.json")
+    types_ = arg("--typen")
+    if all_:
+        types_ = sorted(kat.devtypes)
+    elif types_:
+        types_ = types_.split(",")
+    else:  # all types of the own installations (anlage*.json), otherwise all known ones
+        types_ = sorted({g["typ"] for f in glob.glob("anlage*.json")
                         for g in json.load(open(f, encoding="utf-8"))["geraete"]}) or sorted(kat.devtypes)
     defs = {}
-    for t in typen:
-        d = kat.geraet(t)
+    for t in types_:
+        d = kat.enet_device(t)
         if d is None:
             print(f"{t}: nicht im Katalog", file=sys.stderr)
             continue
         defs[t] = d
         n = sum(len(k["parameter"]) for k in d["kanaele"]) + len(d["geraet"])
-        unbek = sum(1 for k in d["kanaele"] for p in k["parameter"] if p["typ"].get("kodierung") in (None, "unbekannt"))
-        print(f"{t:<12} {d['name'][:40]:<40} {len(d['kanaele'])} Kanäle, {n} Parameter ({unbek} ohne Kodierung)")
-    os.makedirs(os.path.dirname(aus) or ".", exist_ok=True)
-    with open(aus, "w", encoding="utf-8") as f:
+        unknown_ = sum(1 for k in d["kanaele"] for p in k["parameter"] if p["typ"].get("kodierung") in (None, "unbekannt"))
+        print(f"{t:<12} {d['name'][:40]:<40} {len(d['kanaele'])} Kanäle, {n} Parameter ({unknown_} ohne Kodierung)")
+    os.makedirs(os.path.dirname(off) or ".", exist_ok=True)
+    with open(off, "w", encoding="utf-8") as f:
         json.dump({"quelle": os.path.basename(os.path.abspath(kat.d)), "typen": defs}, f, ensure_ascii=False,
                   separators=(",", ":"), sort_keys=True)
         f.write("\n")
-    print(f"→ {aus}")
+    print(f"→ {off}")
 
 
 if __name__ == "__main__":

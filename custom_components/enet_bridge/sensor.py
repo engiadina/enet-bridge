@@ -1,4 +1,5 @@
-"""Aktoren: Diagnose (Signal, letzte Meldung) und Zähler aus den Geräteparametern. Bridge: Frequenzkorrektur."""
+"""Actuators: diagnostics (signal, last report) and counters from the device parameters.
+Bridge: frequency correction."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, SensorEntity, SensorStateClass
@@ -8,44 +9,44 @@ from homeassistant.const import (LIGHT_LUX, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EnetConfigEntry, _teil_info, bridge_info, geraet_info
-from .messung import ART_BEWEGUNG, ART_ENERGIE, WERTE
-from .const import SENSOR_TYPEN
-from .entity import EnetEntity, EnetParamEntity, param_entitaeten
+from . import EnetConfigEntry, _part_info, bridge_info, device_info_for
+from .measurements import KIND_MOTION, KIND_ENERGY, VALUES
+from .const import SENSOR_TYPES
+from .entity import EnetEntity, EnetParamEntity, param_entities
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    aktoren = [g for g in hub.anlage["geraete"] if g.get("rolle") in ("aktor", "sensor")]
-    entities: list = [cls(hub, g) for g in aktoren for cls in (Signal, LetzteMeldung)]
-    entities += param_entitaeten(hub, Zaehler, lambda p: p.art == "zahl" and p.nur_lesen)
-    entities += param_entitaeten(hub, ParamText, lambda p: p.art == "auswahl" and p.nur_lesen)
-    entities += [Helligkeit(hub, g) for g in hub.anlage["geraete"] if g.get("typ") in SENSOR_TYPEN]
-    entities += [Messwert(hub, g, k, w.key) for g, k in hub.messung.kanaele(ART_ENERGIE)
-                 for w in WERTE[ART_ENERGIE].values()]
-    entities += [Messwert(hub, g, k, "helligkeit") for g, k in hub.messung.kanaele(ART_BEWEGUNG)]
-    entities += [Frequenzkorrektur(hub), Programmierung(hub)]
+    actuators = [g for g in hub.installation["geraete"] if g.get("rolle") in ("aktor", "sensor")]
+    entities: list = [cls(hub, g) for g in actuators for cls in (Signal, LastMessage)]
+    entities += param_entities(hub, Counter, lambda p: p.art == "zahl" and p.read_only)
+    entities += param_entities(hub, ParamText, lambda p: p.art == "auswahl" and p.read_only)
+    entities += [Illuminance(hub, g) for g in hub.installation["geraete"] if g.get("typ") in SENSOR_TYPES]
+    entities += [MeasuredValue(hub, g, k, w.key) for g, k in hub.measurements.channels_(KIND_ENERGY)
+                 for w in VALUES[KIND_ENERGY].values()]
+    entities += [MeasuredValue(hub, g, k, "helligkeit") for g, k in hub.measurements.channels_(KIND_MOTION)]
+    entities += [FrequencyCorrection(hub), Programming(hub)]
     async_add_entities(entities)
 
 
 class _Diag(EnetEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, hub, geraet, key: str) -> None:
+    def __init__(self, hub, enet_device, key: str) -> None:
         super().__init__(hub)
-        self.geraet = geraet
+        self.enet_device = enet_device
         self._attr_translation_key = key
-        self._attr_unique_id = f"{geraet['sn']}_{key}"
-        self._attr_device_info = geraet_info(hub, geraet)
+        self._attr_unique_id = f"{enet_device['sn']}_{key}"
+        self._attr_device_info = device_info_for(hub, enet_device)
 
     @property
     def _d(self):
-        return self.hub.diag.get(self.geraet["ia"])
+        return self.hub.diag.get(self.enet_device["ia"])
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self._listen(f"diag_{self.geraet['ia']}")
+        self._listen(f"diag_{self.enet_device['ia']}")
 
 
 class Signal(_Diag):
@@ -53,8 +54,8 @@ class Signal(_Diag):
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, hub, geraet) -> None:
-        super().__init__(hub, geraet, "signal")
+    def __init__(self, hub, enet_device) -> None:
+        super().__init__(hub, enet_device, "signal")
 
     @property
     def native_value(self):
@@ -62,60 +63,60 @@ class Signal(_Diag):
 
     @property
     def extra_state_attributes(self):
-        return {"versuche": self._d.versuche} if self._d and self._d.versuche else None
+        return {"versuche": self._d.attempts} if self._d and self._d.attempts else None
 
 
-class LetzteMeldung(_Diag):
+class LastMessage(_Diag):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, hub, geraet) -> None:
-        super().__init__(hub, geraet, "letzte_meldung")
+    def __init__(self, hub, enet_device) -> None:
+        super().__init__(hub, enet_device, "letzte_meldung")
 
     @property
     def native_value(self):
-        return self._d.zeit if self._d else None
+        return self._d.time_ if self._d else None
 
 
-class Helligkeit(EnetEntity, RestoreSensor):
-    """Helligkeit des Sonnensensors. Er sendet sie selbst bei deutlicher Änderung; bis dahin gilt der letzte Wert
-    vor dem Neustart."""
+class Illuminance(EnetEntity, RestoreSensor):
+    """Brightness from the sun sensor. It sends it by itself on a significant change; until then the last value from
+    before the restart applies."""
 
     _attr_device_class = SensorDeviceClass.ILLUMINANCE
     _attr_native_unit_of_measurement = LIGHT_LUX
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_translation_key = "helligkeit"
 
-    def __init__(self, hub, geraet) -> None:
+    def __init__(self, hub, enet_device) -> None:
         super().__init__(hub)
-        self.sn = geraet["sn"]
+        self.sn = enet_device["sn"]
         self._attr_unique_id = f"{self.sn}_helligkeit"
-        self._attr_device_info = geraet_info(hub, geraet)
+        self._attr_device_info = device_info_for(hub, enet_device)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self.sn not in self.hub.helligkeit and (alt := await self.async_get_last_sensor_data()) \
-                and alt.native_value is not None:
-            self.hub.helligkeit[self.sn] = float(alt.native_value)
+        if self.sn not in self.hub.illuminance and (old := await self.async_get_last_sensor_data()) \
+                and old.native_value is not None:
+            self.hub.illuminance[self.sn] = float(old.native_value)
         self._listen(f"helligkeit_{self.sn}")
 
     @property
     def available(self) -> bool:
-        return True  # Wert stammt vom Sensor, nicht von der Verbindung zur Bridge
+        return True  # value comes from the sensor, not from the connection to the bridge
 
     @property
     def native_value(self) -> float | None:
-        return self.hub.helligkeit.get(self.sn)
+        return self.hub.illuminance.get(self.sn)
 
 
-def mess_info(hub, geraet: dict, nr: int):
-    """Einkanalig: das Gerät selbst; mehrkanalig (z. B. Energiesensor REG 4fach): Child-Gerät „Kanal n“."""
-    if sum(1 for g, _k in hub.messung.kanaele() if g is geraet) <= 1:
-        return geraet_info(hub, geraet)
-    return _teil_info(hub, geraet, f"{geraet['sn']}_{nr}", f"Kanal {nr}")
+def meas_device_info(hub, enet_device: dict, nr: int):
+    """Single channel: the device itself; multi-channel (e.g. energy sensor DIN-rail 4-gang): child device "Kanal n"."""
+    if sum(1 for g, _k in hub.measurements.channels_() if g is enet_device) <= 1:
+        return device_info_for(hub, enet_device)
+    return _part_info(hub, enet_device, f"{enet_device['sn']}_{nr}", f"Kanal {nr}")
 
 
-# key → (Geräteklasse, Einheit, Zustandsklasse, Nachkommastellen)
-MESS_ANZEIGE = {
+# key → (device class, unit, state class, decimal places)
+MEASUREMENT_DISPLAY = {
     "spannung": (SensorDeviceClass.VOLTAGE, UnitOfElectricPotential.VOLT, SensorStateClass.MEASUREMENT, 1),
     "strom": (SensorDeviceClass.CURRENT, UnitOfElectricCurrent.AMPERE, SensorStateClass.MEASUREMENT, 3),
     "wirkleistung": (SensorDeviceClass.POWER, UnitOfPower.WATT, SensorStateClass.MEASUREMENT, 1),
@@ -128,84 +129,84 @@ MESS_ANZEIGE = {
 }
 
 
-class Messwert(EnetEntity, RestoreSensor):
-    """Messwert eines Energiesensors oder Bewegungsmelders (messung.py, ungetestet). Bis zum ersten Wert gilt der
-    letzte vor dem Neustart."""
+class MeasuredValue(EnetEntity, RestoreSensor):
+    """Measured value of an energy sensor or motion detector (measurements.py, untested). Until the first value arrives,
+    the last one from before the restart applies."""
 
-    def __init__(self, hub, geraet, kanal, key: str) -> None:
+    def __init__(self, hub, enet_device, channel, key: str) -> None:
         super().__init__(hub)
-        self.sn, self.nr, self.key = geraet["sn"], kanal["nr"], key
+        self.sn, self.nr, self.key = enet_device["sn"], channel["nr"], key
         self._attr_translation_key = key
         self._attr_unique_id = f"{self.sn}_{self.nr}_{key}"
-        self._attr_device_info = mess_info(hub, geraet, self.nr)
+        self._attr_device_info = meas_device_info(hub, enet_device, self.nr)
         (self._attr_device_class, self._attr_native_unit_of_measurement, self._attr_state_class,
-         self._attr_suggested_display_precision) = MESS_ANZEIGE[key]
+         self._attr_suggested_display_precision) = MEASUREMENT_DISPLAY[key]
         if key in ("blindleistung", "scheinleistung"):
             self._attr_entity_registry_enabled_default = False
 
     @property
-    def _schluessel(self) -> str:
+    def _store_key(self) -> str:
         return f"{self.sn}/{self.nr}/{self.key}"
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self._schluessel not in self.hub.messung.werte and (alt := await self.async_get_last_sensor_data()) \
-                and alt.native_value is not None:
-            self.hub.messung.werte[self._schluessel] = float(alt.native_value)
+        if self._store_key not in self.hub.measurements.values_ and (old := await self.async_get_last_sensor_data()) \
+                and old.native_value is not None:
+            self.hub.measurements.values_[self._store_key] = float(old.native_value)
         self._listen(f"messwert_{self.sn}_{self.nr}")
 
     @property
     def available(self) -> bool:
-        return True  # Wert stammt vom Gerät, nicht von der Verbindung zur Bridge
+        return True  # value comes from the device, not from the connection to the bridge
 
     @property
     def native_value(self) -> float | None:
-        return self.hub.messung.werte.get(self._schluessel)
+        return self.hub.measurements.values_.get(self._store_key)
 
 
-class Zaehler(EnetParamEntity, SensorEntity):
-    """Nur lesbare Zahlen-Parameter: Schaltspiele und Betriebsstunden der Aktoren (Zähler), beim Sonnensensor
-    Lux-Schwelle (am Gerät eingestellt) und Ladespannung des Akkus."""
+class Counter(EnetParamEntity, SensorEntity):
+    """Read-only numeric parameters: switching cycles and operating hours of the actuators (counters); for the sun
+    sensor the lux threshold (set on the device) and the battery charging voltage."""
 
-    def __init__(self, hub, gruppe, param) -> None:
-        super().__init__(hub, gruppe, param)
+    def __init__(self, hub, param_group, param) -> None:
+        super().__init__(hub, param_group, param)
         self._attr_entity_registry_enabled_default = True
-        einheit = param.typ.get("einheit")
+        unit = param.typ.get("einheit")
         if "COUNTER" in param.id:
             self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-        if einheit == "h":
+        if unit == "h":
             self._attr_native_unit_of_measurement = UnitOfTime.HOURS
             self._attr_device_class = SensorDeviceClass.DURATION
-        elif einheit == "Lux":
+        elif unit == "Lux":
             self._attr_native_unit_of_measurement = LIGHT_LUX
             self._attr_device_class = SensorDeviceClass.ILLUMINANCE
-        elif einheit == "V":
+        elif unit == "V":
             self._attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
             self._attr_device_class = SensorDeviceClass.VOLTAGE
             self._attr_state_class = SensorStateClass.MEASUREMENT
-            self._attr_suggested_display_precision = 2  # sonst rundet HA 2,62 V auf „3 V“
+            self._attr_suggested_display_precision = 2  # otherwise HA rounds 2.62 V to "3 V"
 
     @property
     def native_value(self):
-        return self.wert
+        return self.value
 
 
 class ParamText(EnetParamEntity, SensorEntity):
-    """Nur lesbare Auswahl-Parameter (z. B. Funktion eines Sonnensensor-Kanals), als Text."""
+    """Read-only selection parameters (e.g. function of a sun sensor channel), as text."""
 
     @property
     def native_value(self):
-        from .params import auswahl
-        w = self.wert
-        return None if w is None else auswahl(w)
+        from .params import choice
+        w = self.value
+        return None if w is None else choice(w)
 
 
-class Frequenzkorrektur(EnetEntity, SensorEntity):
-    """FSCTRL0 der Bridge (je Platine im NVS, per Kalibrierung gefunden), Schritte zu ~1,59 kHz."""
+class FrequencyCorrection(EnetEntity, SensorEntity):
+    """The bridge's FSCTRL0 (per board in NVS, found by calibration), steps of ~1.59 kHz."""
 
     _attr_translation_key = "frequenzkorrektur"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False  # läuft automatisch; nur zur Fehlersuche einschalten
+    _attr_entity_registry_enabled_default = False  # runs automatically; enable only for troubleshooting
     _attr_native_unit_of_measurement = "kHz"
     _attr_suggested_display_precision = 1
 
@@ -225,14 +226,14 @@ class Frequenzkorrektur(EnetEntity, SensorEntity):
         return {"fsctrl0": r.get("freq_offset"), "kalibriert": r.get("calibrated"),
                 "abweichung_schritte": r.get("freqest"), "telegramme": r.get("freqest_n"),
                 "empfangen": s.get("rx_ok"), "crc_fehler": s.get("crc_error"), "unlesbar": s.get("invalid"),
-                # ab Firmware 0.8.18: Grundrauschen (dBm), Anteil „Kanal belegt“ (%), trotz belegt gesendet
+                # firmware 0.8.18 or later: noise floor (dBm), share of "channel busy" (%), sent despite busy
                 "grundrauschen": s.get("noise_dbm"), "kanal_belegt_prozent": s.get("busy_pct"),
                 "gesendet_trotz_belegt": s.get("tx_busy")}
 
 
-class Programmierung(EnetEntity, SensorEntity):
-    """Was gerade per Funk programmiert wird: bereit / Szene wird übertragen / Aktor wird programmiert.
-    Lampen eines Aktors gehen dabei kurz aus (Neustart nach dem Rahmen) und werden wiederhergestellt."""
+class Programming(EnetEntity, SensorEntity):
+    """What is currently being programmed over the air: ready / scene being transferred / actuator being programmed.
+    An actuator's lamps briefly go off during this (restart after the frame) and are restored."""
 
     _attr_translation_key = "programmierung"
     _attr_device_class = SensorDeviceClass.ENUM
@@ -249,9 +250,9 @@ class Programmierung(EnetEntity, SensorEntity):
 
     @property
     def native_value(self) -> str:
-        if self.hub.szene_in_arbeit:
+        if self.hub.scene_in_progress:
             return "szene"
-        return "aktor" if self.hub.programmiert else "bereit"
+        return "aktor" if self.hub.programmed else "bereit"
 
     @property
     def icon(self) -> str:
@@ -259,5 +260,5 @@ class Programmierung(EnetEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        namen = sorted({g["name"] for g in self.hub.anlage["geraete"] if g["ia"] in self.hub.programmiert})
-        return {"szene": self.hub.szene_in_arbeit, "geraete": namen}
+        names_ = sorted({g["name"] for g in self.hub.installation["geraete"] if g["ia"] in self.hub.programmed})
+        return {"szene": self.hub.scene_in_progress, "geraete": names_}

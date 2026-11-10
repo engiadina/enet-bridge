@@ -1,5 +1,5 @@
-"""Aktor: Parameter neu vom Gerät lesen. eNet-Szene: aktuellen Zustand als Szenenwerte speichern.
-Sender: vorgemerkte Belegung programmieren. (Frequenzkorrektur: automatisch, hub._nachfuehren.)"""
+"""Actuator: re-read parameters from the device. eNet scene: store the current state as scene values.
+Transmitter: program the pending assignment. (Frequency correction: automatic, hub._track_frequency.)"""
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
@@ -9,97 +9,97 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 
-from . import EnetConfigEntry, geraet_info, sender, szenen_info, wippe_info
+from . import EnetConfigEntry, device_info_for, sender, scenes_device_info, rocker_info
 from .bridge import BridgeError
 from .entity import EnetEntity
-from .texte import tr
+from .texts import tr
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    geraete = {g.geraet["sn"]: g.geraet for g in hub.param_gruppen}
-    sender_ = [g for g in hub.anlage["geraete"] if g.get("rolle") == "sender"]
-    async_add_entities([ParamLesen(hub, g) for g in geraete.values()] +
-                       [SzeneSpeichern(hub, s) for s in hub.szenen.szenen if s.art != "ha"] +
-                       [SenderProgrammieren(hub, g) for g in sender_] +
-                       # auf den Wippen-Seiten nur, solange etwas vorgemerkt ist (Hauptseite: immer, z. B. nach Reset)
-                       [SenderProgrammieren(hub, g, n) for g in sender_ if (w := sender.wippen_anzahl(hub, g)) > 1
-                        and sender.vorgemerkt(g) for n in range(1, w + 1)])
+    devices_ = {g.enet_device["sn"]: g.enet_device for g in hub.param_groups}
+    sender_ = [g for g in hub.installation["geraete"] if g.get("rolle") == "sender"]
+    async_add_entities([ParamRead(hub, g) for g in devices_.values()] +
+                       [SceneStore(hub, s) for s in hub.scenes.scenes if s.art != "ha"] +
+                       [ProgramSender(hub, g) for g in sender_] +
+                       # on the rocker pages only while something is pending (main page: always, e.g. after a reset)
+                       [ProgramSender(hub, g, n) for g in sender_ if (w := sender.rocker_count(hub, g)) > 1
+                        and sender.pending(g) for n in range(1, w + 1)])
 
 
-class ParamLesen(EnetEntity, ButtonEntity):
+class ParamRead(EnetEntity, ButtonEntity):
     _attr_translation_key = "parameter_lesen"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, hub, geraet) -> None:
+    def __init__(self, hub, enet_device) -> None:
         super().__init__(hub)
-        self.geraet = geraet
-        self._attr_unique_id = f"{geraet['sn']}_parameter_lesen"
-        self._attr_device_info = geraet_info(hub, geraet)
+        self.enet_device = enet_device
+        self._attr_unique_id = f"{enet_device['sn']}_parameter_lesen"
+        self._attr_device_info = device_info_for(hub, enet_device)
 
     async def async_press(self) -> None:
         try:
-            await self.hub.parameter_lesen(self.geraet)
+            await self.hub.read_parameters(self.enet_device)
         except BridgeError as err:
-            raise HomeAssistantError(f"{self.geraet['name']}: {err}") from err
+            raise HomeAssistantError(f"{self.enet_device['name']}: {err}") from err
 
 
-class SzeneSpeichern(EnetEntity, ButtonEntity):
-    """Lernbefehl: Die Mitglieder übernehmen ihren aktuellen Zustand als Werte dieser Szene."""
+class SceneStore(EnetEntity, ButtonEntity):
+    """Learn command: the members store their current state as the values of this scene."""
 
     _attr_translation_key = "szene_speichern"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, hub, szene) -> None:
+    def __init__(self, hub, scene) -> None:
         super().__init__(hub)
-        self.szene = szene
-        self._attr_unique_id = f"{hub.entry_id}_szene_{szene.id}_speichern"
-        self._attr_translation_placeholders = {"szene": szene.name}
-        self._attr_device_info = szenen_info(hub)
+        self.scene = scene
+        self._attr_unique_id = f"{hub.entry_id}_szene_{scene.id}_speichern"
+        self._attr_translation_placeholders = {"szene": scene.name}
+        self._attr_device_info = scenes_device_info(hub)
 
     async def async_press(self) -> None:
         try:
-            await self.hub.szenen.lernen(self.szene)
+            await self.hub.scenes.learn(self.scene)
         except BridgeError as err:
-            raise HomeAssistantError(tr("szene_fehler", name=self.szene.name, err=err)) from err
+            raise HomeAssistantError(tr("szene_fehler", name=self.scene.name, err=err)) from err
 
 
-class SenderProgrammieren(EnetEntity, ButtonEntity):
-    """Vorgemerkte Betriebsarten (und die übrige Belegung) in den Sender schreiben. Wartet bis zum Ende, damit
-    ein Fehler als Meldung in der Oberfläche erscheint; „Taste am Sender drücken“ steht in der Aktivität.
-    Zusätzlich auf jeder Wippen-Seite (schreibt ebenfalls den ganzen Sender)."""
+class ProgramSender(EnetEntity, ButtonEntity):
+    """Write the pending operating modes (and the rest of the assignment) to the transmitter. Waits until finished so
+    that an error shows up as a message in the UI; "press a key on the transmitter" appears in the activity log.
+    Also present on each rocker page (likewise writes the whole transmitter)."""
 
     _attr_translation_key = "sender_programmieren"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, hub, geraet, wippe: int | None = None) -> None:
+    def __init__(self, hub, enet_device, rocker: int | None = None) -> None:
         super().__init__(hub)
-        self.geraet = geraet
-        if wippe is None:
-            self._attr_unique_id = f"{geraet['sn']}_sender_programmieren"
-            self._attr_device_info = geraet_info(hub, geraet)
+        self.enet_device = enet_device
+        if rocker is None:
+            self._attr_unique_id = f"{enet_device['sn']}_sender_programmieren"
+            self._attr_device_info = device_info_for(hub, enet_device)
         else:
-            self._attr_unique_id = f"{geraet['sn']}_wippe{wippe}_sender_programmieren"
-            self._attr_device_info = wippe_info(hub, geraet, wippe)
+            self._attr_unique_id = f"{enet_device['sn']}_wippe{rocker}_sender_programmieren"
+            self._attr_device_info = rocker_info(hub, enet_device, rocker)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self._listen(f"sender_aktiv_{self.geraet['sn']}")
+        self._listen(f"sender_aktiv_{self.enet_device['sn']}")
 
     @property
     def available(self) -> bool:
-        # während des Programmierens gesperrt (ausgegraut), damit niemand ein zweites Mal drückt
-        return super().available and self.geraet["sn"] not in self.hub.sender_aktiv
+        # locked (greyed out) while programming so that nobody presses it a second time
+        return super().available and self.enet_device["sn"] not in self.hub.senders_active
 
     async def async_press(self) -> None:
-        # Zweiter Druck (auch über den Knopf einer Wippen-Seite) während eines Laufs: ablehnen, nicht einreihen –
-        # sonst wartet er auf den Funk und wird vom Neuladen am Ende des ersten Laufs abgeschnitten.
-        if self.geraet["sn"] in self.hub.sender_aktiv:
-            raise HomeAssistantError(tr("programmierung_laeuft_knopf", name=self.geraet["name"]))
+        # Second press (also via the button of a rocker page) during a run: reject, do not queue –
+        # otherwise it waits for the radio and gets cut off by the reload at the end of the first run.
+        if self.enet_device["sn"] in self.hub.senders_active:
+            raise HomeAssistantError(tr("programmierung_laeuft_knopf", name=self.enet_device["name"]))
         try:
-            await sender.geplant_programmieren(self.hub, self.geraet)
+            await sender.planned_programming(self.hub, self.enet_device)
         except BridgeError as err:
-            raise HomeAssistantError(f"{self.geraet['name']}: {err}") from err
+            raise HomeAssistantError(f"{self.enet_device['name']}: {err}") from err
         finally:
-            self.hub.neu_laden_nach_funk()
+            self.hub.reload_after_radio()

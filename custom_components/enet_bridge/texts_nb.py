@@ -1,0 +1,156 @@
+"""Norwegian (Bokmål) UI texts: key -> text, same keys and placeholders as TEXTS in texts.py.
+
+Missing keys fall back to English. Reviewed by a native speaker: no (machine translation, please correct).
+"""
+from __future__ import annotations
+
+TEXTS_NB: dict[str, str] = {
+    # --- Program transmitter / keys ------------------------------------------------------------------
+    "wippe_ziele_unbekannt": "{name} vippe {n}: ukjente mål (importer anlegget på nytt)",
+    "links_reset_unbestaetigt": "Kanal {kanal}: tilbakestilling av koblinger ikke bekreftet",
+    "nicht_aufgewacht": "{name} våknet ikke (trykk på en tast på senderen)",
+    "ziel_fehlt": "Målet {ia}/{ch} er ikke en del av anlegget",
+    "werkseintrag_fehlt": "Fant ikke senderens fabrikkoppføring",
+    "zentral_unbekannt": "{name}: ukjente mål for sentralkanalen (importer anlegget på nytt)",
+    "keine_antwort_ga": "Tast {k}: ingen svar-gruppeadresse",
+    "zweck_verknuepfungen": "koblinger med {name}",
+    "linktabelle_unlesbar": "Koblingstabellen til {key} kan ikke leses ({err})",
+    "programmierung_laeuft": "Programmering pågår allerede – vent til den er ferdig",
+    "programmierung_laeuft_knopf": ("{name}: programmering pågår allerede – vent til aktiviteten viser "
+                                    "«Programmering ferdig»"),
+    "akt_programmierung_fehlgeschlagen": "– programmering mislyktes: {err}",
+    "akt_eingelernt_taste": "– lært inn; hvis lære-LED-en har sluttet å blinke: trykk på en tast",
+    "akt_sender_wecken": ("– trykk på en tast på senderen (vekk den), og hold den deretter i nærheten i omtrent "
+                          "ett minutt"),
+    "akt_sender_aktiv": "– senderen er våken, programmerer",
+    "akt_links_unvollstaendig": ("– sender programmert, men aktuatorkoblingene er ikke fullstendig oppdatert ({err}) – "
+                                 "programmer på nytt"),
+    "akt_programmierung_beendet": "– programmering ferdig",
+    "aktion_melden": "Bare meld (automasjon i Home Assistant)",
+    "aktion_szene": "Scene: {name}",
+    "aktion_enet_szene": "eNet-scene: {name}",
+    "aktion_bridge_szene": "Broscene: {name}",
+    "taste_name": "{name} tast {k}",
+    # --- Services, deleting devices, setup ---------------------------------------------------------------
+    "fremdes_funkmodul_start": ("{port} er radioen til en annen integrasjon (Thread/Zigbee/Z-Wave) – endre "
+                                "broporten via «Rekonfigurer»"),
+    "keine_anlage": "Ingen eNet-anlegg lastet",
+    "akt_einlernen_fehlgeschlagen": "– innlæring mislyktes: {err}",
+    "einlernen_fehler": "Innlæring: {err}",
+    "kein_geraet": "Ingen eNet-enhet (aktuator eller sender) valgt",
+    "kein_enet_geraet": "Ingen eNet-enhet valgt",
+    "kein_sender": "{name} er ikke en sender",
+    "nicht_bridge_entitaet": "{entity_id} hører ikke til eNet-broen ({domain})",
+    "bridge_nicht_geladen": "{entity_id}: eNet-broen er ikke lastet",
+    "lampen_eine_bridge": "Alle lys må høre til samme eNet-bro",
+    "kanal_fehlt": "{entity_id}: kanalen er ikke en del av anlegget",
+    "szene_fehler": "Scene {name}: {err}",
+    "szene_unbekannt": "{entity_id}: ukjent scene",
+    "akt_szene_geloescht_offen": ("– scenen {name} er slettet, men ikke nåbar: {geraete} (der virker scenen fortsatt "
+                                  "til koblingen fjernes)"),
+    "loeschen_bridge_szenen": "Broen og scener kan ikke slettes.",
+    "loeschen_nicht_verbunden": "Broen er ikke tilkoblet – enheten kan ikke tilbakestilles nå.",
+    "loeschen_kanal": "En enkelt kanal kan ikke slettes – slett enheten «{name}».",
+    "nicht_geloescht": "{name} ble ikke slettet: {err}",
+    "wippe_geraet": "Vippe {n}",
+    # --- Activity while programming actuators, sensors ------------------------------------------------
+    "akt_wird_programmiert": "– programmerer {zweck}",
+    "akt_programmiert": "– {zweck} programmert",
+    "akt_programmierung_fehler": "– {zweck}: programmering mislyktes ({fehler})",
+    "zweck_szenen_links": "scenekoblinger",
+    "kein_aktor": "{name} er ikke en aktuator (bare aktuatorer har en koblingstabell)",
+    "nur_mithoeren_lesen": "«Bare lytte» er på – broen sender ingenting, heller ikke leseforespørsler",
+    "links_noch_da": "{name}: {n} oppføringer finnes fortsatt etter sletting",
+    "zweck_alt_links": "fjerner gamle koblinger",
+    # --- Link table (repair "suspicious links") ---
+    "link_zeile": "kanal {ch}, GO {go} ← GA {ga}: {grund}",
+    "link_kein_wippen_link": "fra {sender}, ikke en vippekobling",
+    "link_keine_wippe": "fra {sender} vippe {wippe}, som ikke er en vippe (enkelttaster eller ikke tilordnet)",
+    "link_wippe_ohne_kanal": "fra {sender} vippe {wippe}, som ikke styrer denne lampen",
+    "link_szene_ohne_kanal": "scene {szene}, som ikke inneholder denne lampen",
+    "link_keine_szene": "fra serveren, ingen scene",
+    "link_fremd": "fra enhet {sn}, ikke en del av anlegget",
+    "zweck_einstellung": "innstilling {name}",
+    "zweck_szenenwert": "sceneverdi {name}",
+    "zweck_parameterspeicher": "parameterminne",
+    "akt_sensor_wecken": "– trykk på en testknapp på sensoren (vekk den)",
+    "akt_sensor_wach": "– sensoren er våken",
+    "keine_bridge_port": "{port} er ikke en bro (radio fra en annen integrasjon)",
+    # --- Pairing / removal ------------------------------------------------------------------------------
+    "akt_einlernen_start": ("– innlæring: sett enheten i læremodus nå (miniaktuatorer: hold knappen på enheten inne "
+                            "i 4 s, læremodus varer 1 min), søker i 2 minutter"),
+    "schon_in_anlage": "hører allerede til dette anlegget ({name}, {ia})",
+    "andere_anlage": ("hører til et annet anlegg (domene {domaene}) – fjern den der, eller tilbakestill enheten "
+                      "til fabrikkinnstilling"),
+    "nichts_gefunden": "fant ingen enhet med fabrikkinnstilling i læremodus",
+    "uebergangen": "; hoppet over: {liste}",
+    "typ_unbekannt": "Ukjent enhetstype (SN {sn}, produktnummer {produkt}) – ingenting endret",
+    "domaene_nicht_gesetzt": "Domene ikke satt ({wert})",
+    "keine_antwort": "ingen svar",
+    "adresse_unbestaetigt": "Adressen er ikke bekreftet",
+    "akt_eingelernt": "– {name} ({typ}) lært inn som {ia}",
+    "verweis_aktor_wippe": "{aktor} k{ch} (vippe {n})",
+    "verweis_wippe": "{name} vippe {n}",
+    "verweis_zentral": "{name} sentralkanal",
+    "akt_entfernen_wecken": "– fjerner {name}: trykk på en tast på senderen nå (vekk den)",
+    "reset_unbestaetigt": ("Enheten bekreftet ikke tilbakestillingen (tilbakestill den til fabrikkinnstilling "
+                           "på enheten ved behov)"),
+    "links_nicht_geloescht": "Aktuatorkoblingene er ikke fullstendig slettet: {err}",
+    "config_nicht_uebertragen": "Brokonfigurasjonen ble ikke overført: {err}",
+    "akt_entfernt": "– {name} fjernet fra anlegget",
+    "akt_entfernt_offen": "– {name} fjernet fra anlegget, gjenstår: {offen}",
+    # --- HA scenes ---------------------------------------------------------------------------------------
+    "akt_szene_uebertragen": "– overføres til eNet-aktuatorene",
+    "akt_szene_uebertragen_ok": "– overføring ferdig",
+    "akt_szene_uebertragen_teil": "– overføring ufullstendig: {fehler}",
+    "links_in_nicht_geloescht": "{name}: koblinger i {wo} ikke slettet",
+    "akt_szene_entfernt_offen": ("– eNet-delen av scenen {name} er fjernet, men ikke nåbar: {geraete} (der virker "
+                                 "scenen fortsatt)"),
+    "akt_szenen_uebernommen": ("– overtatt som Home Assistant-scener (Innstillinger → Automasjoner og scener → "
+                               "Scener): {namen}"),
+    # --- Configure dialogs -----------------------------------------------------------------------------
+    "unbekannt": "ukjent",
+    "ungetestet_zusatz": "{modell} (utestet)",
+    "folge_sender_wecken": "- Sender: etter «Send» trykker du på en tast på senderen (vekk den)",
+    "folge_links_geloescht": "- Koblinger i aktuatorene slettes: {liste}",
+    "folge_tasten_entfallen": "- Broens servertaster fjernes: {liste}",
+    "folge_verweise": ("- Sendere som peker hit (vippen blir ledig, koblingen i senderen blir værende til den "
+                       "programmeres neste gang): {liste}"),
+    "folge_esp_szenen": "- Lokale broscener mister kommandoen: {liste}",
+    "folge_szenen": "- Fjernes fra eNet-scenene: {liste}",
+    # --- Transmitter device page, bridge, scenes ------------------------------------------------------
+    "wippe_komplex": ("{name} vippe {n} har mer enn to lys – endre den bare under «eNet → Konfigurer → "
+                      "Konfigurer sender», ellers ville koblinger gå tapt."),
+    "akt_vorgemerkt": "– endring notert, trykk «Programmer sender» for å ta den i bruk",
+    "lampe_keine": "Ingen",
+    "lampe_ha": "{name} (HA)",
+    "lampe_ha_eid": "{name} (HA, {eid})",
+    "lampe_mehrere": "Flere (under Konfigurer → Konfigurer sender)",
+    "taste_fehler": "{name} tast {k}: {err}",
+    "bridge_nicht_verbunden": "Broen er ikke tilkoblet",
+    "befehl_zu_lang": "Kommandoen er lengre enn 512 byte",
+    "mithoeren_sendet_nicht": "«Bare lytte» er på – broen sender ikke",
+    "keine_antwort_auf": "ingen svar på {cmd}",
+    "kein_ergebnis": "ikke noe resultat for {cmd}",
+    "config_unbestaetigt": "Konfigurasjonen er ikke bekreftet",
+    "keine_szenennummer": "ingen ledige scenenumre igjen i disse aktuatorene",
+    "szenenspeicher_voll": "ingen ledige scenenumre igjen (aktuatorenes sceneminne er fullt)",
+    "keine_mitglieder": "ingen medlemmer",
+    "wert_laenge": "Verdien {wert} må ha 1–4 byte",
+    "mithoeren_fehler": "Bare lytte: {err}",
+    "keine_enet_anlage": "ikke et eNet-anlegg (geraete/server mangler)",
+    "akt_szenen_wiederherstellen": "{name}: skriver scener og vippekoblinger tilbake til enheten",
+    "esptool_ende": "esptool avsluttet med {rc}",
+    "chip_nicht_unterstuetzt": "Ingen bro-fastvare for brikken {chip} (støttet: {chips})",
+    "keine_bridge_am_port": ("Ingen eNet-bro svarer på porten. Installering overskriver den tilkoblede ESP-en "
+                             "(ESP32 eller ESP32-C6)."),
+    "firmware_fehler": "Bro-fastvare: {err}",
+    # --- Parameters -------------------------------------------------------------------------------------
+    "verify_fehler": "{name}: skrevet {neu}, lest {gelesen}",
+    "zweck_verknuepfungen_kurz": "koblinger",
+    "folge_nichts": "- ingenting annet berøres",
+    "verbindung_verloren": "Forbindelsen ble brutt",
+    "entfernen_fehler": "Fjerning: {err}",
+    "server_funktionen_fehler": "Serverfunksjoner: {err}",
+    "geraet_szenen": "eNet-scener",
+}

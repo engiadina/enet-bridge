@@ -1,69 +1,69 @@
 #pragma once
-// KNX RF 1.1 Rahmen-Dekodierung (plattformunabhaengig, auf dem Host testbar).
+// KNX RF 1.1 frame decoding (platform-independent, testable on the host).
 //
-// Funkschicht (= Wireless M-Bus Mode S):
-//   868,3 MHz, 2-FSK, 32,768 kchip/s, Manchester (Chip-Paar 01 = 1, 10 = 0),
-//   Sync-Wort auf Chip-Ebene 0x7696.
-// Rahmen (nach Manchester-Dekodierung):
-//   Block 1: L, C(0x44), 0xFF, RF-Info, 6 Byte SN/Domaene, CRC16
-//   Block 2..n: je bis zu 16 Datenbytes + CRC16
-//   CRC: Polynom 0x3D65, Init 0, Ergebnis invertiert, Big Endian.
+// Radio layer (= Wireless M-Bus Mode S):
+//   868.3 MHz, 2-FSK, 32.768 kchip/s, Manchester (chip pair 01 = 1, 10 = 0),
+//   sync word at chip level 0x7696.
+// Frame (after Manchester decoding):
+//   Block 1: L, C(0x44), 0xFF, RF info, 6 bytes SN/domain, CRC16
+//   Blocks 2..n: up to 16 data bytes each + CRC16
+//   CRC: polynomial 0x3D65, init 0, result inverted, big endian.
 
 #include <stddef.h>
 #include <stdint.h>
 
 namespace knxrf {
 
-constexpr size_t kMaxFrame = 128;  // dekodierte Bytes inkl. CRC
+constexpr size_t kMaxFrame = 128;  // decoded bytes incl. CRC
 
-// Anzahl der Bytes auf der Luft (inkl. aller CRCs) fuer ein gegebenes L-Feld.
-// Liefert 0, wenn L ungueltig ist.
+// Number of bytes on air (incl. all CRCs) for a given L field.
+// Returns 0 if L is invalid.
 size_t frameLenOnAir(uint8_t L);
 
 uint16_t crc16(const uint8_t* data, size_t len);
 
-// Dekodiert Manchester-Chips (je Byte 2 Chip-Bytes) in Datenbytes.
-// Liefert die Anzahl dekodierter Bytes; bricht bei ungueltigem Chip-Paar ab.
+// Decodes Manchester chips (2 chip bytes per byte) into data bytes.
+// Returns the number of decoded bytes; stops at an invalid chip pair.
 size_t manchesterDecode(const uint8_t* chips, size_t chipBytes, uint8_t* out, bool invert);
 
-// Kodiert Datenbytes in Manchester-Chips (fuer Tests und spaeter zum Senden).
+// Encodes data bytes into Manchester chips (for tests and later for transmitting).
 size_t manchesterEncode(const uint8_t* data, size_t len, uint8_t* chips);
 
 struct Frame {
-  uint8_t data[kMaxFrame];  // ohne CRCs (wie rtl_433 "data")
+  uint8_t data[kMaxFrame];  // without CRCs (like rtl_433 "data")
   size_t len = 0;
   bool crcOk = false;
-  int badBlock = -1;        // erster Block mit CRC-Fehler
+  int badBlock = -1;        // first block with CRC error
 };
 
-// Prueft CRCs aller Bloecke und entfernt sie. raw = Bytes auf der Luft.
+// Checks the CRCs of all blocks and removes them. raw = bytes on air.
 bool stripCrc(const uint8_t* raw, size_t rawLen, Frame& out);
 
-// Telegramm aus Chips dekodieren mit Korrektur: Ungueltige Chip-Paare (00/11) sind Ausloeschungen an bekannter
-// Stelle. Bis kMaxErasures davon werden durchprobiert (2^k Varianten), angenommen wird nur eine Variante, bei der
-// alle Block-CRCs stimmen. Rueckgabe: Anzahl korrigierter Stellen (>= 0), -1 = nicht dekodierbar, -2 = CRC falsch.
+// Decode a telegram from chips with correction: invalid chip pairs (00/11) are erasures at known positions.
+// Up to kMaxErasures of them are tried (2^k variants); only a variant where all block CRCs match is accepted.
+// Returns: number of corrected positions (>= 0), -1 = not decodable, -2 = CRC wrong.
 constexpr int kMaxErasures = 3;
 int decodeFrame(const uint8_t* chips, size_t chipBytes, bool invert, uint8_t* raw, Frame& out);
 
-// Fuegt CRCs hinzu (fuer Tests und spaeter zum Senden).
+// Adds CRCs (for tests and later for transmitting).
 size_t addCrc(const uint8_t* data, size_t len, uint8_t* raw);
 
 // ---------------------------------------------------------------------------
-// Senden: kompletter Chip-Strom fuer den CC1101 (ohne dessen Praeambel/Sync).
-//   Praeambel n x (01), Sync 00 0111011010010110 (wM-Bus Mode S, 18 Chips),
-//   danach Manchester(Rahmen mit CRCs). Als Bytes: preambleBytes x 0x55, 0x54,
-//   0x76, 0x96 (= 4 * preambleBytes + 3 Chip-Paare Praeambel).
-// data = Rahmen ohne CRCs. Liefert die Laenge in Bytes, 0 wenn cap zu klein.
+// Transmit: complete chip stream for the CC1101 (without its preamble/sync).
+//   Preamble n x (01), sync 00 0111011010010110 (wM-Bus Mode S, 18 chips),
+//   then Manchester(frame with CRCs). As bytes: preambleBytes x 0x55, 0x54,
+//   0x76, 0x96 (= 4 * preambleBytes + 3 chip pairs of preamble).
+// data = frame without CRCs. Returns the length in bytes, 0 if cap is too small.
 // ---------------------------------------------------------------------------
-constexpr uint8_t kTxPreambleBytes = 9;  // 39 Chip-Paare (Mode S verlangt >= 15)
+constexpr uint8_t kTxPreambleBytes = 9;  // 39 chip pairs (Mode S requires >= 15)
 size_t buildTxChips(const uint8_t* data, size_t len, uint8_t* chips, size_t cap, bool invert,
                     uint8_t preambleBytes = kTxPreambleBytes);
 
 // ---------------------------------------------------------------------------
-// Telegramm (Rahmen ohne CRCs):
-//   [0] L  [1] C=0x44  [2] 0xFF  [3] RF-Info  [4..9] SN/Domaene
-//   [10] Ctrl  [11,12] Src  [13,14] Dst  [15] L/NPCI  [16] TPCI|APCI-hi  [17] APCI-lo  [18..] Daten
-// L/NPCI: Bit7 Gruppe, Bits6-4 Hops, Bits3-1 LFN, Bit0 Domaene (1) / SN (0).
+// Telegram (frame without CRCs):
+//   [0] L  [1] C=0x44  [2] 0xFF  [3] RF info  [4..9] SN/domain
+//   [10] Ctrl  [11,12] Src  [13,14] Dst  [15] L/NPCI  [16] TPCI|APCI-hi  [17] APCI-lo  [18..] data
+// L/NPCI: bit7 group, bits6-4 hops, bits3-1 LFN, bit0 domain (1) / SN (0).
 // ---------------------------------------------------------------------------
 constexpr size_t kHeaderLen = 18;
 constexpr size_t kMaxData = 64 - kHeaderLen;
@@ -85,19 +85,19 @@ enum Apci : uint16_t {
 
 struct Telegram {
   uint8_t rfInfo = 0x02;
-  uint8_t addr[6] = {};  // Seriennummer des Absenders oder Domaenenadresse
-  bool doa = false;      // addr ist Domaene
-  bool group = false;    // dst ist Gruppenadresse
+  uint8_t addr[6] = {};  // serial number of the sender or domain address
+  bool doa = false;      // addr is a domain
+  bool group = false;    // dst is a group address
   uint8_t hops = 6;
   uint8_t lfn = 0;
   uint8_t ctrl = 0x00;
   uint16_t src = 0, dst = 0;
-  uint8_t tpci = 0;      // obere 6 Bit von Byte 16
-  uint16_t apci = 0;     // 10 Bit, bei Gruppen-APCIs inkl. Kurzwert in Bits 5-0
+  uint8_t tpci = 0;      // upper 6 bits of byte 16
+  uint16_t apci = 0;     // 10 bits, for group APCIs incl. short value in bits 5-0
   uint8_t data[kMaxData];
   size_t dataLen = 0;
 
-  // APCI ohne Kurzwert (Gruppen-APCIs), sonst unveraendert
+  // APCI without short value (group APCIs), otherwise unchanged
   uint16_t apciBase() const {
     uint16_t b = apci & 0x3C0;
     return (b == APCI_GROUP_READ || b == APCI_GROUP_RESPONSE || b == APCI_GROUP_WRITE) ? b : apci;
@@ -105,55 +105,55 @@ struct Telegram {
 };
 
 bool parseTelegram(const uint8_t* d, size_t len, Telegram& t);
-// Liefert die Rahmenlaenge (ohne CRCs), 0 bei zu vielen Daten.
+// Returns the frame length (without CRCs), 0 if there is too much data.
 size_t buildTelegram(const Telegram& t, uint8_t* out);
 
-// --- Server-Telegramme (Absender 7.15.255) --------------------------------
-// FuncProp allgemein (apci = APCI_FUNC_PROP_CMD oder _STATE_READ): Objekt, PID, Daten. Link-Tabelle eines
-// Kanals = Kanal-Objekt PID 63: lesen `00 00 GO idx`, Eintrag anlegen `00 00 SN GA GO`, löschen `02 00 SN GA GO`.
+// --- Server telegrams (sender 7.15.255) -----------------------------------
+// FuncProp in general (apci = APCI_FUNC_PROP_CMD or _STATE_READ): object, PID, data. Link table of a
+// channel = channel object PID 63: read `00 00 GO idx`, create entry `00 00 SN GA GO`, delete `02 00 SN GA GO`.
 size_t buildFuncProp(const uint8_t domain[6], uint16_t dstIA, uint16_t apci, uint8_t obj, uint8_t pid,
                      const uint8_t* data, size_t len, uint8_t lfn, uint8_t* out);
-// Gruppentelegramm unter Server-SN, z. B. Szenenaufruf: GA der Szene, 1 Byte Nr. (Bit 7 = aktuellen Zustand lernen)
+// Group telegram under server SN, e.g. scene recall: GA of the scene, 1 byte no. (bit 7 = learn current state)
 size_t buildServerGroupWrite(const uint8_t serverSN[6], uint16_t ga, const uint8_t* data, size_t len, uint8_t lfn,
                              uint8_t* out);
-// Aktor schalten: obj 0, PID 62, GO-Handle, Wert (DPT-kodiert).
+// Switch an actuator: obj 0, PID 62, GO handle, value (DPT-encoded).
 size_t buildFuncPropCmd(const uint8_t domain[6], uint16_t dstIA, uint16_t handle, const uint8_t* value,
                         size_t valueLen, uint8_t lfn, uint8_t* out);
-// Status abfragen: obj 0, PID 62, GO-Handle.
+// Query status: obj 0, PID 62, GO handle.
 size_t buildFuncPropStateRead(const uint8_t domain[6], uint16_t dstIA, uint16_t handle, uint8_t lfn,
                               uint8_t* out);
-// Property lesen/schreiben (A_PropertyValue_Read/Write, P2P unter Domaene): Objekt, PID, Anzahl (1..15) und
-// Startelement (12 Bit). Parameterspeicher = Kanal-Objekt PID 0x4F, Element = Byte.
+// Read/write a property (A_PropertyValue_Read/Write, P2P under domain): object, PID, count (1..15) and
+// start element (12 bits). Parameter memory = channel object PID 0x4F, element = byte.
 size_t buildPropRead(const uint8_t domain[6], uint16_t dstIA, uint8_t obj, uint8_t pid, uint16_t start,
                      uint8_t count, uint8_t lfn, uint8_t* out);
 size_t buildPropWrite(const uint8_t domain[6], uint16_t dstIA, uint8_t obj, uint8_t pid, uint16_t start,
                       uint8_t count, const uint8_t* data, size_t len, uint8_t lfn, uint8_t* out);
-// A_NetworkParameter_Write P2P unter Domaene, Daten roh (Objekttyp, PID, Wert), z. B. 00 12 3c 00 nach Parametern.
+// A_NetworkParameter_Write P2P under domain, raw data (object type, PID, value), e.g. 00 12 3c 00 after parameters.
 size_t buildNetParamWriteP2P(const uint8_t domain[6], uint16_t dstIA, const uint8_t* data, size_t len,
                              uint8_t lfn, uint8_t* out);
-// Antwort auf SumstatusGet eines Tasters (unter Server-SN, an Antwort-GA).
+// Response to a SumstatusGet of a push-button (under server SN, to the response GA).
 size_t buildSumstatusInfo(const uint8_t serverSN[6], uint16_t ga, uint8_t status, uint16_t seq, uint8_t lfn,
                           uint8_t* out);
-// Broadcast alle ~5 s an GA 0/0/0: Objekt 50001 PID 72 = 04 05 00 00 00 (Bedeutung offen).
+// Broadcast every ~5 s to GA 0/0/0: object 50001 PID 72 = 04 05 00 00 00 (meaning unknown).
 size_t buildServerBroadcast(const uint8_t domain[6], uint8_t lfn, uint8_t* out);
 
 inline uint8_t sumstatus(bool on, uint8_t percent) {
   return (uint8_t)((on ? 0x80 : 0x00) | (percent > 100 ? 100 : percent));
 }
 
-// --- Taster -----------------------------------------------------------------
-// SumstatusGet (GroupWrite, 14 Byte): req, Antwort-SN, Antwort-GA, cmd, seq, CC.
+// --- Push-buttons ------------------------------------------------------------
+// SumstatusGet (GroupWrite, 14 bytes): req, response SN, response GA, cmd, seq, CC.
 struct SumstatusGet {
   uint8_t req;
   uint8_t replySN[6];
   uint16_t replyGA;
-  uint16_t cmd;  // Tastenwert (GBR): 0x40xx oben/ein, 0x80xx unten/aus, untere 14 Bit Haltedauer
+  uint16_t cmd;  // key value (GBR): 0x40xx up/on, 0x80xx down/off, lower 14 bits hold duration
   uint16_t seq;
-  uint8_t cc;    // 0x08 Server/App-Taste, 0xF0 direkt verknuepft
+  uint8_t cc;    // 0x08 server/app key, 0xF0 directly linked
 };
 bool parseSumstatusGet(const Telegram& t, SumstatusGet& s);
 
-// FunctionProperty-Antwort (0x2C9): obj, PID, RC, Wert.
+// FunctionProperty response (0x2C9): obj, PID, RC, value.
 struct FuncPropResp {
   uint8_t obj, pid, rc;
   const uint8_t* value;
@@ -161,7 +161,7 @@ struct FuncPropResp {
 };
 bool parseFuncPropResp(const Telegram& t, FuncPropResp& r);
 
-// A_PropertyValue_Response: Anzahl 0 = Fehler (Zugriff verweigert, ungueltig)
+// A_PropertyValue_Response: count 0 = error (access denied, invalid)
 struct PropResp {
   uint8_t obj, pid, count;
   uint16_t start;

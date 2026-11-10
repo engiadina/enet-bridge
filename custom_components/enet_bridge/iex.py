@@ -1,41 +1,41 @@
 """
-Liest einen eNet-Server-Projektexport (.iex) und liefert die Anlage (Format wie anlage.json).
+Read an eNet Server project export (.iex) and return the installation (same format as anlage.json).
 
-Ohne Home-Assistant-Abhängigkeiten: genutzt von der Einrichtung der Integration und von tools/iex.py.
+No Home Assistant dependencies: used by the integration's setup and by tools/iex.py.
 
-.iex = ZIP -> project/<UUID> = ZIP mit der Projektdatenbank des Servers.
-Jede *.rec-Datei ist eine Tabelle: Kopf mit Feldschema (Name, Typ, Feldgröße),
-danach Datensätze fester Länge. Feldwert = 1 Byte Tag (Bit 7 = null) + Daten.
+.iex = ZIP -> project/<UUID> = ZIP with the server's project database.
+Each *.rec file is a table: header with field schema (name, type, field size),
+followed by fixed-length records. Field value = 1 byte tag (bit 7 = null) + data.
 
-Verwendet werden:
-  InstaNetBoxDeviceMetaData  Server: Adresse, Domäne, Seriennummer
-  DeviceMetaData             Geräte: Adresse, Typ, Domäne, Seriennummer
-  KnxRfDevice                Geräte: Name (installationArea), Verweis auf DeviceMetaData, Raum (locationUID)
-  Location                   Gebäude/Stockwerk/Raum (locationType 1/2/3); Raumname → „raum“ (Vorschlag HA-Bereich)
-  KnxRfDeviceChannel         Kanäle: Typ, GO-Offset, Objekt, Nummer → über
-  KnxRfDeviceChannelConfigurationGroup (Feld device) dem Gerät zugeordnet
+Used tables:
+  InstaNetBoxDeviceMetaData  server: address, domain, serial number
+  DeviceMetaData             devices: address, type, domain, serial number
+  KnxRfDevice                devices: name (installationArea), reference to DeviceMetaData, room (locationUID)
+  Location                   building/floor/room (locationType 1/2/3); room name → `raum` (suggested HA area)
+  KnxRfDeviceChannel         channels: type, GO offset, object, number → assigned to the device via
+  KnxRfDeviceChannelConfigurationGroup (field device)
 
-Kanäle und Sender-Tasten kommen aus dem Export; DEVICE_TYPES ist nur Rückfall und Beschreibung.
+Channels and transmitter keys come from the export; DEVICE_TYPES is only a fallback and description.
 
-Szenen (KNX-Szenen in den Aktoren, NOTES.md „Szenen im Export“):
-  Scene                      Name, Szenenkanal des Servers, values → VT_SCENE_NUMBER (Nr.)
-  InstaNetBoxDeviceFunction  je Szenenkanal: IBOX_INScS.SC (GA Aufruf), .SSGET (GA Sammelstatus)
-  KnxRfDeviceFunction        Aktor-Funktion *.SC: currentLinks → Liste der Server-Funktionen (= Mitgliedschaft)
-Tasten: Wippen sind direkt mit Aktoren verknüpft (Aktor-Funktion *.GBR = GO 1, currentLinks → Sender-Funktionen),
-Einzeltasten sind Server-Tasten (Sender-Funktion FT_INScS.SSGI → Server-Eingang, dessen GA = Antwort-GA).
-Tabellen-IDs (obere 32 Bit der Verweise) sind pro Export verschieden: aus dem Kopf der .rec (@0x10).
-Listen stehen in .blb-Slots (`4e` + u32 n + n × int64-Verweis) bzw. als Tabelle .collection/<ID>.rec.
+Scenes (KNX scenes in the actuators, NOTES.md "Szenen im Export"):
+  Scene                      name, server scene channel, values → VT_SCENE_NUMBER (no.)
+  InstaNetBoxDeviceFunction  per scene channel: IBOX_INScS.SC (recall GA), .SSGET (sum status GA)
+  KnxRfDeviceFunction        actuator function *.SC: currentLinks → list of server functions (= membership)
+Keys: rockers are linked directly to actuators (actuator function *.GBR = GO 1, currentLinks → transmitter
+functions), single keys are server keys (transmitter function FT_INScS.SSGI → server input, whose GA = answer GA).
+Table IDs (upper 32 bits of the references) differ per export: taken from the .rec header (@0x10).
+Lists are stored in .blb slots (`4e` + u32 n + n × int64 reference) or as a table .collection/<ID>.rec.
 
-Verknüpfungen (Conjunction, NOTES.md „Server-Tasten aus dem Export“) → Abschnitt "esp" (esp_config.py):
-  Conjunction                trueActions → DeviceFunctionAction (Einzelbefehl) oder Scene (Szenenaufruf)
-  Term / TermOperand         Auslöser: inputValue → DeviceValue, parent = Sender-Funktion FT_INScS.SC
+Links (Conjunction, NOTES.md "Server-Tasten aus dem Export") → section "esp" (esp_config.py):
+  Conjunction                trueActions → DeviceFunctionAction (single command) or Scene (scene recall)
+  Term / TermOperand         trigger: inputValue → DeviceValue, parent = transmitter function FT_INScS.SC
 """
 import io, json, struct, sys, zipfile
 
 try:
-    from .texte import tr
-except ImportError:  # tools/iex.py und tools/enet.py laden das Modul ohne Paket
-    from texte import tr
+    from .texts import tr
+except ImportError:  # tools/iex.py and tools/enet.py load the module without a package
+    from texts import tr
 
 PKG = "com.insta.instanet.instanetbox."
 REC_SERVER = PKG + "transformation.knxrf.knxrfboxdevice.InstaNetBoxDeviceMetaData.rec"
@@ -51,20 +51,20 @@ REC_VALUE = PKG + "devicemodel.device.value.DeviceValue"
 REC_CONJ = PKG + "applications.conjunction."
 REC_ACTION = PKG + "devicemodel.device.action.DeviceFunctionAction.rec"
 
-# Aktor-Funktion einer Verknüpfung -> (GO, Wert aus „Typ:Wert“ → Bytes): Ein/Aus GO 2, Helligkeit GO 4
-AKTIONEN = {
+# Actuator function of a link -> (GO, value from "type:value" → bytes): on/off GO 2, brightness GO 4
+ACTIONS = {
     "SOO": (2, lambda v: b"\x01" if v == "true" else b"\x00"),
     "ASC": (4, lambda v: bytes([min(255, int(float(v) * 255 / 100))])),
 }
 
-# Kanaltypen -> Art. Aktoren: "schalten" (GO 2 Ein/Aus, GO 20 Status), "dimmen" (+ GO 4 Wert, GO 21),
-# "jalousie" (ungetestet). Sender: "taste" (Einzeltaste, sendet an Offset + 6), "wippe" (Offset + 2/3).
+# Channel types -> kind. Actuators: "schalten" (GO 2 on/off, GO 20 status), "dimmen" (+ GO 4 value, GO 21),
+# "jalousie" (untested). Transmitters: "taste" (single key, sends to offset + 6), "wippe" (offset + 2/3).
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
                  "CT_1F19": "energie", "CT_1F1B": "bewegung", "CT_1F06": "repeater",
                  "CT_1F11": "wippe", "CT_1F13": "taste", "CT_1F13BLED": "taste"}
 
-# Eigene Gerätedefinitionen: Typ -> (Beschreibung, Rolle, Kanäle [(Art, GO-Offset)])
-# Kanalart "schalten": GO 2 Ein/Aus, GO 20 Status. "dimmen": zusätzlich GO 4 Wert, GO 21 Status Wert.
+# Own device definitions: type -> (description, role, channels [(kind, GO offset)])
+# Channel kind "schalten": GO 2 on/off, GO 20 status. "dimmen": additionally GO 4 value, GO 21 value status.
 DEVICE_TYPES = {
     "DVT_SA1M": ("Schaltaktor Mini 1fach", "aktor", [("schalten", 0)]),
     "DVT_SA1MP": ("Schaltaktor Mini 1fach (P)", "aktor", [("schalten", 0)]),
@@ -76,10 +76,10 @@ DEVICE_TYPES = {
     "DVT_HS4": ("Handsender 4fach", "sender", []),
 }
 
-# Produktkennung -> Typ; Rückfall, wenn die lokalen Gerätedefinitionen (definitionen.json) den Typ nicht kennen.
-# Das Gerät meldet (Obj 0 PID 0xD2) z. B. ffff 521032 22, der Katalog führt 521032 4506 26: gemeinsam und im
-# Katalog eindeutig sind die ersten 3 Byte (Mini-Dimmer gemessen 2026-10-29).
-PRODUKT_TYPEN = {
+# Product ident -> type; fallback when the local device definitions (definitionen.json) do not know the type.
+# The device reports (obj 0 PID 0xD2) e.g. ffff 521032 22, the catalogue lists 521032 4506 26: the first 3 bytes
+# are common to both and unique in the catalogue (mini dimmer measured 2026-10-29).
+PRODUCT_TYPES = {
     "521012": "DVT_SA2M",
     "521032": "DVT_DA1M",
     "521062": "DVT_SD1M",
@@ -91,13 +91,13 @@ PRODUKT_TYPEN = {
 }
 
 
-def produkt_kennung(produkt: str) -> str:
-    """Erste 3 Byte der Produktnummer (Gerät: ffff + 4 Byte, Katalog: 6 Byte)."""
-    return produkt[4:10] if produkt.startswith("ffff") else produkt[:6]
+def product_ident(product: str) -> str:
+    """First 3 bytes of the product number (device: ffff + 4 bytes, catalogue: 6 bytes)."""
+    return product[4:10] if product.startswith("ffff") else product[:6]
 
 
 def parse_rec(b):
-    """Liefert eine Liste von Datensätzen (dict Feldname -> Wert)."""
+    """Return a list of records (dict field name -> value)."""
     hlen, = struct.unpack(">I", b[8:12])
     nfields, recsize = struct.unpack(">II", b[0x38:0x40])
     o, fields = 0x4C, []
@@ -116,7 +116,7 @@ def parse_rec(b):
             q += fsize
             if v[0] & 0x80:
                 d[name] = None
-            elif ftype == 0x0A:  # String: Tag, max. Länge (2), Länge (2), UTF-16
+            elif ftype == 0x0A:  # string: tag, max. length (2), length (2), UTF-16
                 n, = struct.unpack(">H", v[3:5])
                 d[name] = v[5:5 + 2 * n].decode("utf-16-be", "replace")
             elif fsize == 9:
@@ -138,12 +138,12 @@ def ia_str(a):
 
 
 def short_str(v):
-    """Feld mit Größe 85 (Typ-IDs): Tag, u32 Länge, ASCII."""
+    """Field of size 85 (type IDs): tag, u32 length, ASCII."""
     return bytes(v[4:4 + v[3]]).decode() if v else None
 
 
 def blb_slot(b, i):
-    """Daten eines Slots aus einer .blb (Kopf 0x18, Slotgröße @0x0C, Slot = u32 Länge, i32 next, Daten)."""
+    """Data of a slot from a .blb (header 0x18, slot size @0x0C, slot = u32 length, i32 next, data)."""
     size, = struct.unpack(">I", b[0x0C:0x10])
     o = 0x18 + i * size
     n, = struct.unpack(">I", b[o:o + 4])
@@ -151,14 +151,14 @@ def blb_slot(b, i):
 
 
 def blb_refs(b, i):
-    """Verweisliste aus einem .blb-Slot: `4e` + u32 Anzahl + int64-Verweise."""
+    """Reference list from a .blb slot: `4e` + u32 count + int64 references."""
     d = blb_slot(b, i)
     n, = struct.unpack(">I", d[1:5])
     return [struct.unpack(">q", d[5 + 8 * k:13 + 8 * k])[0] for k in range(n)]
 
 
-def szenen_name(name):
-    """Raumszenen „~LocSceneLightsOn_Küche“ → „Küche: Licht an“, eigene „[libenet:NN]Name“ → „Name“."""
+def scene_name(name):
+    """Room scenes "~LocSceneLightsOn_Küche" → "Küche: Licht an", own "[libenet:NN]Name" → "Name"."""
     for k, t in (("~LocSceneLightsOn_", "Licht an"), ("~LocSceneLightsOff_", "Licht aus"),
                  ("~LocSceneBlindsOn_", "Jalousien auf"), ("~LocSceneBlindsOff_", "Jalousien ab")):
         if name.startswith(k):
@@ -166,49 +166,50 @@ def szenen_name(name):
     return (name.split("]", 1)[1] if name.startswith("[") else name), "eigen"
 
 
-def _tasten_links(devices, funcs, funcs_blb, chans, groups, ia_by_dev, box_funcs, tab_func, tab_box):
-    """Tasten ergänzen: Wippe → „ziele“ (Aktor-Kanäle, GO 1), Server-Taste → „antwort_ga“. Sender: „zentral“ =
-    Status-Ziele des Zentralkanals 9 (CT_1F15, FT_INAOOS.SSGI → Aktor-SSGI; nur LED-Links, kein Aktor hört darauf)."""
-    def kanal(f):
+def _key_links(devices, funcs, funcs_blb, chans, groups, ia_by_dev, box_funcs, tab_func, tab_box):
+    """Complete the keys: rocker → `ziele` (actuator channels, GO 1), server key → `antwort_ga`. Transmitter:
+    `zentral` = status targets of central channel 9 (CT_1F15, FT_INAOOS.SSGI → actuator SSGI; only LED links,
+    no actuator listens to them)."""
+    def channel(f):
         c = chans[f["deviceChannel"] & 0xFFFFFFFF]
         return ia_by_dev.get(groups[c["parent"] & 0xFFFFFFFF]["device"] & 0xFFFFFFFF), c["number"]
 
-    ziele, antwort, zentral = {}, {}, {}  # (Sender-IA, Kanal) -> …; zentral: Sender-IA -> Ziele
+    targets, answer, central = {}, {}, {}  # (transmitter IA, channel) -> …; central: transmitter IA -> targets
     for f in funcs:
         if not f["_valid"] or f["currentLinks"] is None:
             continue
         typ = short_str(f["functionType"])
         refs = blb_refs(funcs_blb, f["currentLinks"])
         if typ.endswith(".GBR") and (typ.startswith("FT_INSA") or typ.startswith("FT_INDA")):
-            ia, ch = kanal(f)
+            ia, ch = channel(f)
             for ref in refs:
                 if ref >> 32 == tab_func:
-                    ziele.setdefault(kanal(funcs[ref & 0xFFFFFFFF]), []).append({"ia": ia, "ch": ch})
+                    targets.setdefault(channel(funcs[ref & 0xFFFFFFFF]), []).append({"ia": ia, "ch": ch})
         elif typ.startswith("FT_INAOOS") and typ.endswith(".SSGI"):
             for ref in refs:
                 if ref >> 32 == tab_func:
-                    ia, ch = kanal(funcs[ref & 0xFFFFFFFF])
-                    zentral.setdefault(kanal(f)[0], []).append({"ia": ia, "ch": ch})
+                    ia, ch = channel(funcs[ref & 0xFFFFFFFF])
+                    central.setdefault(channel(f)[0], []).append({"ia": ia, "ch": ch})
         elif typ.startswith("FT_INScS") and typ.endswith(".SSGI"):
             for ref in refs:
                 if ref >> 32 == tab_box:
-                    antwort[kanal(f)] = box_funcs[ref & 0xFFFFFFFF]["sendGroupAddress"]
+                    answer[channel(f)] = box_funcs[ref & 0xFFFFFFFF]["sendGroupAddress"]
     for d in devices:
         if d.get("rolle") == "sender":
-            d["zentral"] = sorted(zentral.get(d["ia"], []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
+            d["zentral"] = sorted(central.get(d["ia"], []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
         for t in d.get("tasten", []):
             key = (d["ia"], t["nr"])
             if t["art"] == "wippe":
-                t["ziele"] = sorted(ziele.get(key, []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
-            elif key in antwort:
-                t["antwort_ga"] = antwort[key]
+                t["ziele"] = sorted(targets.get(key, []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
+            elif key in answer:
+                t["antwort_ga"] = answer[key]
     return devices
 
 
-def _verknuepfungen(raw, table, collection, funcs, chans, groups, ia_by_dev, szenen_ref, devices):
-    """Verknüpfungen mit Server-Tasten als Auslöser → {"server_tasten": [...], "szenen": {...}} für die Bridge.
-    Server-Taste: Sender-SN + GA (Offset + 6; Basis 0, die Bridge vergleicht nur das untere Byte).
-    Aktion: Einzelbefehl {ia, handle, wert} oder Szenenaufruf {ia "0.0.0", handle = Szenen-GA, wert = Nr.}."""
+def _links(raw, table, collection, funcs, chans, groups, ia_by_dev, scene_ref, devices):
+    """Links with server keys as trigger → {"server_tasten": [...], "szenen": {...}} for the bridge.
+    Server key: transmitter SN + GA (offset + 6; base 0, the bridge compares only the lower byte).
+    Action: single command {ia, handle, wert} or scene recall {ia "0.0.0", handle = scene GA, wert = no.}."""
     try:
         conj, conj_blb = table(REC_CONJ + "Conjunction.rec"), raw(REC_CONJ + "Conjunction.blb")
     except StopIteration:
@@ -216,62 +217,62 @@ def _verknuepfungen(raw, table, collection, funcs, chans, groups, ia_by_dev, sze
     terms, ops = table(REC_CONJ + "Term.rec"), table(REC_CONJ + "TermOperand.rec")
     values = table(REC_VALUE + ".rec")
     try:
-        aktionen, tab_aktion = table(REC_ACTION), int.from_bytes(raw(REC_ACTION)[0x10:0x14], "big")
+        actions, tab_action = table(REC_ACTION), int.from_bytes(raw(REC_ACTION)[0x10:0x14], "big")
     except StopIteration:
-        aktionen, tab_aktion = [], -1
+        actions, tab_action = [], -1
     tab_func = int.from_bytes(raw(REC_FUNC + ".rec")[0x10:0x14], "big")
-    tab_szene = int.from_bytes(raw(REC_SCENE)[0x10:0x14], "big")
-    geraet = {d["ia"]: d for d in devices}
+    tab_scene = int.from_bytes(raw(REC_SCENE)[0x10:0x14], "big")
+    enet_device = {d["ia"]: d for d in devices}
 
-    def kanal(fi):
+    def channel(fi):
         c = chans[funcs[fi]["deviceChannel"] & 0xFFFFFFFF]
         return ia_by_dev.get(groups[c["parent"] & 0xFFFFFFFF]["device"] & 0xFFFFFFFF), c
 
-    def wert(ref):
+    def value(ref):
         v = values[ref & 0xFFFFFFFF]
         return blb_slot(raw(REC_VALUE + ".blb"), v["value"])[5:].decode().split(":", 1)[1]
 
-    tasten, szenen, fehlt = [], {}, []
+    keys_, scenes, missing_ = [], {}, []
     for c in conj:
         if not c["_valid"] or c["term"] is None or c["trueActions"] is None:
             continue
-        name = szenen_name(c["name"])[0]
-        befehle = []
+        name = scene_name(c["name"])[0]
+        commands = []
         for ref in blb_refs(conj_blb, c["trueActions"]):
-            if ref >> 32 == tab_szene and (ref & 0xFFFFFFFF) in szenen_ref:
-                nr, ga = szenen_ref[ref & 0xFFFFFFFF]
-                befehle.append({"ia": "0.0.0", "handle": ga, "wert": f"{nr:02x}"})
-            elif ref >> 32 == tab_aktion:
-                a = aktionen[ref & 0xFFFFFFFF]
-                ia, ch = kanal(a["function"] & 0xFFFFFFFF)
+            if ref >> 32 == tab_scene and (ref & 0xFFFFFFFF) in scene_ref:
+                nr, ga = scene_ref[ref & 0xFFFFFFFF]
+                commands.append({"ia": "0.0.0", "handle": ga, "wert": f"{nr:02x}"})
+            elif ref >> 32 == tab_action:
+                a = actions[ref & 0xFFFFFFFF]
+                ia, ch = channel(a["function"] & 0xFFFFFFFF)
                 ft = short_str(funcs[a["function"] & 0xFFFFFFFF]["functionType"])
                 vals = collection(a["values"])
-                if ia and vals and ft.rsplit(".", 1)[1] in AKTIONEN:
-                    go, kod = AKTIONEN[ft.rsplit(".", 1)[1]]
-                    befehle.append({"ia": ia, "handle": ch["groupObjectNumberOffset"] + go,
-                                    "wert": kod(wert(vals[0])).hex()})
+                if ia and vals and ft.rsplit(".", 1)[1] in ACTIONS:
+                    go, enc = ACTIONS[ft.rsplit(".", 1)[1]]
+                    commands.append({"ia": ia, "handle": ch["groupObjectNumberOffset"] + go,
+                                    "wert": enc(value(vals[0])).hex()})
                 else:
-                    fehlt.append(f"{name}: {ia} {ft}")
+                    missing_.append(f"{name}: {ia} {ft}")
             else:
-                fehlt.append(f"{name}: Aktion {ref:#x}")
-        ausloeser = []
+                missing_.append(f"{name}: Aktion {ref:#x}")
+        trigger = []
         for ref in collection(terms[c["term"] & 0xFFFFFFFF]["termOperands"]):
             v = values[ops[ref & 0xFFFFFFFF]["inputValue"] & 0xFFFFFFFF]
             if v["parent"] is None or v["parent"] >> 32 != tab_func:
                 continue
-            ia, ch = kanal(v["parent"] & 0xFFFFFFFF)
-            if ia in geraet and short_str(funcs[v["parent"] & 0xFFFFFFFF]["functionType"]).startswith("FT_INScS"):
-                ausloeser.append((geraet[ia], ch["number"], ch["groupObjectNumberOffset"] + 6))
-        if not ausloeser or not befehle:
-            continue  # z. B. nur aus der App aufgerufen
-        while name in szenen:
+            ia, ch = channel(v["parent"] & 0xFFFFFFFF)
+            if ia in enet_device and short_str(funcs[v["parent"] & 0xFFFFFFFF]["functionType"]).startswith("FT_INScS"):
+                trigger.append((enet_device[ia], ch["number"], ch["groupObjectNumberOffset"] + 6))
+        if not trigger or not commands:
+            continue  # e.g. only recalled from the app
+        while name in scenes:
             name += "'"
-        szenen[name] = befehle
-        for g, nr, ga in sorted(ausloeser, key=lambda x: (int(x[0]["ia"].split(".")[2]), x[1])):
-            tasten.append({"name": tr("taste_name", name=g["name"], k=nr), "sender": g["sn"], "ga": ga, "szene": name})
-    esp = {"server_tasten": tasten, "szenen": szenen}
-    if fehlt:
-        esp["nicht_uebernommen"] = fehlt
+        scenes[name] = commands
+        for g, nr, ga in sorted(trigger, key=lambda x: (int(x[0]["ia"].split(".")[2]), x[1])):
+            keys_.append({"name": tr("taste_name", name=g["name"], k=nr), "sender": g["sn"], "ga": ga, "szene": name})
+    esp = {"server_tasten": keys_, "szenen": scenes}
+    if missing_:
+        esp["nicht_uebernommen"] = missing_
     return esp
 
 
@@ -287,14 +288,14 @@ def read_iex(path):
         return parse_rec(raw(suffix))
 
     def collection(ref):
-        """Liste als eigene Tabelle .collection/<ID>.rec (Verweis = ID << 32 | 0x7fffffff)."""
+        """List stored as its own table .collection/<ID>.rec (reference = ID << 32 | 0x7fffffff)."""
         name = next((n for n in inner.namelist() if n.endswith(f"/.collection/{ref >> 32}.rec")), None)
         return [r[".ref"] for r in parse_rec(inner.read(name)) if r["_valid"]] if name else []
 
     srv = table(REC_SERVER)[0]
     meta = table(REC_META)
     groups = table(REC_GROUP)
-    chans_by_dev = {}  # Index in KnxRfDevice -> Kanäle
+    chans_by_dev = {}  # index in KnxRfDevice -> channels
     for c in table(REC_CHANNEL):
         if not c["_valid"] or c["parent"] is None:
             continue
@@ -303,22 +304,23 @@ def read_iex(path):
         if art:
             chans_by_dev.setdefault(dev_idx, []).append(
                 {"nr": c["number"], "art": art, "offset": c["groupObjectNumberOffset"], "obj": c["interfaceObjectIndex"]})
-    raeume = {r["uID"]: r["name"] for r in table(REC_LOCATION) if r["_valid"] and r["locationType"] == 3 and r["name"]}
+    rooms = {r["uID"]: r["name"] for r in table(REC_LOCATION) if r["_valid"] and r["locationType"] == 3 and r["name"]}
     devices = []
     for idx, dev in enumerate(table(REC_DEVICE)):
-        m = meta[dev["metaData"] & 0xFFFFFFFF]  # Verweis: Tabellen-ID << 32 | Index
+        m = meta[dev["metaData"] & 0xFFFFFFFF]  # reference: table ID << 32 | index
         if not dev["_valid"] or m["address"] is None:
-            continue  # Platzhalter
+            continue  # placeholder
         typ = m["deviceTypeID"]
         desc, role, channels = DEVICE_TYPES.get(typ, (tr("unbekannt"), "unbekannt", []))
         exp = sorted(chans_by_dev.get(idx, []), key=lambda k: k["nr"])
-        aktor_k = [k for k in exp if k["art"] in ("schalten", "dimmen", "jalousie")]
-        tasten = [k for k in exp if k["art"] in ("taste", "wippe")]
-        mess_k = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
-        if aktor_k or tasten:
-            role = "aktor" if aktor_k else "sender"
-        elif mess_k:
-            role, aktor_k = "sensor", mess_k  # Energiesensor, Bewegungsmelder, Repeater (messung.py)
+        actuator_channels = [k for k in exp if k["art"] in ("schalten", "dimmen", "jalousie")]
+        keys_ = [k for k in exp if k["art"] in ("taste", "wippe")]
+        meas_channels = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
+        if actuator_channels or keys_:
+            role = "aktor" if actuator_channels else "sender"
+        elif meas_channels:
+            # energy sensor, motion detector, repeater (measurements.py)
+            role, actuator_channels = "sensor", meas_channels
         devices.append({
             "name": dev["installationArea"] or typ,
             "ia": ia_str(m["address"]),
@@ -326,16 +328,18 @@ def read_iex(path):
             "typ": typ,
             "beschreibung": desc,
             "rolle": role,
-            "kanaele": aktor_k or [{"nr": i + 1, "art": art, "offset": off} for i, (art, off) in enumerate(channels)],
-            "ga_basis": 0,  # Aktor: unten aus der Sammelstatus-GA; HA prüft sie an der Link-Tabelle, Sender: am Tastendruck
+            "kanaele": actuator_channels or [{"nr": i + 1, "art": art, "offset": off} for i, (art, off) in enumerate(channels)],
+            # actuator: set further below from the sum status GA, HA checks it against the link table;
+            # transmitter: checked on key press
+            "ga_basis": 0,
         })
-        if tasten:
-            devices[-1]["tasten"] = tasten
-        if raum := raeume.get(dev["locationUID"]):
-            devices[-1]["raum"] = raum
+        if keys_:
+            devices[-1]["tasten"] = keys_
+        if room := rooms.get(dev["locationUID"]):
+            devices[-1]["raum"] = room
     devices.sort(key=lambda d: int(d["ia"].split(".")[2]))
 
-    # Szenen: Nummer aus den Werten, GAs aus den Server-Funktionen, Mitglieder aus den Aktor-Links
+    # Scenes: number from the values, GAs from the server functions, members from the actuator links
     chans = table(REC_CHANNEL)
     groups = table(REC_GROUP)
     dev_tab = table(REC_DEVICE)
@@ -346,10 +350,10 @@ def read_iex(path):
     tab_func = int.from_bytes(raw(REC_FUNC + ".rec")[0x10:0x14], "big")
     ia_by_dev = {i: ia_str(meta[d["metaData"] & 0xFFFFFFFF]["address"]) for i, d in enumerate(dev_tab)
                  if d["_valid"] and meta[d["metaData"] & 0xFFFFFFFF]["address"] is not None}
-    # GA-Basis der Aktoren aus der Sammelstatus-GA (Funktion .SSGI = Basis·256 + Offset + 22). Nicht überall 0:
-    # Nach einem Werksreset steigt sie (eine Testanlage: Basis 1 bei der Hälfte der Aktoren). Falsch → die Bridge erkennt
-    # die Statusmeldungen nicht, im Mithören bleibt der Aktor dann ohne Zustand.
-    basis_by_ia = {}
+    # GA base of the actuators from the sum status GA (function .SSGI = base·256 + offset + 22). Not always 0:
+    # it increases after a factory reset (one test installation: base 1 for half of the actuators). Wrong → the
+    # bridge does not recognise the status messages, and in listen-only mode the actuator then has no state.
+    base_by_ia = {}
     for f in funcs:
         if not f["_valid"] or f["deviceChannel"] is None or f["sendGroupAddress"] is None \
                 or not short_str(f["functionType"]).endswith(".SSGI"):
@@ -358,12 +362,12 @@ def read_iex(path):
         ia = ia_by_dev.get(groups[c["parent"] & 0xFFFFFFFF]["device"] & 0xFFFFFFFF)
         rel = f["sendGroupAddress"] - c["groupObjectNumberOffset"] - 22
         if ia and rel >= 0 and rel % 256 == 0:
-            basis_by_ia.setdefault(ia, rel >> 8)
+            base_by_ia.setdefault(ia, rel >> 8)
     for d in devices:
-        if d["rolle"] == "aktor" and d["ia"] in basis_by_ia:
-            d["ga_basis"] = basis_by_ia[d["ia"]]
+        if d["rolle"] == "aktor" and d["ia"] in base_by_ia:
+            d["ga_basis"] = base_by_ia[d["ia"]]
 
-    mitglieder = {}  # Index Server-Funktion -> [{"ia", "ch"}]
+    members = {}  # index of server function -> [{"ia", "ch"}]
     for f in funcs:
         if not f["_valid"] or f["currentLinks"] is None or not short_str(f["functionType"]).endswith(".SC"):
             continue
@@ -371,8 +375,8 @@ def read_iex(path):
         ia = ia_by_dev.get(groups[c["parent"] & 0xFFFFFFFF]["device"] & 0xFFFFFFFF)
         for ref in blb_refs(funcs_blb, f["currentLinks"]):
             if ref >> 32 == tab_box and ia:
-                mitglieder.setdefault(ref & 0xFFFFFFFF, []).append({"ia": ia, "ch": c["number"]})
-    szenen, szenen_ref = [], {}  # szenen_ref: Index in Scene -> (Nr., GA) für Verknüpfungen
+                members.setdefault(ref & 0xFFFFFFFF, []).append({"ia": ia, "ch": c["number"]})
+    scenes, scene_ref = [], {}  # scene_ref: index in Scene -> (no., GA) for links
     for idx, sc in enumerate(table(REC_SCENE)):
         if not sc["_valid"] or sc["values"] is None:
             continue
@@ -381,25 +385,25 @@ def read_iex(path):
             v = values[ref & 0xFFFFFFFF]
             if short_str(v["valueType"]) == "VT_SCENE_NUMBER":
                 nr = int(blb_slot(values_blb, v["value"])[5:].decode().split(":")[1])
-        kanal = sc["boxDeviceSceneChannel"]
+        channel = sc["boxDeviceSceneChannel"]
         fn = {short_str(f["functionType"]).rsplit(".", 1)[1]: (i, f) for i, f in enumerate(box_funcs)
-              if f["_valid"] and f["deviceChannel"] == kanal}
+              if f["_valid"] and f["deviceChannel"] == channel}
         if nr is None or "SC" not in fn:
             continue
-        szenen_ref[idx] = (nr, fn["SC"][1]["sendGroupAddress"])
-        name, art = szenen_name(sc["name"])
-        m = sorted(mitglieder.get(fn["SC"][0], []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
+        scene_ref[idx] = (nr, fn["SC"][1]["sendGroupAddress"])
+        name, art = scene_name(sc["name"])
+        m = sorted(members.get(fn["SC"][0], []), key=lambda x: (int(x["ia"].split(".")[2]), x["ch"]))
         if not m:
-            continue  # z. B. Jalousie-Raumszenen ohne Jalousien
-        szenen.append({"name": name, "art": art, "nr": nr, "ga": fn["SC"][1]["sendGroupAddress"],
+            continue  # e.g. blind room scenes without blinds
+        scenes.append({"name": name, "art": art, "nr": nr, "ga": fn["SC"][1]["sendGroupAddress"],
                        "ga_status": fn["SSGET"][1]["sendGroupAddress"] if "SSGET" in fn else None,
                        "mitglieder": m})
-    devices = _tasten_links(devices, funcs, funcs_blb, chans, groups, ia_by_dev, box_funcs, tab_func, tab_box)
+    devices = _key_links(devices, funcs, funcs_blb, chans, groups, ia_by_dev, box_funcs, tab_func, tab_box)
     return {
         "server": {"ia": ia_str(srv["address"]), "domain": sn_hex(srv["domain"]), "sn": sn_hex(srv["serialNumber"]),
                    "verschluesselt": srv["networkKeyEncrypted"] is not None},
         "geraete": devices,
-        "szenen": szenen,
-        "esp": _verknuepfungen(raw, table, collection, funcs, chans, groups, ia_by_dev, szenen_ref, devices),
+        "szenen": scenes,
+        "esp": _links(raw, table, collection, funcs, chans, groups, ia_by_dev, scene_ref, devices),
     }
 

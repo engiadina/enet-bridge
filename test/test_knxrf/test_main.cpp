@@ -1,10 +1,10 @@
-// Host-Tests: pio test -e native
+// Host tests: pio test -e native
 #include <string.h>
 #include <unity.h>
 
 #include "../../src/knxrf.cpp"
 #include "../../src/knxrf.h"
-#include "../../src/rauschen.h"
+#include "../../src/noise_floor.h"
 
 void setUp() {}
 void tearDown() {}
@@ -19,21 +19,21 @@ static size_t fromHex(const char* s, uint8_t* out) {
   return n;
 }
 
-// Telegramme aus einem Mitschnitt (rtl_433, CRCs entfernt); Domäne und Seriennummern durch erfundene ersetzt
+// Telegrams from a capture (rtl_433, CRCs removed); domain and serial numbers replaced by made-up ones
 static const char* kFrames[] = {
-    "1944ff02000a12345600007fff0000e103e4c351480405000000",              // Server-Broadcast
-    "1f44ff02000a234567160000030006ae008001000a654321150032400002fe08",  // Handsender SumstatusGet
+    "1944ff02000a12345600007fff0000e103e4c351480405000000",              // server broadcast
+    "1f44ff02000a234567160000030006ae008001000a654321150032400002fe08",  // hand-held transmitter SumstatusGet
     "1444ff02000a65432115007fff0032e40080ff02fe",                        // Server SumstatusInfo
-    "1644ff02000a12345600007fff00046702c7003e000201",                    // FuncPropCmd Stylos ein
-    "1444ff02000a123456000000047fff6902c9003e00",                        // Antwort OK
+    "1644ff02000a12345600007fff00046702c7003e000201",                    // FuncPropCmd Stylos on
+    "1444ff02000a123456000000047fff6902c9003e00",                        // response OK
 };
 
 void test_frame_len() {
   TEST_ASSERT_EQUAL(0, knxrf::frameLenOnAir(9));
-  TEST_ASSERT_EQUAL(25, knxrf::frameLenOnAir(0x14));  // 21 Datenbytes + 2 CRCs
-  TEST_ASSERT_EQUAL(27, knxrf::frameLenOnAir(0x16));  // 23 Datenbytes + 2 CRCs
-  TEST_ASSERT_EQUAL(38, knxrf::frameLenOnAir(0x1F));  // 32 Datenbytes, 3 Bloecke -> 3 CRCs
-  TEST_ASSERT_EQUAL(12 + 17 + 4, knxrf::frameLenOnAir(9 + 17));  // 2 Folgebloecke
+  TEST_ASSERT_EQUAL(25, knxrf::frameLenOnAir(0x14));  // 21 data bytes + 2 CRCs
+  TEST_ASSERT_EQUAL(27, knxrf::frameLenOnAir(0x16));  // 23 data bytes + 2 CRCs
+  TEST_ASSERT_EQUAL(38, knxrf::frameLenOnAir(0x1F));  // 32 data bytes, 3 blocks -> 3 CRCs
+  TEST_ASSERT_EQUAL(12 + 17 + 4, knxrf::frameLenOnAir(9 + 17));  // 2 subsequent blocks
 }
 
 void test_manchester_roundtrip() {
@@ -44,7 +44,7 @@ void test_manchester_roundtrip() {
   TEST_ASSERT_EQUAL_HEX8(0x55, c[2]);
   TEST_ASSERT_EQUAL(4, knxrf::manchesterDecode(c, 8, o, false));
   TEST_ASSERT_EQUAL_MEMORY(d, o, 4);
-  c[5] = 0xFF;  // ungueltiges Chip-Paar
+  c[5] = 0xFF;  // invalid chip pair
   TEST_ASSERT_EQUAL(2, knxrf::manchesterDecode(c, 8, o, false));
 }
 
@@ -63,7 +63,7 @@ void test_real_frames_roundtrip() {
     TEST_ASSERT_TRUE(f.crcOk);
     TEST_ASSERT_EQUAL(n, f.len);
     TEST_ASSERT_EQUAL_MEMORY(data, f.data, n);
-    dec[dl - 1] ^= 0x01;  // CRC kaputt
+    dec[dl - 1] ^= 0x01;  // CRC broken
     TEST_ASSERT_TRUE(knxrf::stripCrc(dec, dl, f));
     TEST_ASSERT_FALSE(f.crcOk);
   }
@@ -104,7 +104,7 @@ void test_parse_fields() {
   TEST_ASSERT_EQUAL_HEX16(knxrf::APCI_FUNC_PROP_CMD, t.apciBase());
   TEST_ASSERT_EQUAL_HEX8_ARRAY(kDomain, t.addr, 6);
 
-  // Handsender SumstatusGet
+  // hand-held transmitter SumstatusGet
   TEST_ASSERT_TRUE(knxrf::parseTelegram(d, fromHex(kFrames[1], d), t));
   TEST_ASSERT_TRUE(t.group);
   TEST_ASSERT_FALSE(t.doa);
@@ -119,7 +119,7 @@ void test_parse_fields() {
   TEST_ASSERT_EQUAL_HEX16(0x02FE, s.seq);
   TEST_ASSERT_EQUAL_HEX8(0x08, s.cc);
 
-  // Antwort des Aktors
+  // response of the actuator
   TEST_ASSERT_TRUE(knxrf::parseTelegram(d, fromHex(kFrames[4], d), t));
   knxrf::FuncPropResp r;
   TEST_ASSERT_TRUE(knxrf::parseFuncPropResp(t, r));
@@ -128,7 +128,7 @@ void test_parse_fields() {
   TEST_ASSERT_EQUAL(0, r.valueLen);
   TEST_ASSERT_FALSE(knxrf::parseSumstatusGet(t, s));
 
-  d[0] = 0x30;  // L passt nicht zur Laenge
+  d[0] = 0x30;  // L does not match the length
   TEST_ASSERT_FALSE(knxrf::parseTelegram(d, 21, t));
 }
 
@@ -153,7 +153,7 @@ void test_build_server_frames() {
 
 void test_tx_chips() {
   uint8_t data[64], chips[256], dec[128];
-  size_t n = fromHex(kFrames[1], data);  // 3 Bloecke
+  size_t n = fromHex(kFrames[1], data);  // 3 blocks
   size_t c = knxrf::buildTxChips(data, n, chips, sizeof(chips), false);
   TEST_ASSERT_EQUAL(knxrf::kTxPreambleBytes + 3 + 2 * knxrf::frameLenOnAir(data[0]), c);
   for (size_t i = 0; i < knxrf::kTxPreambleBytes; ++i) TEST_ASSERT_EQUAL_HEX8(0x55, chips[i]);
@@ -161,7 +161,7 @@ void test_tx_chips() {
   TEST_ASSERT_EQUAL_HEX8(0x76, chips[knxrf::kTxPreambleBytes + 1]);
   TEST_ASSERT_EQUAL_HEX8(0x96, chips[knxrf::kTxPreambleBytes + 2]);
 
-  // Ab dem Sync so dekodieren wie der Empfangspfad
+  // Decode from the sync onwards like the receive path
   const uint8_t* body = chips + knxrf::kTxPreambleBytes + 3;
   size_t bodyLen = c - knxrf::kTxPreambleBytes - 3;
   size_t dl = knxrf::manchesterDecode(body, bodyLen, dec, false);
@@ -171,16 +171,16 @@ void test_tx_chips() {
   TEST_ASSERT_TRUE(f.crcOk);
   TEST_ASSERT_EQUAL_HEX8_ARRAY(data, f.data, n);
 
-  // invertiert: nur der Datenteil
+  // inverted: only the data part
   c = knxrf::buildTxChips(data, n, chips, sizeof(chips), true);
   TEST_ASSERT_EQUAL_HEX8(0x96, chips[knxrf::kTxPreambleBytes + 2]);
   TEST_ASSERT_EQUAL(bodyLen / 2, knxrf::manchesterDecode(body, bodyLen, dec, true));
 
-  TEST_ASSERT_EQUAL(0, knxrf::buildTxChips(data, n, chips, 40, false));      // Puffer zu klein
-  TEST_ASSERT_EQUAL(0, knxrf::buildTxChips(data, n - 1, chips, 256, false));  // L passt nicht
+  TEST_ASSERT_EQUAL(0, knxrf::buildTxChips(data, n, chips, 40, false));      // buffer too small
+  TEST_ASSERT_EQUAL(0, knxrf::buildTxChips(data, n - 1, chips, 256, false));  // L does not match
 }
 
-// Gestoerte Quittungen von 0.0.7 (Mitschnitt 2026-10-27, Domäne ersetzt, Fehlerbild unverändert): 1–2 ungueltige Chip-Paare
+// Corrupted acks from 0.0.7 (capture 2026-10-27, domain replaced, error pattern unchanged): 1–2 invalid chip pairs
 void test_decode_corrects_erasures() {
   static const char* kGestoert[] = {
       "a99a9a9a5555aaa6baaaaa66a9a6a59a9996aaaa99965956aaaaaaaaaa95955555559669aaa65a69aaaaa556aaaa599a4955",
@@ -194,40 +194,40 @@ void test_decode_corrects_erasures() {
     TEST_ASSERT_EQUAL(kStellen[i], knxrf::decodeFrame(chips, n, false, raw, f));
     TEST_ASSERT_TRUE(f.crcOk);
     TEST_ASSERT_EQUAL(21, f.len);
-    TEST_ASSERT_EQUAL_HEX8(0x07, f.data[12]);  // Absender 0.0.7
-    TEST_ASSERT_EQUAL_HEX8(0xC9, f.data[17]);  // FuncProp-Antwort
+    TEST_ASSERT_EQUAL_HEX8(0x07, f.data[12]);  // sender 0.0.7
+    TEST_ASSERT_EQUAL_HEX8(0xC9, f.data[17]);  // FuncProp response
   }
-  // fehlerfrei: 0 Korrekturen; zu viele Ausloeschungen: -1
+  // error-free: 0 corrections; too many erasures: -1
   uint8_t chips[64], raw[64];
   size_t n = fromHex(kGestoert[0], chips);
   knxrf::Frame f;
   TEST_ASSERT_EQUAL(2, knxrf::decodeFrame(chips, n, false, raw, f));
   uint8_t sauber[64];
-  knxrf::manchesterEncode(raw, n / 2, sauber);  // raw ist jetzt korrigiert (mit CRCs)
+  knxrf::manchesterEncode(raw, n / 2, sauber);  // raw is now corrected (with CRCs)
   TEST_ASSERT_EQUAL(0, knxrf::decodeFrame(sauber, n, false, raw, f));
   chips[5] = chips[7] = chips[9] = chips[11] = 0xff;
   TEST_ASSERT_EQUAL(-1, knxrf::decodeFrame(chips, n, false, raw, f));
 }
 
-// Rauschen: Grundrauschen folgt dem unteren Pegel, Telegramme heben es kaum, belegt erst 10 dB darüber
-static void test_rauschen() {
-  Rauschen r;
-  TEST_ASSERT_FALSE(r.belegt(-50));                      // ohne Proben nie belegt
+// Noise: the noise floor follows the lower level, telegrams barely raise it, busy only 10 dB above it
+static void test_noise_floor() {
+  NoiseFloor r;
+  TEST_ASSERT_FALSE(r.busy(-50));                      // never busy without samples
   uint32_t z = 1;
   auto zufall = [&z]() { z = z * 1103515245u + 12345u; return (int)((z >> 16) % 9) - 4; };  // ±4 dB
-  for (int i = 0; i < 20000; ++i) r.probe(-104.0f + zufall());
-  TEST_ASSERT_FLOAT_WITHIN(3.0f, -105.5f, r.boden());    // unteres Quantil der Streuung
-  TEST_ASSERT_FALSE(r.belegt(-100));
-  TEST_ASSERT_TRUE(r.belegt(-90));
-  TEST_ASSERT_TRUE(r.anteil() < 0.01f);
-  const float vorher = r.boden();
-  for (int i = 0; i < 20; ++i) TEST_ASSERT_TRUE(r.probe(-55));  // ein Telegramm (~100 ms bei 5 ms je Probe)
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, vorher, r.boden());
-  for (int i = 0; i < 20000; ++i) r.probe(-85.0f + zufall());   // dauerhafter Störer
-  TEST_ASSERT_FALSE(r.belegt(-85));                     // sperrt nach einiger Zeit nicht mehr
-  TEST_ASSERT_TRUE(r.belegt(-60));
-  for (int i = 0; i < 2000; ++i) r.probe(-104.0f + zufall());   // Störer weg: schnell wieder unten
-  TEST_ASSERT_TRUE(r.boden() < -100.0f);
+  for (int i = 0; i < 20000; ++i) r.sample(-104.0f + zufall());
+  TEST_ASSERT_FLOAT_WITHIN(3.0f, -105.5f, r.floorDb());    // lower quantile of the spread
+  TEST_ASSERT_FALSE(r.busy(-100));
+  TEST_ASSERT_TRUE(r.busy(-90));
+  TEST_ASSERT_TRUE(r.busyShare() < 0.01f);
+  const float vorher = r.floorDb();
+  for (int i = 0; i < 20; ++i) TEST_ASSERT_TRUE(r.sample(-55));  // a telegram (~100 ms at 5 ms per sample)
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, vorher, r.floorDb());
+  for (int i = 0; i < 20000; ++i) r.sample(-85.0f + zufall());   // persistent interferer
+  TEST_ASSERT_FALSE(r.busy(-85));                     // no longer blocks after a while
+  TEST_ASSERT_TRUE(r.busy(-60));
+  for (int i = 0; i < 2000; ++i) r.sample(-104.0f + zufall());   // interferer gone: quickly back down
+  TEST_ASSERT_TRUE(r.floorDb() < -100.0f);
 }
 
 int main() {
@@ -240,6 +240,6 @@ int main() {
   RUN_TEST(test_parse_fields);
   RUN_TEST(test_build_server_frames);
   RUN_TEST(test_tx_chips);
-  RUN_TEST(test_rauschen);
+  RUN_TEST(test_noise_floor);
   return UNITY_END();
 }

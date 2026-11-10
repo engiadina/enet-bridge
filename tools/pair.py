@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Einlernen eines eNet-Aktors ohne eNet Server (über die Bridge, nach Mitschnitt des Servers).
+Pairing an eNet actuator without an eNet Server (via the bridge, based on a capture of the server).
 
-  python3 tools/einlernen.py --port ssh://root@<ha-host> --anlage anlage.json --ia 0.0.30 [--name "Mini-Dimmer"]
+  python3 tools/pair.py --port ssh://root@<ha-host> --anlage anlage.json --ia 0.0.30 [--name "Mini-Dimmer"]
 
-Ablauf (docs/NOTES.md „Einlernen“):
-  1. Suche: DoA_Read + DoA_SelRead an GA 0 (unter Server-SN), alle 3 s – Gerät im Lernmodus antwortet DoA_Resp
-  2. Auswahl: NetParamWrite Objtyp 50001 PID 71 = SN (Gerät bestätigt)
-  3. Domäne: DoA_SN_Write SN + Domäne, Kontrolle DoA_SN_Read
-  4. Adresse: IA_SN_Write SN + IA (unter Domäne), Kontrolle IA_SN_Read
-  5. Kontrolle: Link-Tabelle GO 1 lesen (GA-Basis), Produktnummer lesen
-Nur bei ausgestecktem eNet Server verwenden!
+Sequence (docs/NOTES.md "Einlernen"):
+  1. Search: DoA_Read + DoA_SelRead to GA 0 (under server SN), every 3 s – a device in learn mode answers DoA_Resp
+  2. Select: NetParamWrite object type 50001 PID 71 = SN (device confirms)
+  3. Domain: DoA_SN_Write SN + domain, check with DoA_SN_Read
+  4. Address: IA_SN_Write SN + IA (under domain), check with IA_SN_Read
+  5. Check: read link table GO 1 (GA base), read product number
+Only use with the eNet Server unplugged!
 """
 import json, os, sys, time
 
@@ -25,7 +25,7 @@ def arg(name, default=None):
 
 
 class Bridge:
-    """Telegramme senden/empfangen über die Bridge (Protokoll 1: send + monitor)."""
+    """Send/receive telegrams via the bridge (protocol 1: send + monitor)."""
 
     def __init__(self, port):
         from bridge_link import open_link
@@ -36,7 +36,7 @@ class Bridge:
         self.link.send({"cmd": "send", "frame": frame.hex()})
 
     def wait(self, match, timeout):
-        """Wartet auf ein empfangenes Telegramm, für das match(bytes) True liefert."""
+        """Wait for a received telegram for which match(bytes) returns True."""
         t = time.time()
         while time.time() - t < timeout:
             m = self.link.read_json(max(0.0, timeout - (time.time() - t)))
@@ -64,22 +64,22 @@ def main():
     port, ia_s = arg("--port"), arg("--ia")
     if not port or not ia_s:
         sys.exit(__doc__)
-    anlage_path = arg("--anlage", "anlage.json")
-    with open(anlage_path, encoding="utf-8") as f:
-        anlage = json.load(f)
-    srv_sn, dom = anlage["server"]["sn"], anlage["server"]["domain"]
+    installation_path = arg("--anlage", "anlage.json")
+    with open(installation_path, encoding="utf-8") as f:
+        installation = json.load(f)
+    srv_sn, dom = installation["server"]["sn"], installation["server"]["domain"]
     ia = enet.ia_int(ia_s)
-    if any(enet.ia_int(d["ia"]) == ia for d in anlage["geraete"]):
-        sys.exit(f"{ia_s} ist in {anlage_path} schon vergeben")
+    if any(enet.ia_int(d["ia"]) == ia for d in installation["geraete"]):
+        sys.exit(f"{ia_s} ist in {installation_path} schon vergeben")
     b = Bridge(port)
 
-    def srv_group(ap, data):  # unter Server-SN an GA 0
+    def srv_group(ap, data):  # under server SN to GA 0
         return enet.build_frame(srv_sn, False, True, SRV_IA, 0, ap, data)
 
-    def dom_group(ap, data):  # unter Domäne an GA 0
+    def dom_group(ap, data):  # under domain to GA 0
         return enet.build_frame(dom, True, True, SRV_IA, 0, ap, data)
 
-    # 1. Suche
+    # 1. Search
     print("Suche läuft – Gerät jetzt in den Lernmodus versetzen (Taste am Gerät drücken) …", flush=True)
     sn = None
     t_end = time.time() + 120
@@ -95,18 +95,18 @@ def main():
         sys.exit("Kein Gerät im Lernmodus gefunden")
     snb = bytes.fromhex(sn)
 
-    # Produktnummer (Obj 0 PID 0xD2) per SN lesen – nur zur Information
+    # read product number (obj 0 PID 0xD2) via SN – for information only
     r = b.request(srv_group(0x3DA, bytes.fromhex("c35143") + snb + bytes.fromhex("0000d20001")),
                   lambda d: apci(d) == 0x3DB and d[4:10] == snb)
     if r is not None:
         print(f"Produktnummer: {r[21:].hex()}", flush=True)
 
-    # 2. Auswahl
+    # 2. Select
     r = b.request(srv_group(0x3E4, bytes.fromhex("c35147") + snb),
                   lambda d: apci(d) == 0x3DB and d[18:21] == bytes.fromhex("c35147"))
     print("Auswahl (PID 71):", "bestätigt" if r is not None else "keine Antwort (weiter)", flush=True)
 
-    # 3. Domäne setzen und prüfen
+    # 3. Set and verify domain
     b.send(srv_group(0x3EE, snb + bytes.fromhex(dom)))
     time.sleep(0.15)
     r = b.request(srv_group(0x3EC, snb), lambda d: apci(d) == 0x3ED and d[18:24] == snb)
@@ -114,7 +114,7 @@ def main():
         sys.exit(f"Domäne nicht gesetzt: {r[24:30].hex() if r is not None else 'keine Antwort'}")
     print(f"Domäne {dom} gesetzt", flush=True)
 
-    # 4. Adresse setzen und prüfen (ab jetzt unter Domäne)
+    # 4. Set and verify address (from now on under domain)
     b.send(dom_group(0x3DE, snb + ia.to_bytes(2, "big") + b"\0\0\0\0"))
     time.sleep(0.15)
     r = b.request(dom_group(0x3DC, snb), lambda d: apci(d) == 0x3DD and d[18:24] == snb)
@@ -122,7 +122,7 @@ def main():
         sys.exit("Adresse nicht bestätigt")
     print(f"Adresse {ia_s} gesetzt", flush=True)
 
-    # 5. Kontrolle: Link-Tabelle GO 1 (GA-Basis)
+    # 5. Check: link table GO 1 (GA base)
     def fp_read(data):
         return b.request(enet.build_frame(dom, True, False, SRV_IA, ia, 0x2C8, data),
                          lambda d: apci(d) == 0x2C9 and (d[11] << 8 | d[12]) == ia)
@@ -131,18 +131,18 @@ def main():
     print(f"GA-Basis: {base:#04x} (Status-GA Kanal 1 = {base * 256 + 22})" if base is not None
           else "GA-Basis nicht lesbar", flush=True)
 
-    # in anlage.json eintragen (Typ vorerst wie Mini-Dimmer; Kanäle aus iex.DEVICE_TYPES)
+    # add to anlage.json (type defaults to Mini-Dimmer for now; channels from iex.DEVICE_TYPES)
     import iex
     typ = arg("--typ", "DVT_DA1M")
     desc, role, chans = iex.DEVICE_TYPES.get(typ, ("unbekannt", "aktor", []))
     dev = {"name": arg("--name", f"Neu {ia_s}"), "ia": ia_s, "sn": sn, "typ": typ, "beschreibung": desc,
            "rolle": role, "kanaele": [{"nr": i + 1, "art": a, "offset": o} for i, (a, o) in enumerate(chans)],
            "ga_basis": base or 0, "eingelernt": "Bridge " + time.strftime("%Y-%m-%d %H:%M")}
-    anlage["geraete"].append(dev)
-    with open(anlage_path, "w", encoding="utf-8") as f:
-        json.dump(anlage, f, indent=2, ensure_ascii=False)
+    installation["geraete"].append(dev)
+    with open(installation_path, "w", encoding="utf-8") as f:
+        json.dump(installation, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print(f"In {anlage_path} eingetragen: {dev['name']} ({typ})")
+    print(f"In {installation_path} eingetragen: {dev['name']} ({typ})")
 
 
 if __name__ == "__main__":

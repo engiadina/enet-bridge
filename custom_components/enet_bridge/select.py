@@ -1,6 +1,6 @@
-"""Auswahl-Parameter der Aktoren (Betriebsart, Lastart, Verhalten bei Netzwiederkehr …).
-Sender: Betriebsart und bis zu zwei Lampen je Wippe (vorgemerkt bis „Sender programmieren“) und Aktion je
-Einzeltaste (sofort). Sonnensensor: Szene je Kanal und Richtung (sofort)."""
+"""Selection parameters of the actuators (operating mode, load type, behaviour on power restoration …).
+Transmitter: operating mode and up to two lamps per rocker (pending until "program transmitter") and action per
+single key (immediate). Sun sensor: scene per channel and direction (immediate)."""
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
@@ -11,288 +11,289 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_added_domain, async_track_state_removed_domain
 
-from . import EnetConfigEntry, geraet_info, ha_wippe, sender, wippe_info
+from . import EnetConfigEntry, device_info_for, ha_rocker, sender, rocker_info
 from .bridge import BridgeError
-from .const import DOMAIN, SENSOR_TYPEN
-from .entity import EnetEntity, EnetParamEntity, param_entitaeten
-from .hub import sensor_aktion_key
-from .params import auswahl
-from .texte import tr
+from .const import DOMAIN, SENSOR_TYPES
+from .entity import EnetEntity, EnetParamEntity, param_entities
+from .hub import sensor_action_key
+from .params import choice
+from .texts import tr
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    async_add_entities(param_entitaeten(hub, EnetParamSelect, lambda p: p.art == "auswahl" and not p.nur_lesen))
-    neu = []
-    for g in hub.anlage["geraete"]:
+    async_add_entities(param_entities(hub, EnetParamSelect, lambda p: p.art == "auswahl" and not p.read_only))
+    new = []
+    for g in hub.installation["geraete"]:
         if g.get("rolle") != "sender":
             continue
         try:
-            bel = sender.geplante_belegung(g)
+            assigned = sender.planned_assignment(g)
         except BridgeError:
-            continue  # Belegung unbekannt (Anlage ohne „ziele“): nur über den Dialog
-        neu += [WippeBetriebsart(hub, g, n) for n in range(1, sender.wippen_anzahl(hub, g) + 1)]
-        neu += [WippeLampe(hub, g, n, i) for n in range(1, sender.wippen_anzahl(hub, g) + 1)
-                for i in range(1, sender.lampen_auswahlen(g, n) + 1)]
-        neu += [WippeAbdimmen(hub, g, n) for n, b in sorted(bel.items()) if b["art"] == "wippe" and ha_wippe.abdimmen_sinnvoll(hub, b)]
-        neu += [TasteAktion(hub, g, k) for n, b in sorted(bel.items()) if b["art"] == "tasten"
+            continue  # assignment unknown (installation without "ziele"): only via the dialog
+        new += [RockerMode(hub, g, n) for n in range(1, sender.rocker_count(hub, g) + 1)]
+        new += [RockerLamp(hub, g, n, i) for n in range(1, sender.rocker_count(hub, g) + 1)
+                for i in range(1, sender.lamp_choices(g, n) + 1)]
+        new += [RockerDimDown(hub, g, n) for n, b in sorted(assigned.items()) if b["art"] == "wippe" and ha_rocker.dim_down_useful(hub, b)]
+        new += [KeyAction(hub, g, k) for n, b in sorted(assigned.items()) if b["art"] == "tasten"
                 for k in (2 * n - 1, 2 * n)]
-    neu += [SensorAktion(hub, g, kanal, ein) for g in hub.anlage["geraete"] if g.get("typ") in SENSOR_TYPEN
-            for kanal in (1, 2) for ein in (True, False)]
-    async_add_entities(neu)
+    new += [SensorAction(hub, g, channel, on) for g in hub.installation["geraete"] if g.get("typ") in SENSOR_TYPES
+            for channel in (1, 2) for on in (True, False)]
+    async_add_entities(new)
 
 
 class EnetParamSelect(EnetParamEntity, SelectEntity):
-    def __init__(self, hub, gruppe, param) -> None:
-        super().__init__(hub, gruppe, param)
-        self._schluessel = {auswahl(k): k for k in param.typ.get("werte", {})}
-        self._attr_options = list(self._schluessel)
+    def __init__(self, hub, param_group, param) -> None:
+        super().__init__(hub, param_group, param)
+        self._store_key = {choice(k): k for k in param.typ.get("werte", {})}
+        self._attr_options = list(self._store_key)
 
     @property
     def current_option(self) -> str | None:
-        w = self.wert
-        return auswahl(w) if w is not None else None
+        w = self.value
+        return choice(w) if w is not None else None
 
     async def async_select_option(self, option: str) -> None:
-        await self.schreiben(self._schluessel[option])
+        await self.write(self._store_key[option])
 
 
-class WippeBetriebsart(EnetEntity, SelectEntity):
-    """Wippe (ohne Lampen = nicht benutzt) / Einzeltasten – wird erst mit „Sender programmieren“ geschrieben."""
+class RockerMode(EnetEntity, SelectEntity):
+    """Rocker (no lamps = not used) / single keys – only written with "program transmitter"."""
 
     _attr_translation_key = "wippe_betriebsart"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = list(sender.BETRIEBSARTEN)
+    _attr_options = list(sender.OPERATING_MODES)
 
-    def __init__(self, hub, geraet, n: int) -> None:
+    def __init__(self, hub, enet_device, n: int) -> None:
         super().__init__(hub)
-        self.geraet, self.n = geraet, n
-        self._attr_unique_id = f"{geraet['sn']}_wippe{n}_betriebsart"
-        self._attr_device_info = wippe_info(hub, geraet, n)
+        self.enet_device, self.n = enet_device, n
+        self._attr_unique_id = f"{enet_device['sn']}_wippe{n}_betriebsart"
+        self._attr_device_info = rocker_info(hub, enet_device, n)
 
     @property
     def current_option(self) -> str:
-        return sender.betriebsart(self.geraet, self.n)
+        return sender.mode(self.enet_device, self.n)
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"vorgemerkt": str(self.n) in self.geraet.get("geplant", {}),
-                "mehrere_lampen": sender.komplex(self.geraet, self.n)}
+        return {"vorgemerkt": str(self.n) in self.enet_device.get("geplant", {}),
+                "mehrere_lampen": sender.complex_(self.enet_device, self.n)}
 
     async def async_select_option(self, option: str) -> None:
-        if option != self.current_option and sender.komplex(self.geraet, self.n):
-            raise HomeAssistantError(tr("wippe_komplex", name=self.geraet["name"], n=self.n))
-        if option == "tasten" and str(self.n) in self.geraet.get("geplant_lampen", {}):
-            sender.lampen_vormerken(self.geraet, self.n, sender.lampen_der_wippe(dict(self.geraet, geplant_lampen={}), self.n))
-        geplant = self.geraet.setdefault("geplant", {})
-        geplant[str(self.n)] = option
-        g = dict(self.geraet, geplant={})
-        if sender.betriebsart(g, self.n) == option:  # zurück auf den programmierten Stand
-            del geplant[str(self.n)]
-        if not geplant:
-            self.geraet.pop("geplant")
-        await self.hub.anlage_speichern()
-        _vorgemerkt(self.hub, self.geraet)
-        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # Tasten-/Lampen-Auswahl neu
+        if option != self.current_option and sender.complex_(self.enet_device, self.n):
+            raise HomeAssistantError(tr("wippe_komplex", name=self.enet_device["name"], n=self.n))
+        if option == "tasten" and str(self.n) in self.enet_device.get("geplant_lampen", {}):
+            sender.queue_lamps(self.enet_device, self.n, sender.rocker_lamps(dict(self.enet_device, geplant_lampen={}), self.n))
+        planned = self.enet_device.setdefault("geplant", {})
+        planned[str(self.n)] = option
+        g = dict(self.enet_device, geplant={})
+        if sender.mode(g, self.n) == option:  # back to the programmed state
+            del planned[str(self.n)]
+        if not planned:
+            self.enet_device.pop("geplant")
+        await self.hub.save_installation()
+        _pending(self.hub, self.enet_device)
+        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # key/lamp selection rebuilt
 
 
 
 
-class WippeAbdimmen(EnetEntity, SelectEntity):
-    """Nur bei Wippen mit HA-Lampen: Schalter beim Abdimmen ausschalten (wie eNet-Schaltaktoren) oder anlassen.
-    Wirkt sofort (nur Home Assistant, nichts am Sender)."""
+class RockerDimDown(EnetEntity, SelectEntity):
+    """Only for rockers with HA lamps: switch the switch off when dimming down (like eNet switching actuators) or leave
+    it on. Takes effect immediately (Home Assistant only, nothing on the transmitter)."""
 
     _attr_translation_key = "wippe_abdimmen"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = ["aus", "an"]
 
-    def __init__(self, hub, geraet, n: int) -> None:
+    def __init__(self, hub, enet_device, n: int) -> None:
         super().__init__(hub)
-        self.geraet, self.n = geraet, n
-        self._attr_unique_id = f"{geraet['sn']}_wippe{n}_abdimmen"
-        self._attr_device_info = wippe_info(hub, geraet, n)
+        self.enet_device, self.n = enet_device, n
+        self._attr_unique_id = f"{enet_device['sn']}_wippe{n}_abdimmen"
+        self._attr_device_info = rocker_info(hub, enet_device, n)
 
     @property
     def current_option(self) -> str:
-        return "an" if ha_wippe.abdimmen_an(self.geraet, self.n) else "aus"
+        return "an" if ha_rocker.dim_down_enabled(self.enet_device, self.n) else "aus"
 
     async def async_select_option(self, option: str) -> None:
-        an = set(self.geraet.get("abdimmen_an", [])) - {str(self.n)} | ({str(self.n)} if option == "an" else set())
-        if an:
-            self.geraet["abdimmen_an"] = sorted(an)
+        on_ = set(self.enet_device.get("abdimmen_an", [])) - {str(self.n)} | ({str(self.n)} if option == "an" else set())
+        if on_:
+            self.enet_device["abdimmen_an"] = sorted(on_)
         else:
-            self.geraet.pop("abdimmen_an", None)
-        await self.hub.anlage_speichern()
+            self.enet_device.pop("abdimmen_an", None)
+        await self.hub.save_installation()
         self.async_write_ha_state()
 
 
-def _vorgemerkt(hub, geraet) -> None:
-    if sender.vorgemerkt(geraet):
-        sender.aktivitaet(hub, geraet, tr("akt_vorgemerkt"))
+def _pending(hub, enet_device) -> None:
+    if sender.pending(enet_device):
+        sender.activity(hub, enet_device, tr("akt_vorgemerkt"))
 
 
-class WippeLampe(EnetEntity, SelectEntity):
-    """Lampe 1/2 einer Wippe – vorgemerkt bis „Sender programmieren“. Hat die Wippe mehr Lampen (aus dem
-    Dialog), zeigt sie „Mehrere“ und lässt sich hier nicht ändern."""
+class RockerLamp(EnetEntity, SelectEntity):
+    """Lamp 1/2 of a rocker – pending until "program transmitter". If the rocker has more lamps (from the dialog), it
+    shows "several" and cannot be changed here."""
 
     _attr_translation_key = "wippe_lampe"
     _attr_entity_category = EntityCategory.CONFIG
 
     @property
-    def KEINE(self) -> str:  # noqa: N802 – Anzeige in der eingestellten Sprache
+    def NONE_CHOICE(self) -> str:  # noqa: N802 – shown in the configured language
         return tr("lampe_keine")
 
     @property
-    def MEHRERE(self) -> str:  # noqa: N802
+    def SEVERAL(self) -> str:  # noqa: N802
         return tr("lampe_mehrere")
 
-    def __init__(self, hub, geraet, n: int, i: int) -> None:
+    def __init__(self, hub, enet_device, n: int, i: int) -> None:
         super().__init__(hub)
-        self.geraet, self.n, self.i = geraet, n, i
-        self._attr_unique_id = f"{geraet['sn']}_wippe{n}_lampe{i}"
+        self.enet_device, self.n, self.i = enet_device, n, i
+        self._attr_unique_id = f"{enet_device['sn']}_wippe{n}_lampe{i}"
         self._attr_translation_placeholders = {"lampe": str(i)}
-        self._attr_device_info = wippe_info(hub, geraet, n)
+        self._attr_device_info = rocker_info(hub, enet_device, n)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        # HA liefert die Auswahlliste nur mit dem Zustand: kommt eine Lampe einer anderen Integration hinzu (z. B. ein
-        # neu eingebundener Shelly) oder fällt weg, Zustand neu schreiben – sonst fehlt sie bis zum Neuladen
-        self.async_on_remove(async_track_state_added_domain(self.hass, ha_wippe.DOMAENEN, self._lampen_geaendert))
-        self.async_on_remove(async_track_state_removed_domain(self.hass, ha_wippe.DOMAENEN, self._lampen_geaendert))
+        # HA only delivers the option list together with the state: if a lamp from another integration is added (e.g. a
+        # newly added Shelly) or removed, rewrite the state – otherwise it is missing until the next reload
+        self.async_on_remove(async_track_state_added_domain(self.hass, ha_rocker.DOMAINS, self._lamps_changed))
+        self.async_on_remove(async_track_state_removed_domain(self.hass, ha_rocker.DOMAINS, self._lamps_changed))
 
     @callback
-    def _lampen_geaendert(self, _event: Event) -> None:
+    def _lamps_changed(self, _event: Event) -> None:
         self.async_write_ha_state()
 
-    def _kanaele(self) -> dict[str, str]:
-        """Anzeige → Lampen-Schlüssel: eNet-Kanäle, dann Lichter/Schalter anderer Integrationen (HA schaltet)."""
-        ha = ha_lampen(self.hass)
-        namen = list(ha.values())
-        # kurz „Name (HA)“, damit die Auswahl auf die Karte passt; nur bei doppeltem Namen mit entity_id
-        return {**{f"{k.geraet['name']} K{k.nr} ({k.key})": k.key for k in self.hub.kanaele},
-                **{tr("lampe_ha_eid" if namen.count(name) > 1 else "lampe_ha", name=name, eid=eid): eid
+    def _channels(self) -> dict[str, str]:
+        """Display → lamp key: eNet channels, then lights/switches of other integrations (HA switches)."""
+        ha = ha_lamps(self.hass)
+        names_ = list(ha.values())
+        # short "Name (HA)" so the selection fits on the card; entity_id only for duplicate names
+        return {**{f"{k.enet_device['name']} K{k.nr} ({k.key})": k.key for k in self.hub.channels_},
+                **{tr("lampe_ha_eid" if names_.count(name) > 1 else "lampe_ha", name=name, eid=eid): eid
                    for eid, name in ha.items()}}
 
     @property
     def options(self) -> list[str]:
-        if sender.komplex(self.geraet, self.n):
-            return [self.MEHRERE]
-        return [self.KEINE, *self._kanaele()]
+        if sender.complex_(self.enet_device, self.n):
+            return [self.SEVERAL]
+        return [self.NONE_CHOICE, *self._channels()]
 
     @property
     def current_option(self) -> str | None:
-        if sender.komplex(self.geraet, self.n):
-            return self.MEHRERE
-        lampen = sender.lampen_der_wippe(self.geraet, self.n)
-        if len(lampen) < self.i:
-            return self.KEINE
-        return next((a for a, k in self._kanaele().items() if k == lampen[self.i - 1]), None)
+        if sender.complex_(self.enet_device, self.n):
+            return self.SEVERAL
+        lamps = sender.rocker_lamps(self.enet_device, self.n)
+        if len(lamps) < self.i:
+            return self.NONE_CHOICE
+        return next((a for a, k in self._channels().items() if k == lamps[self.i - 1]), None)
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"vorgemerkt": str(self.n) in self.geraet.get("geplant_lampen", {}),
-                "mehrere_lampen": sender.komplex(self.geraet, self.n)}
+        return {"vorgemerkt": str(self.n) in self.enet_device.get("geplant_lampen", {}),
+                "mehrere_lampen": sender.complex_(self.enet_device, self.n)}
 
     async def async_select_option(self, option: str) -> None:
-        if sender.komplex(self.geraet, self.n):
-            raise HomeAssistantError(tr("wippe_komplex", name=self.geraet["name"], n=self.n))
-        lampen = sender.lampen_der_wippe(self.geraet, self.n)
-        neu = [*lampen[:self.i - 1], *([self._kanaele()[option]] if option != self.KEINE else []), *lampen[self.i:]]
-        sender.lampen_vormerken(self.geraet, self.n, neu)
-        await self.hub.anlage_speichern()
-        _vorgemerkt(self.hub, self.geraet)
-        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # Lampe 2 rückt ggf. auf
+        if sender.complex_(self.enet_device, self.n):
+            raise HomeAssistantError(tr("wippe_komplex", name=self.enet_device["name"], n=self.n))
+        lamps = sender.rocker_lamps(self.enet_device, self.n)
+        new = [*lamps[:self.i - 1], *([self._channels()[option]] if option != self.NONE_CHOICE else []), *lamps[self.i:]]
+        sender.queue_lamps(self.enet_device, self.n, new)
+        await self.hub.save_installation()
+        _pending(self.hub, self.enet_device)
+        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # lamp 2 may move up
 
 
-def ha_lampen(hass: HomeAssistant) -> dict[str, str]:
-    """Lichter und Schalter, die nicht von dieser Integration stammen: entity_id → Name."""
+def ha_lamps(hass: HomeAssistant) -> dict[str, str]:
+    """Lights and switches not provided by this integration: entity_id → name."""
     reg = er.async_get(hass)
     out = {}
-    for st in sorted(hass.states.async_all(ha_wippe.DOMAENEN), key=lambda st: st.name.lower()):
+    for st in sorted(hass.states.async_all(ha_rocker.DOMAINS), key=lambda st: st.name.lower()):
         e = reg.async_get(st.entity_id)
         if e is None or (e.platform != DOMAIN and not e.disabled and not e.hidden and e.entity_category is None):
             out[st.entity_id] = st.name
     return out
 
 
-class TasteAktion(EnetEntity, SelectEntity):
-    """Was die Einzeltaste auslöst (Server-Taste in der Bridge): sofort wirksam, ohne Programmieren.
-    Ohne Kategorie, damit die Belegung auf der Geräteseite getrennt von der Konfiguration (Betriebsart) steht."""
+class KeyAction(EnetEntity, SelectEntity):
+    """What the single key triggers (server key in the bridge): takes effect immediately, without programming.
+    No entity category, so that the assignment is shown on the device page separately from the configuration
+    (operating mode)."""
 
     _attr_translation_key = "taste_aktion"
 
-    def __init__(self, hub, geraet, k: int) -> None:
+    def __init__(self, hub, enet_device, k: int) -> None:
         super().__init__(hub)
-        self.geraet, self.k = geraet, k
-        self._attr_unique_id = f"{geraet['sn']}_taste{k}_aktion"
+        self.enet_device, self.k = enet_device, k
+        self._attr_unique_id = f"{enet_device['sn']}_taste{k}_aktion"
         self._attr_translation_placeholders = {"nr": str(k)}
-        self._attr_device_info = wippe_info(hub, geraet, (k + 1) // 2)
+        self._attr_device_info = rocker_info(hub, enet_device, (k + 1) // 2)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self._listen("ha_szenen")  # HA lädt die Auswahlliste nur mit dem Zustand: nach dem Einlesen neu schreiben
+        self._listen("ha_szenen")  # HA only loads the option list with the state: rewrite it after loading
 
-    def _optionen(self) -> dict[str, str]:
-        return {anzeige: wert for wert, anzeige in sender.aktion_optionen(self.hub)}
+    def _options(self) -> dict[str, str]:
+        return {display: value for value, display in sender.action_options(self.hub)}
 
     @property
     def options(self) -> list[str]:
-        return list(self._optionen())
+        return list(self._options())
 
     @property
     def current_option(self) -> str | None:
-        wert = sender.aktion_der_taste(self.hub, self.geraet, self.k)
-        return next((a for a, w in self._optionen().items() if w == wert), None)
+        value = sender.key_action(self.hub, self.enet_device, self.k)
+        return next((a for a, w in self._options().items() if w == value), None)
 
     async def async_select_option(self, option: str) -> None:
         try:
-            await sender.aktion_setzen(self.hub, self.geraet, self.k, self._optionen()[option])
+            await sender.set_action(self.hub, self.enet_device, self.k, self._options()[option])
         except BridgeError as err:
-            raise HomeAssistantError(tr("taste_fehler", name=self.geraet["name"], k=self.k, err=err)) from err
+            raise HomeAssistantError(tr("taste_fehler", name=self.enet_device["name"], k=self.k, err=err)) from err
         self.async_write_ha_state()
 
 
-class SensorAktion(EnetEntity, SelectEntity):
+class SensorAction(EnetEntity, SelectEntity):
     """Sonnensensor: Szene bei Sonnenschutz bzw. Dämmerung ein/aus. Die Integration ruft sie auf, wenn das
     Szenentelegramm des Sensors kommt (Hub._sensor_aktion) – sofort wirksam, am Sensor wird nichts programmiert."""
 
-    def __init__(self, hub, geraet, kanal: int, ein: bool) -> None:
+    def __init__(self, hub, enet_device, channel: int, on: bool) -> None:
         super().__init__(hub)
-        self.geraet, self.key = geraet, sensor_aktion_key(kanal, ein)
-        self._attr_translation_key = f"{'sonnenschutz' if kanal == 1 else 'daemmerung'}_{'ein' if ein else 'aus'}_aktion"
-        self._attr_unique_id = f"{geraet['sn']}_sensor_{self.key}_aktion"
-        self._attr_device_info = geraet_info(hub, geraet)
+        self.enet_device, self.key = enet_device, sensor_action_key(channel, on)
+        self._attr_translation_key = f"{'sonnenschutz' if channel == 1 else 'daemmerung'}_{'ein' if on else 'aus'}_aktion"
+        self._attr_unique_id = f"{enet_device['sn']}_sensor_{self.key}_aktion"
+        self._attr_device_info = device_info_for(hub, enet_device)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self._listen("ha_szenen")
 
-    def _optionen(self) -> dict[str, str]:
-        # Bridge-Szenen (esp:) nicht: die führt nur die Firmware bei Server-Tasten aus
-        return {anzeige: wert for wert, anzeige in sender.aktion_optionen(self.hub) if not wert.startswith("esp:")}
+    def _options(self) -> dict[str, str]:
+        # not bridge scenes (esp:): only the firmware runs those, for server keys
+        return {display: value for value, display in sender.action_options(self.hub) if not value.startswith("esp:")}
 
     @property
     def options(self) -> list[str]:
-        return list(self._optionen())
+        return list(self._options())
 
     @property
     def current_option(self) -> str | None:
-        wert = self.geraet.get("sensor_aktionen", {}).get(self.key, sender.MELDEN)
-        if wert.startswith("enet:"):  # eNet-Szene, die inzwischen der eNet-Teil einer HA-Szene ist
-            s = next((s for s in self.hub.szenen.szenen if f"enet:{s.id}" == wert), None)
+        value = self.enet_device.get("sensor_aktionen", {}).get(self.key, sender.REPORT)
+        if value.startswith("enet:"):  # eNet scene that has since become the eNet part of an HA scene
+            s = next((s for s in self.hub.scenes.scenes if f"enet:{s.id}" == value), None)
             if s and s.ha_id:
-                wert = f"ha:{s.ha_id}"
-        return next((a for a, w in self._optionen().items() if w == wert), None)
+                value = f"ha:{s.ha_id}"
+        return next((a for a, w in self._options().items() if w == value), None)
 
     async def async_select_option(self, option: str) -> None:
-        wert = self._optionen()[option]
-        aktionen = self.geraet.setdefault("sensor_aktionen", {})
-        if wert == sender.MELDEN:
-            aktionen.pop(self.key, None)
+        value = self._options()[option]
+        actions = self.enet_device.setdefault("sensor_aktionen", {})
+        if value == sender.REPORT:
+            actions.pop(self.key, None)
         else:
-            aktionen[self.key] = wert
-        if not aktionen:
-            self.geraet.pop("sensor_aktionen")
-        await self.hub.anlage_speichern()
+            actions[self.key] = value
+        if not actions:
+            self.enet_device.pop("sensor_aktionen")
+        await self.hub.save_installation()
         self.async_write_ha_state()

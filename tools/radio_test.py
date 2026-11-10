@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Funktest: Störpegel und Erreichbarkeit aller Aktoren messen (nur Statusabfragen, schaltet nichts).
+Radio test: measure noise level and reachability of all actuators (status queries only, switches nothing).
 
-  python3 tools/funktest.py [--port ssh://root@<ha-host>] [--anlage anlage.json] [--runden 4]
+  python3 tools/radio_test.py [--port ssh://root@<ha-host>] [--anlage anlage.json] [--runden 4]
 
-Ablauf:
-  1. Bei ssh:// gibt die HA-Integration den Port frei (enet_bridge.release), am Ende wieder enet_bridge.reconnect.
-  2. Störpegel: diag × 3 (RSSI min/max, Anteil „Kanal belegt“).
-  3. Je Runde jeden Aktor-Kanal abfragen (poll): Versuche, Pegel der Antworten, gestörte Telegramme.
-  4. Zähler der Bridge (stats), u. a. corrected = per CRC korrigierte Telegramme.
-Schwelle zum Vergleich: unterhalb von etwa −72 dBm traten in der Testanlage Bitfehler auf.
+Sequence:
+  1. With ssh:// the HA integration releases the port (enet_bridge.release), and enet_bridge.reconnect at the end.
+  2. Noise level: diag × 3 (RSSI min/max, share of "channel busy").
+  3. Each round queries every actuator channel (poll): attempts, reply levels, corrupted telegrams.
+  4. Bridge counters (stats), e.g. corrected = telegrams corrected via CRC.
+Threshold for comparison: below about −72 dBm bit errors occurred in the test installation.
 """
 import json, os, subprocess, sys, time
 from collections import defaultdict
@@ -23,7 +23,7 @@ def arg(name, default=None):
 
 
 def ha_service(port, service):
-    """Integration auf dem Raspi anhalten/fortsetzen (nur bei ssh://)."""
+    """Pause/resume the integration on the Raspberry Pi (ssh:// only)."""
     if not port.startswith("ssh://"):
         return
     host = port[6:].partition("/")[0]
@@ -34,16 +34,16 @@ def ha_service(port, service):
 
 def main():
     port = arg("--port", "ssh://" + os.environ.get("ENET_HA_HOST", "root@homeassistant.local"))
-    runden = int(arg("--runden", "4"))
+    rounds = int(arg("--runden", "4"))
     with open(arg("--anlage", "anlage.json"), encoding="utf-8") as f:
-        anlage = json.load(f)
-    kanaele = [(g["ia"], k["nr"], g["name"]) for g in anlage["geraete"] if g.get("rolle") == "aktor"
+        installation = json.load(f)
+    channels_ = [(g["ia"], k["nr"], g["name"]) for g in installation["geraete"] if g.get("rolle") == "aktor"
                for k in g.get("kanaele", []) if k["art"] in ("schalten", "dimmen")]
 
     ha_service(port, "release")
     try:
         link = open_link(port)
-        time.sleep(1.5)  # Bridge nach dem Öffnen fertig starten lassen
+        time.sleep(1.5)  # let the bridge finish booting after opening
         print("Störpegel (je ~5 s):")
         for i in range(3):
             link.send({"cmd": "diag", "id": 10 + i})
@@ -51,47 +51,47 @@ def main():
             if m:
                 print(f"  RSSI {m['rssi_min']:6.1f} … {m['rssi_max']:6.1f} dBm   Kanal belegt {100 * m['cs_anteil']:4.0f} %")
 
-        link.write_line("v")  # rx_error-Ereignisse
+        link.write_line("v")  # rx_error events
         link.send({"cmd": "monitor", "id": 2, "on": True})
         time.sleep(0.3)
-        pegel, versuche, stoer = defaultdict(list), defaultdict(list), defaultdict(int)
+        level_, attempts, noise = defaultdict(list), defaultdict(list), defaultdict(int)
         cid = 100
 
-        def verarbeite(m, aktuell):
-            """Antwort-Pegel nach Absender (das Telegramm kommt erst nach dem result), Störungen zur laufenden Abfrage."""
+        def process(m, current):
+            """Reply level by sender (the telegram only arrives after the result), errors to the running query."""
             ev = m.get("ev")
             if ev == "telegram" and m.get("dir") == "rx" and len(m["data"]) >= 36:
                 d = bytes.fromhex(m["data"])
                 if (d[16] & 3) << 8 | d[17] == 0x2C9:
-                    pegel[f"{d[11] >> 4}.{d[11] & 15}.{d[12]}"].append(m.get("rssi"))
-            elif ev == "rx_error" and m.get("kind") in ("manchester", "crc") and aktuell:
-                stoer[aktuell] += 1
+                    level_[f"{d[11] >> 4}.{d[11] & 15}.{d[12]}"].append(m.get("rssi"))
+            elif ev == "rx_error" and m.get("kind") in ("manchester", "crc") and current:
+                noise[current] += 1
 
-        for _ in range(runden):
-            for ia, ch, _name in kanaele:
+        for _ in range(rounds):
+            for ia, ch, _name in channels_:
                 cid += 1
                 link.send({"cmd": "poll", "id": cid, "ia": ia, "ch": ch})
                 while True:
                     m = link.read_json(10)
                     if m is None:
-                        versuche[(ia, ch)].append(None)
+                        attempts[(ia, ch)].append(None)
                         break
                     if m.get("ev") == "result" and m.get("id") == cid:
-                        versuche[(ia, ch)].append(m.get("tries") if m.get("ok") else None)
+                        attempts[(ia, ch)].append(m.get("tries") if m.get("ok") else None)
                         break
-                    verarbeite(m, (ia, ch))
+                    process(m, (ia, ch))
         while (m := link.read_json(0.5)) is not None:
-            verarbeite(m, None)
+            process(m, None)
 
-        print(f"\nAktoren ({runden} Abfragen je Kanal):")
+        print(f"\nAktoren ({rounds} Abfragen je Kanal):")
         print(f"  {'Kanal':<9} {'Name':<18} {'ok':>5}  {'Versuche':<16} {'Pegel dBm':<15} gestört")
-        for ia, ch, name in kanaele:
-            v = versuche[(ia, ch)]
+        for ia, ch, name in channels_:
+            v = attempts[(ia, ch)]
             ok = sum(1 for x in v if x)
-            p = [x for x in pegel[ia] if x is not None]  # je Gerät
+            p = [x for x in level_[ia] if x is not None]  # per device
             ps = f"{min(p):.0f} … {max(p):.0f}" if p else "–"
             vs = " ".join(str(x) if x else "X" for x in v)
-            print(f"  {ia + '/' + str(ch):<9} {name[:18]:<18} {ok:>2}/{len(v):<2}  {vs:<16} {ps:<15} {stoer[(ia, ch)]}")
+            print(f"  {ia + '/' + str(ch):<9} {name[:18]:<18} {ok:>2}/{len(v):<2}  {vs:<16} {ps:<15} {noise[(ia, ch)]}")
 
         link.send({"cmd": "stats", "id": 99})
         s = link.wait(lambda m: m.get("re") == 99, 2) or {}

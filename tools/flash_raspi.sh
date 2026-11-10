@@ -3,7 +3,7 @@
 #
 #   tools/flash_raspi.sh [root@<ha-host>]   (Standard: $ENET_HA_HOST, sonst root@homeassistant.local)
 #
-# Ablauf (docs/SCHNITTSTELLE.md 10.5): bauen → Bootloader/Partitionen/App per SFTP auf den Raspi →
+# Ablauf (docs/INTERFACE.md 10.5): bauen → Bootloader/Partitionen/App per SFTP auf den Raspi →
 # esptool auf dem Raspi (App ab 0x10000, beim ersten Mal alles) → Bridge startet neu.
 # Hält die HA-Integration den Port, wird sie vorher angehalten und danach wieder geladen (sobald vorhanden).
 set -e

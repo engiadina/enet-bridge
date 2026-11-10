@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
 """
-eNet-Testprogramm: Gegenstelle zur Bridge (Phase 1, statt Home Assistant).
+eNet test program: counterpart to the bridge (phase 1, instead of Home Assistant).
 
   python3 tools/enet.py --port /dev/cu.usbserial-0001 --anlage anlage.json [--log bridge.jsonl]
   python3 tools/enet.py --port /dev/cu.usbserial-0001 --iex "Anlage.iex"
 
-Ohne --port liest es rtl_433-JSON von stdin (SDR) und zeigt nur an.
-Die Anlage kommt aus tools/iex.py (anlage.json, von Hand ergänzbar) oder direkt aus einer .iex.
+Without --port it reads rtl_433 JSON from stdin (SDR) and only displays.
+The installation comes from tools/iex.py (anlage.json, can be extended by hand) or directly from an .iex.
 
-Befehle:
-  liste                         Geräte und Kanäle
-  ein <Gerät> [Kanal]           einschalten (GO 2 = 1)
-  aus <Gerät> [Kanal]           ausschalten (GO 2 = 0)
-  dimm <Gerät> <Prozent> [Kanal] Helligkeit setzen (GO 4, 0–255)
-  status <Gerät> [Kanal]        Status abfragen (GO 20, bei Dimmern zusätzlich GO 21)
-  roh <Bridge-Befehl>           direkt an die Bridge, z. B. "roh s" oder "roh cmd 0.0.4 2 01"
-  broadcast an|aus              Server-Broadcast anzeigen (Standard: aus)
-  zustand                       bekannter Zustand aller Kanäle (aus Statusmeldungen und Abfragen)
-  szene <Name>                  Szene aus der Server-Konfiguration ausführen, z. B. "szene alles an"
-  server an|aus                 Server-Emulation (Tasten beantworten) ein-/ausschalten
+Commands (the 'hilfe' command prints from here on) – Befehle:
+  liste                         devices and channels
+  ein <device> [channel]        switch on (GO 2 = 1)
+  aus <device> [channel]        switch off (GO 2 = 0)
+  dimm <device> <percent> [channel] set brightness (GO 4, 0–255)
+  status <device> [channel]     query status (GO 20, for dimmers also GO 21)
+  roh <bridge command>          send directly to the bridge, e.g. "roh s" or "roh cmd 0.0.4 2 01"
+  broadcast an|aus              show server broadcasts (default: aus)
+  zustand                       known state of all channels (from status messages and queries)
+  szene <name>                  run a scene from the server configuration, e.g. "szene alles an"
+  server an|aus                 switch server emulation (answering keys) on/off
   ende
-<Gerät> = Adresse (0.0.4) oder Teil des Namens (stylos).
+<device> = address (0.0.4) or part of the name (stylos).
 
-Server-Emulation: --server szenen.json
-  Beantwortet SumstatusGet an die Server-SN (Server-Tasten, CC 0x08) mit SumstatusInfo und führt die
-  zugeordnete Szene aus. Startet AUS und schaltet sich ab, sobald ein Telegramm des echten Servers
-  empfangen wird. Solange der echte eNet Server läuft: keine Tasten beantworten!
+Server emulation: --server szenen.json
+  Answers SumstatusGet addressed to the server SN (server keys, CC 0x08) with SumstatusInfo and runs the
+  assigned scene. Starts OFF and switches itself off as soon as a telegram from the real server is
+  received. As long as the real eNet Server is running: do not answer any keys!
 """
 import datetime, json, os, queue, sys, threading, time, unicodedata
 
@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import iex  # noqa: E402
 
 GO_SWITCH, GO_VALUE, GO_STATUS, GO_STATUS_VALUE, GO_SUMSTATUS_INFO = 2, 4, 20, 21, 22
-STATUS_POLL_DELAY = 8.0  # wie der Server: 8 s nach einem Befehl abfragen, falls keine Statusmeldung kam
+STATUS_POLL_DELAY = 8.0  # like the server: query 8 s after a command if no status message arrived
 
 APCI = {
     0x000: "GroupRead", 0x040: "GroupResponse", 0x080: "GroupWrite",
@@ -64,7 +64,7 @@ def ga_str(a):
     return f"GA {a >> 11}/{(a >> 8) & 7}/{a & 255}"
 
 
-class Anlage:
+class Installation:
     def __init__(self, data):
         self.server = data["server"]
         self.devices = data["geraete"]
@@ -92,7 +92,7 @@ class Anlage:
 
 
 def build_frame(addr_hex, doa, group, src, dst, apci, data, hops=6, lfn=0):
-    """Telegramm ohne CRCs (wie knxrf::buildTelegram). Die Bridge setzt beim Senden die LFN neu."""
+    """Telegram without CRCs (like knxrf::buildTelegram). The bridge sets a new LFN when sending."""
     b = bytearray([0, 0x44, 0xFF, 0x02]) + bytes.fromhex(addr_hex)
     b += bytes([0x00, src >> 8, src & 255, dst >> 8, dst & 255,
                 (0x80 if group else 0) | (hops & 7) << 4 | (lfn & 7) << 1 | (1 if doa else 0),
@@ -102,12 +102,12 @@ def build_frame(addr_hex, doa, group, src, dst, apci, data, hops=6, lfn=0):
 
 
 def sumstatus_info(server_sn, ga, status, seq, lfn=0):
-    """Antwort des Servers auf SumstatusGet: unter Server-SN an die Antwort-GA, seq gespiegelt."""
+    """Server reply to SumstatusGet: under the server SN to the reply GA, seq mirrored."""
     return build_frame(server_sn, False, True, 0x7FFF, ga, 0x080, [status, seq >> 8, seq & 255], lfn=lfn)
 
 
-def decode(b, anlage):
-    """Liefert dict mit Feldern und Klartextzeile, oder None."""
+def decode(b, installation):
+    """Return a dict with fields and a plain-text line, or None."""
     if len(b) < 18 or b[1] != 0x44 or b[2] != 0xFF:
         return None
     t = {
@@ -117,25 +117,25 @@ def decode(b, anlage):
     }
     base = t["apci"] & 0x3C0
     t["base"] = base if base in (0x000, 0x040, 0x080) else t["apci"]
-    t["mine"] = t["addr"] in (anlage.server["domain"], anlage.server["sn"]) or t["addr"] in anlage.by_sn
+    t["mine"] = t["addr"] in (installation.server["domain"], installation.server["sn"]) or t["addr"] in installation.by_sn
     d = t["data"]
 
     if t["doa"]:
-        who = anlage.ia_name(t["src"])
+        who = installation.ia_name(t["src"])
     else:
-        who = anlage.sn_name(t["addr"])
-    dst = ga_str(t["dst"]) if t["group"] else anlage.ia_name(t["dst"])
+        who = installation.sn_name(t["addr"])
+    dst = ga_str(t["dst"]) if t["group"] else installation.ia_name(t["dst"])
     detail = d.hex()
     if t["base"] == 0x080 and len(d) == 14:
         cmd = d[9] << 8 | d[10]
-        if d[13] == 0x08:  # Server-Taste: Bit 14 = gedrückt, Bits 11-8 = Tastencode (Sender-Obj. PID 0xE2)
-            taste = f"Taste Code {(cmd >> 8) & 0x0F:X} {'gedrückt' if cmd & 0x4000 else 'losgelassen'}"
-        else:  # direkt verknüpft: 0x40xx oben, 0x80xx unten, untere 14 Bit Haltedauer in 10 ms
-            richtung = {0x4000: "links", 0x8000: "rechts"}.get(cmd & 0xC000, f"0x{cmd:04x}")
-            halten = (cmd & 0x3FFF) * 10
-            taste = f"Taste {richtung}" + (f" gehalten {halten} ms" if halten else "")
-        detail = (taste +
-                  f"  (SumstatusGet an {anlage.sn_name(d[1:7].hex())} {ga_str(d[7] << 8 | d[8])}, "
+        if d[13] == 0x08:  # server key: bit 14 = pressed, bits 11-8 = key code (transmitter obj. PID 0xE2)
+            key_obj = f"Taste Code {(cmd >> 8) & 0x0F:X} {'gedrückt' if cmd & 0x4000 else 'losgelassen'}"
+        else:  # directly linked: 0x40xx up, 0x80xx down, lower 14 bits hold time in 10 ms
+            direction = {0x4000: "links", 0x8000: "rechts"}.get(cmd & 0xC000, f"0x{cmd:04x}")
+            hold = (cmd & 0x3FFF) * 10
+            key_obj = f"Taste {direction}" + (f" gehalten {hold} ms" if hold else "")
+        detail = (key_obj +
+                  f"  (SumstatusGet an {installation.sn_name(d[1:7].hex())} {ga_str(d[7] << 8 | d[8])}, "
                   f"seq 0x{d[11]:02x}{d[12]:02x}, CC 0x{d[13]:02x})")
     elif t["base"] == 0x080 and len(d) == 3:
         detail = f"SumstatusInfo {'EIN' if d[0] >> 7 else 'AUS'} {d[0] & 0x7F}%  seq 0x{d[1]:02x}{d[2]:02x}"
@@ -149,7 +149,7 @@ def decode(b, anlage):
     elif t["apci"] in (0x3DA, 0x3DB, 0x3E4) and len(d) >= 3:
         detail = f"Objtyp {d[0] << 8 | d[1]} PID {d[2]} {d[3:].hex()}"
     elif t["apci"] in (0x3DC, 0x3DD, 0x3DE, 0x3EC, 0x3ED, 0x3EE) and len(d) >= 6:
-        detail = f"SN {anlage.sn_name(d[:6].hex())} {d[6:].hex()}"
+        detail = f"SN {installation.sn_name(d[:6].hex())} {d[6:].hex()}"
     elif t["apci"] == 0x2C9 and len(d) >= 3:
         detail = ("OK" if d[2] == 0 else f"Fehler 0x{d[2]:02x}") + (f" Wert {d[3:].hex()}" if len(d) > 3 else "")
     name = APCI.get(t["base"], f"APCI 0x{t['apci']:03x}")
@@ -158,25 +158,25 @@ def decode(b, anlage):
 
 
 class Tester:
-    def __init__(self, anlage, ser, log, show_bc, show_all, server_cfg=None):
-        self.anlage, self.ser, self.log = anlage, ser, log
+    def __init__(self, installation, ser, log, show_bc, show_all, server_cfg=None):
+        self.installation, self.ser, self.log = installation, ser, log
         self.show_bc, self.show_all = show_bc, show_all
-        self.pending = {}  # IA -> (Beschreibung, Bridge-ms des Sendens)
+        self.pending = {}  # IA -> (description, bridge ms of sending)
         self.last_tx = None
-        # Server-Emulation
+        # server emulation
         self.server_cfg = server_cfg
         self.server_on = False
-        self.last_press = {}  # (Sender-SN, GA) -> seq der zuletzt ausgeführten Betätigung
-        self.acks = {}  # IA -> [threading.Event, Antwortdaten], gesetzt bei FuncPropStateResp
+        self.last_press = {}  # (transmitter SN, GA) -> seq of the last executed key press
+        self.acks = {}  # IA -> [threading.Event, reply data], set on FuncPropStateResp
         self.keys = {(k["sender"], k["ga"]): k for k in server_cfg["server_tasten"]} if server_cfg else {}
-        # Zustand und Status-Polling
-        self.state = {}  # (IA, Offset) -> {"ein": bool, "prozent": int, "quelle": str, "zeit": str}
-        self.cmd_sent = {}  # IA -> Handle des zuletzt gesendeten Befehls (bis zur Quittung)
-        self.poll_timers = {}  # (IA, Offset) -> threading.Timer
-        self.work_q = queue.Queue()  # Szenen und Statusabfragen nacheinander über die Funkstrecke
+        # state and status polling
+        self.state = {}  # (IA, offset) -> {"ein": bool, "prozent": int, "quelle": str, "zeit": str}
+        self.cmd_sent = {}  # IA -> handle of the last command sent (until acknowledged)
+        self.poll_timers = {}  # (IA, offset) -> threading.Timer
+        self.work_q = queue.Queue()  # scenes and status queries one after another over the radio link
         threading.Thread(target=self.worker, daemon=True).start()
 
-    # --- Empfang -----------------------------------------------------------
+    # --- Receiving ---------------------------------------------------------
     def handle_line(self, raw):
         if self.log:
             self.log.write(raw.rstrip("\n") + "\n")
@@ -187,7 +187,7 @@ class Tester:
             return
         ev = j.get("event")
         if ev == "tx":
-            t = decode(bytes.fromhex(j["data"]), self.anlage)
+            t = decode(bytes.fromhex(j["data"]), self.installation)
             res = j.get("result")
             if res != "ok":
                 print(f"{now()} TX FEHLGESCHLAGEN ({res}): {t['line'] if t else j['data']}", flush=True)
@@ -200,13 +200,13 @@ class Tester:
             return
         if ev:
             if ev == "error":
-                self.pending.clear()  # Befehl wurde nicht gesendet
+                self.pending.clear()  # command was not sent
             print(f"{now()} BRIDGE {json.dumps(j, ensure_ascii=False)}", flush=True)
             return
         if "data" not in j:
             return
         try:
-            t = decode(bytes.fromhex(j["data"]), self.anlage)
+            t = decode(bytes.fromhex(j["data"]), self.installation)
         except ValueError:
             return
         if not t or (not t["mine"] and not self.show_all):
@@ -214,38 +214,38 @@ class Tester:
         if t["apci"] == 0x3E4 and not self.show_bc:
             return
         if self.server_cfg:
-            self.server_rx(t, j.get("ms"))  # zuerst: Tasten möglichst schnell beantworten
+            self.server_rx(t, j.get("ms"))  # first: answer keys as fast as possible
         extra = f"  [{j['rssi']} dBm]" if "rssi" in j else ""
-        ts = str(j["time"])[11:23] if "time" in j else now()  # Zeit aus rtl_433, sonst jetzt
+        ts = str(j["time"])[11:23] if "time" in j else now()  # time from rtl_433, otherwise now
         print(f"{ts} RX  {t['line']}{extra}", flush=True)
         if self.ser:
             self.track(t)
         self.check_answer(t, j.get("ms"))
 
-    # --- Zustand und Status-Polling ----------------------------------------
+    # --- State and status polling -----------------------------------------
     def channel_for(self, ia, handle):
-        """Kanal eines Aktors zu einem GO-Handle (Offset ≤ Handle < Offset + 26)."""
-        d = self.anlage.by_ia.get(ia)
+        """Actuator channel for a GO handle (offset ≤ handle < offset + 26)."""
+        d = self.installation.by_ia.get(ia)
         for ch in (d["kanaele"] if d else []):
             if 0 <= handle - ch["offset"] < 26:
                 return d, ch
         return None, None
 
-    def set_state(self, ia, ch, quelle, ein=None, prozent=None):
+    def set_state(self, ia, ch, source_, on=None, percent_=None):
         key = (ia, ch["offset"])
         s = self.state.setdefault(key, {})
-        alt = dict(s)
-        if ein is not None:
-            s["ein"] = ein
-        if prozent is not None:
-            s["prozent"] = prozent
-        s["quelle"], s["zeit"] = quelle, now()
-        if {k: s.get(k) for k in ("ein", "prozent")} != {k: alt.get(k) for k in ("ein", "prozent")}:
-            d = self.anlage.by_ia[ia]
-            wert = "EIN" if s.get("ein") else "AUS"
+        old = dict(s)
+        if on is not None:
+            s["ein"] = on
+        if percent_ is not None:
+            s["prozent"] = percent_
+        s["quelle"], s["zeit"] = source_, now()
+        if {k: s.get(k) for k in ("ein", "prozent")} != {k: old.get(k) for k in ("ein", "prozent")}:
+            d = self.installation.by_ia[ia]
+            value = "EIN" if s.get("ein") else "AUS"
             if ch["art"] == "dimmen" and s.get("prozent") is not None:
-                wert += f" {s['prozent']} %"
-            print(f"    Zustand {d['name']} K{ch['nr']}: {wert}  ({quelle})", flush=True)
+                value += f" {s['prozent']} %"
+            print(f"    Zustand {d['name']} K{ch['nr']}: {value}  ({source_})", flush=True)
 
     def cancel_poll(self, ia, offset):
         tm = self.poll_timers.pop((ia, offset), None)
@@ -259,7 +259,7 @@ class Tester:
                 self.acks[t["src"]][1] = d
                 self.acks[t["src"]][0].set()
             handle = self.cmd_sent.pop(t["src"], None)
-            if handle is not None and d[2] == 0:  # Befehl quittiert -> Statusabfrage vormerken
+            if handle is not None and d[2] == 0:  # command acknowledged -> schedule status query
                 dev, ch = self.channel_for(t["src"], handle)
                 if ch:
                     key = (t["src"], ch["offset"])
@@ -269,16 +269,16 @@ class Tester:
                     self.poll_timers[key] = tm
                     tm.start()
         elif t["group"] and t["base"] == 0x080 and len(d) == 3 and not t["doa"]:
-            # spontane SumstatusInfo eines Aktors: unter eigener SN an GA = Basis * 256 + Offset + 22
-            dev = self.anlage.by_sn.get(t["addr"])
+            # spontaneous SumstatusInfo from an actuator: under its own SN to GA = base * 256 + offset + 22
+            dev = self.installation.by_sn.get(t["addr"])
             for ch in (dev["kanaele"] if dev else []):
                 if t["dst"] == dev.get("ga_basis", 0) * 256 + ch["offset"] + GO_SUMSTATUS_INFO:
                     ia = ia_int(dev["ia"])
                     self.cancel_poll(ia, ch["offset"])
-                    self.set_state(ia, ch, "Statusmeldung", ein=bool(d[0] & 0x80), prozent=d[0] & 0x7F)
+                    self.set_state(ia, ch, "Statusmeldung", on=bool(d[0] & 0x80), percent_=d[0] & 0x7F)
 
     def request(self, line, ia, timeout=0.4, tries=3):
-        """Befehl an die Bridge, auf FuncPropStateResp des Aktors warten. Liefert die Antwortdaten oder None."""
+        """Send a command to the bridge, wait for the actuator's FuncPropStateResp. Returns the reply data or None."""
         slot = self.acks[ia] = [threading.Event(), None]
         try:
             for _ in range(tries):
@@ -299,17 +299,17 @@ class Tester:
         if r is None or len(r) < 4 or r[2] != 0:
             print(f"    Statusabfrage {dev['name']} K{ch['nr']}: keine Antwort", flush=True)
             return
-        prozent = None
+        percent_ = None
         if ch["art"] == "dimmen":
             r2 = self.request(f"get {dev['ia']} {offset + GO_STATUS_VALUE}", ia)
             if r2 is not None and len(r2) >= 4 and r2[2] == 0:
-                prozent = r2[3] * 100 // 255
-        self.set_state(ia, ch, "Abfrage nach 8 s", ein=bool(r[3]), prozent=prozent)
+                percent_ = r2[3] * 100 // 255
+        self.set_state(ia, ch, "Abfrage nach 8 s", on=bool(r[3]), percent_=percent_)
 
-    # --- Server-Emulation --------------------------------------------------
+    # --- Server emulation --------------------------------------------------
     def server_rx(self, t, ms):
-        srv = self.anlage.server
-        # Telegramme des echten Servers? Die Bridge empfängt ihre eigenen Sendungen nicht.
+        srv = self.installation.server
+        # Telegrams from the real server? The bridge does not receive its own transmissions.
         if t["src"] == ia_int(srv["ia"]) or t["addr"] == srv["sn"]:
             if self.server_on:
                 self.server_on = False
@@ -326,7 +326,7 @@ class Tester:
             return
         reply_ga = d[7] << 8 | d[8]
         self.bridge("send " + sumstatus_info(srv["sn"], reply_ga, 0xFF, seq).hex())
-        press = bool(cmd & 0x4000)  # 0x40xx/0x4Fxx = Drücken, 0x00xx/0x0Fxx = Loslassen
+        press = bool(cmd & 0x4000)  # 0x40xx/0x4Fxx = press, 0x00xx/0x0Fxx = release
         if cfg and press and self.last_press.get(key) != seq:
             self.last_press[key] = seq
             print(f"    => {cfg['name']}: Szene „{cfg['szene']}“", flush=True)
@@ -344,7 +344,7 @@ class Tester:
             print(f"Szene „{name}“ unbekannt", flush=True)
             return
         failed = []
-        for a in actions:  # wie der Server: erst nach Quittung des Aktors weiter
+        for a in actions:  # like the server: continue only after the actuator has acknowledged
             ia = ia_int(a["ia"])
             self.cmd_sent[ia] = a["handle"]
             if self.request(f"cmd {a['ia']} {a['handle']} {a['wert']}", ia) is None:
@@ -366,7 +366,7 @@ class Tester:
             val = f": Wert {v} ({round(v * 100 / 255)} %)" if what.endswith("Wert") else f": {'EIN' if v else 'AUS'}"
         print(f"    => {what}: OK{val}{dt}", flush=True)
 
-    # --- Senden ------------------------------------------------------------
+    # --- Sending -----------------------------------------------------------
     def bridge(self, cmd):
         if not self.ser:
             print("(kein --port, nur Anzeige)")
@@ -383,14 +383,14 @@ class Tester:
             self.bridge(f"cmd {dev['ia']} {handle} {value_hex}")
 
     def pick(self, args, need_dimmer=False):
-        """args = [Gerät..., Kanal?] -> (Gerät, Kanal) oder None"""
+        """args = [device..., channel?] -> (device, channel) or None"""
         if not args:
             print("Gerät fehlt")
             return None
         nr = None
         if len(args) > 1 and args[-1].isdigit():
             nr = int(args.pop())
-        found = self.anlage.find(" ".join(args))
+        found = self.installation.find(" ".join(args))
         if len(found) != 1:
             print("nicht gefunden" if not found else "mehrdeutig: " + ", ".join(d["name"] for d in found))
             return None
@@ -423,9 +423,9 @@ class Tester:
         if c in ("hilfe", "?", "help"):
             print(__doc__.split("Befehle:")[1])
         elif c in ("liste", "l"):
-            s = self.anlage.server
+            s = self.installation.server
             print(f"  Server {s['ia']}  Domäne {s['domain']}  SN {s['sn']}")
-            for d in self.anlage.devices:
+            for d in self.installation.devices:
                 ch = ", ".join(f"K{k['nr']} {k['art']} (Offset {k['offset']})" for k in d["kanaele"])
                 print(f"  {d['ia']:<8} {d['name']:<16} {d['typ']:<10} {d['sn']}  {ch or d['rolle']}")
         elif c in ("ein", "aus"):
@@ -435,7 +435,7 @@ class Tester:
                 self.send_fp(dev, ch["offset"] + GO_SWITCH, "01" if c == "ein" else "00",
                              f"{dev['name']} K{ch['nr']} {c}")
         elif c == "dimm":
-            # Prozent = erste Zahl nach dem Namen, ein evtl. Kanal folgt danach
+            # percent = first number after the name, an optional channel follows
             i = next((i for i, a in enumerate(args) if i > 0 and a.rstrip("%").isdigit()), None)
             if i is None:
                 print("Aufruf: dimm <Gerät> <Prozent> [Kanal]")
@@ -444,7 +444,7 @@ class Tester:
             p = self.pick(args[:i] + args[i + 1:], need_dimmer=True)
             if p:
                 dev, ch = p
-                v = pct * 255 // 100  # wie der Server: 50 % -> 0x7F
+                v = pct * 255 // 100  # like the server: 50 % -> 0x7F
                 self.send_fp(dev, ch["offset"] + GO_VALUE, f"{v:02x}", f"{dev['name']} K{ch['nr']} {pct} %")
         elif c == "status":
             p = self.pick(args)
@@ -452,7 +452,7 @@ class Tester:
                 dev, ch = p
                 self.send_fp(dev, ch["offset"] + GO_STATUS, None, f"{dev['name']} K{ch['nr']} Status")
                 if ch["art"] == "dimmen":
-                    time.sleep(0.3)  # Antwort abwarten, sonst überschreibt pending
+                    time.sleep(0.3)  # wait for the reply, otherwise pending is overwritten
                     self.send_fp(dev, ch["offset"] + GO_STATUS_VALUE, None, f"{dev['name']} K{ch['nr']} Wert")
         elif c == "roh":
             self.bridge(" ".join(args))
@@ -461,16 +461,16 @@ class Tester:
         elif c in ("szene", "server") and not self.server_cfg:
             print("keine Server-Konfiguration – Start mit --server <Datei>")
         elif c == "zustand":
-            for d in self.anlage.devices:
+            for d in self.installation.devices:
                 for ch in d["kanaele"]:
                     s = self.state.get((ia_int(d["ia"]), ch["offset"]))
                     if not s:
-                        wert = "unbekannt"
+                        value = "unbekannt"
                     else:
-                        wert = ("EIN" if s.get("ein") else "AUS") + (
+                        value = ("EIN" if s.get("ein") else "AUS") + (
                             f" {s['prozent']} %" if ch["art"] == "dimmen" and s.get("prozent") is not None else "")
-                        wert += f"  ({s['quelle']}, {s['zeit']})"
-                    print(f"  {d['name']:16} K{ch['nr']}  {wert}")
+                        value += f"  ({s['quelle']}, {s['zeit']})"
+                    print(f"  {d['name']:16} K{ch['nr']}  {value}")
         elif c == "szene":
             name = next((n for n in self.server_cfg["szenen"] if fold(n) == fold(" ".join(args))), None)
             if name:
@@ -493,25 +493,25 @@ def arg(name):
     return None
 
 
-def load_anlage():
+def load_installation():
     if arg("--iex"):
-        return Anlage(iex.read_iex(arg("--iex")))
+        return Installation(iex.read_iex(arg("--iex")))
     path = arg("--anlage") or "anlage.json"
     if not os.path.exists(path):
         sys.exit(f"{path} fehlt – erst: python3 tools/iex.py <Export.iex> -o anlage.json")
     with open(path, encoding="utf-8") as f:
-        return Anlage(json.load(f))
+        return Installation(json.load(f))
 
 
 def main():
     if "-h" in sys.argv or "--help" in sys.argv:
         sys.exit(__doc__)
-    anlage = load_anlage()
+    installation = load_installation()
     log = open(arg("--log"), "a") if arg("--log") else None
     port = arg("--port")
 
-    if not port:  # nur Anzeige, z. B. rtl_433 | enet.py
-        t = Tester(anlage, None, log, "--broadcast" in sys.argv, "--alle" in sys.argv)
+    if not port:  # display only, e.g. rtl_433 | enet.py
+        t = Tester(installation, None, log, "--broadcast" in sys.argv, "--alle" in sys.argv)
         for raw in sys.stdin:
             t.handle_line(raw)
         return
@@ -525,22 +525,22 @@ def main():
     if arg("--server"):
         with open(arg("--server"), encoding="utf-8") as f:
             server_cfg = json.load(f)
-    t = Tester(anlage, ser, log, "--broadcast" in sys.argv, "--alle" in sys.argv, server_cfg)
+    t = Tester(installation, ser, log, "--broadcast" in sys.argv, "--alle" in sys.argv, server_cfg)
 
     def reader():
         buf = b""
         while True:
-            buf += ser.read(ser.in_waiting or 1)  # sofort zurück, sobald Daten da sind
+            buf += ser.read(ser.in_waiting or 1)  # return immediately once data is available
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 t.handle_line(line.decode("utf-8", "replace"))
 
     threading.Thread(target=reader, daemon=True).start()
     try:
-        import readline  # noqa: F401  (Zeilen-Editor/History)
+        import readline  # noqa: F401  (line editor/history)
     except ImportError:
         pass
-    print(f"{len(anlage.devices)} Geräte geladen, Bridge an {port}. 'hilfe' für Befehle.")
+    print(f"{len(installation.devices)} Geräte geladen, Bridge an {port}. 'hilfe' für Befehle.")
     try:
         while t.command(input("> ")):
             pass

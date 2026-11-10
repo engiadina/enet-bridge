@@ -1,4 +1,4 @@
-"""Aktor-Kanäle (Schalten, Dimmen) als Licht."""
+"""Actuator channels (switching, dimming) as lights."""
 from __future__ import annotations
 
 import logging
@@ -10,11 +10,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EnetConfigEntry, kanal_info
+from . import EnetConfigEntry, channel_info
 from .bridge import BridgeError
-from .const import ART_DIMMEN
+from .const import KIND_DIMMER
 from .entity import EnetEntity
-from .hub import Hub, Kanal
+from .hub import Hub, Channel
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,29 +22,29 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
-    async_add_entities(EnetLight(hub, k) for k in hub.kanaele)
+    async_add_entities(EnetLight(hub, k) for k in hub.channels_)
 
 
 class EnetLight(EnetEntity, LightEntity):
-    def __init__(self, hub: Hub, kanal: Kanal) -> None:
+    def __init__(self, hub: Hub, channel: Channel) -> None:
         super().__init__(hub)
-        self.kanal = kanal
-        g = kanal.geraet
-        self._attr_unique_id = f"{g['sn']}_{kanal.nr}"
-        self._attr_device_info = kanal_info(hub, kanal)
-        self._attr_name = None  # Hauptfunktion des (Kanal-)Geräts
-        mode = ColorMode.BRIGHTNESS if kanal.art == ART_DIMMEN else ColorMode.ONOFF
+        self.channel = channel
+        g = channel.enet_device
+        self._attr_unique_id = f"{g['sn']}_{channel.nr}"
+        self._attr_device_info = channel_info(hub, channel)
+        self._attr_name = None  # main function of the (channel) device
+        mode = ColorMode.BRIGHTNESS if channel.art == KIND_DIMMER else ColorMode.ONOFF
         self._attr_color_mode = mode
         self._attr_supported_color_modes = {mode}
 
     @property
     def _z(self):
-        return self.hub.zustand[self.kanal.key]
+        return self.hub.state_[self.channel.key]
 
     @property
     def icon(self) -> str | None:
-        """Während der Aktor programmiert wird (kurz aus, dann wiederhergestellt): Werkzeug statt Glühbirne."""
-        return "mdi:progress-wrench" if self.kanal.ia in self.hub.programmiert else None
+        """While the actuator is being programmed (briefly off, then restored): tool icon instead of light bulb."""
+        return "mdi:progress-wrench" if self.channel.ia in self.hub.programmed else None
 
     @property
     def is_on(self) -> bool | None:
@@ -52,48 +52,48 @@ class EnetLight(EnetEntity, LightEntity):
 
     @property
     def brightness(self) -> int | None:
-        if self.kanal.art != ART_DIMMEN or not self._z.known:
+        if self.channel.art != KIND_DIMMER or not self._z.known:
             return None
         return round(self._z.percent * 255 / 100)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self._listen(f"state_{self.kanal.key}")
+        self._listen(f"state_{self.channel.key}")
 
     async def _send(self, cmd: str, **fields: Any) -> None:
         try:
-            async with self.hub.params.programmierung(self.kanal.ia):  # nicht mitten in einen Parameter-Download
-                result = await self.hub.bridge.request(cmd, ia=self.kanal.ia, ch=self.kanal.nr, **fields)
+            async with self.hub.params.programming(self.channel.ia):  # not in the middle of a parameter download
+                result = await self.hub.bridge.request(cmd, ia=self.channel.ia, ch=self.channel.nr, **fields)
         except BridgeError as err:
-            raise HomeAssistantError(f"{self.kanal.geraet['name']}: {err}") from err
-        self._z.gemeldet = time.monotonic()  # bewusst geschaltet: keine Nachkorrektur einer Szene
+            raise HomeAssistantError(f"{self.channel.enet_device['name']}: {err}") from err
+        self._z.reported = time.monotonic()  # switched deliberately: no follow-up correction by a scene
         if result.get("tries", 1) > 1:
-            _LOGGER.log(logging.WARNING if result["tries"] >= 3 else logging.INFO, "%s: %s erst nach %d Versuchen quittiert",
-                        self.kanal.geraet["name"], cmd, result["tries"])
+            _LOGGER.log(logging.WARNING if result["tries"] >= 3 else logging.INFO, "%s: %s acknowledged only after %d tries",
+                        self.channel.enet_device["name"], cmd, result["tries"])
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        dimmen = self.kanal.art == ART_DIMMEN and ATTR_BRIGHTNESS in kwargs
-        percent = max(1, round(kwargs[ATTR_BRIGHTNESS] * 100 / 255)) if dimmen else None
-        if self.hub.szenen.gesperrt(self.kanal.key, True, percent):  # schon per eNet-Szenentelegramm geschaltet
+        dim = self.channel.art == KIND_DIMMER and ATTR_BRIGHTNESS in kwargs
+        percent = max(1, round(kwargs[ATTR_BRIGHTNESS] * 100 / 255)) if dim else None
+        if self.hub.scenes.suppressed(self.channel.key, True, percent):  # already switched by an eNet scene telegram
             self._z.on, self._z.known = True, True
             if percent is not None:
                 self._z.percent = percent
             self.async_write_ha_state()
             return
-        if dimmen:
+        if dim:
             await self._send("dim", percent=percent)
             self._z.on, self._z.percent = True, percent
         else:
             await self._send("switch", on=True)
             self._z.on = True
-            if self.kanal.art != ART_DIMMEN:
+            if self.channel.art != KIND_DIMMER:
                 self._z.percent = 100
-        # vorläufig; der Aktor meldet seinen Zustand selbst bzw. die Bridge fragt nach 8 s ab
+        # provisional; the actuator reports its state itself, or the bridge polls after 8 s
         self._z.known = True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        if not self.hub.szenen.gesperrt(self.kanal.key, False, None):  # sonst schon per eNet-Szene aus
+        if not self.hub.scenes.suppressed(self.channel.key, False, None):  # otherwise already off via the eNet scene
             await self._send("switch", on=False)
         self._z.on, self._z.known = False, True
         self.async_write_ha_state()

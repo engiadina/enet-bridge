@@ -1,26 +1,26 @@
-"""Server-Konfiguration der Bridge (Format Version 3, src/server.h) aus anlage.json erzeugen.
+"""Build the bridge's server configuration (format version 3, src/server.h) from anlage.json.
 
-Ohne Home-Assistant-Abhängigkeiten: wird auch von tools/server_cfg.py genutzt.
-Kanäle kommen aus allen Aktor-Kanälen der Anlage, lokale Szenen und Server-Tasten aus anlage["esp"]
-(aus den Verknüpfungen des Exports, iex.py, oder von Hand: "szenen" {Name: [{ia, handle, wert}]}, "server_tasten"
-[{name, sender, ga, szene}]). Eine Taste ohne "szene" wird nur gemeldet – dann entscheidet HA.
+No Home Assistant dependencies: also used by tools/server_cfg.py.
+Channels come from all actuator channels of the installation; local scenes and server keys come from anlage["esp"]
+(from the links of the server export, iex.py, or by hand: `"szenen"` {name: [{ia, handle, wert}]},
+`"server_tasten"` [{name, sender, ga, szene}]). A key without `"szene"` is only reported – HA decides then.
 """
 from __future__ import annotations
 
 from typing import Any
 
 try:
-    from .texte import tr
-except ImportError:  # tools/server_cfg.py lädt das Modul ohne Paket
-    from texte import tr
+    from .texts import tr
+except ImportError:  # tools/server_cfg.py loads the module without a package
+    from texts import tr
 
-TEIL_HEX = 400
-# Kanal-Flags im Blob (src/server.h): Bit 0 Dimmer, Bit 1 Jalousie (ab Firmware 0.8.20)
-FLAGS = {"schalten": 0, "dimmen": 1, "jalousie": 2}  # Hex-Zeichen je config-Befehl (Zeile < 512 Byte)
+PART_HEX = 400
+# Channel flags in the blob (src/server.h): bit 0 dimmer, bit 1 blind (since firmware 0.8.20)
+FLAGS = {"schalten": 0, "dimmen": 1, "jalousie": 2}  # hex characters per config command (line < 512 bytes)
 
 
 def crc16(data: bytes) -> int:
-    """Wie knxrf::crc16: Polynom 0x3D65, Init 0, invertiert."""
+    """Same as knxrf::crc16: polynomial 0x3D65, init 0, inverted."""
     r = 0
     for b in data:
         r ^= b << 8
@@ -34,12 +34,12 @@ def ia_int(s: str) -> int:
     return a << 12 | b << 8 | c
 
 
-def build(anlage: dict[str, Any], esp: dict[str, Any] | None = None):
-    """Liefert (blob, kanäle, szenennamen, tasten). esp überschreibt anlage["esp"]."""
-    esp = anlage.get("esp", {}) if esp is None else esp
-    srv = anlage["server"]
+def build(installation: dict[str, Any], esp: dict[str, Any] | None = None):
+    """Return (blob, channels, scene names, keys). esp overrides anlage["esp"]."""
+    esp = installation.get("esp", {}) if esp is None else esp
+    srv = installation["server"]
     channels = []
-    for d in anlage["geraete"]:
+    for d in installation["geraete"]:
         for k in d["kanaele"]:
             if k["art"] not in FLAGS:
                 continue
@@ -73,7 +73,7 @@ def build(anlage: dict[str, Any], esp: dict[str, Any] | None = None):
     return bytes(b), channels, scene_names, keys
 
 
-def teile(blob: bytes) -> list[str]:
-    """Blob in Hex-Teile für den Befehl config zerlegen."""
+def split_parts(blob: bytes) -> list[str]:
+    """Split the blob into hex parts for the config command."""
     hx = blob.hex()
-    return [hx[i:i + TEIL_HEX] for i in range(0, len(hx), TEIL_HEX)]
+    return [hx[i:i + PART_HEX] for i in range(0, len(hx), PART_HEX)]

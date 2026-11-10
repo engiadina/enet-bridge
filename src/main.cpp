@@ -1,21 +1,21 @@
-// eNet / KNX-RF Bridge – Firmware 0.8, Protokoll 1 (docs/SCHNITTSTELLE.md)
+// eNet / KNX-RF Bridge – firmware 0.8, protocol 1 (docs/SCHNITTSTELLE.md)
 //
-// Host-Schnittstelle: eine JSON-Zeile pro Nachricht.
-//   Befehl  {"cmd":"switch","id":5,"ia":"0.0.4","ch":1,"on":true}
-//   Antwort {"re":5,"ok":true}            sofort, nur angenommen/abgelehnt
-//   Ereignis {"ev":"result","id":5,...}   Funk-Ergebnisse, Tasten, Zustaende, ...
-// Gesendet wird nur auf Befehl, fuer Status-Polling, als Antwort auf Server-Tasten (nur bei "server on")
-// und fuer lokale Szenen.
+// Host interface: one JSON line per message.
+//   Command  {"cmd":"switch","id":5,"ia":"0.0.4","ch":1,"on":true}
+//   Response {"re":5,"ok":true}            immediately, only accepted/rejected
+//   Event    {"ev":"result","id":5,...}   radio results, keys, states, ...
+// Transmission happens only on command, for status polling, in reply to server keys (only with "server on")
+// and for local scenes.
 //
-// Textbefehle zur Fehlersuche (Zeile beginnt nicht mit "{"):
-//   v              Empfangsfehler melden an/aus (rx_error)
-//   r              CC1101-Register ausgeben
-//   s              Statistik
-//   d              Diagnose: GDO-Leitungen, Zustand, RSSI/Carrier Sense ueber 6 s
-//   w <Reg> <Wert> CC1101-Register schreiben (Hex), nur zum Experimentieren
-//   send <Hex>     beliebiges Telegramm (ohne CRCs), LFN setzt die Bridge
-//   spi            Leitungstest ohne SPI: CSn von Hand, MISO mit Pull-up/-down (CS tief = 1/1: Chip nicht
-//                  bereit, Quarz laeuft nicht; CS hoch = 1/0: hochohmig, richtig)
+// Text commands for debugging (line does not start with "{"):
+//   v              toggle reporting of receive errors (rx_error)
+//   r              dump CC1101 registers
+//   s              statistics
+//   d              diagnostics: GDO lines, state, RSSI/carrier sense over 6 s
+//   w <reg> <val>  write CC1101 register (hex), for experiments only
+//   send <hex>     arbitrary telegram (without CRCs), the bridge sets the LFN
+//   spi            line test without SPI: CSn by hand, MISO with pull-up/-down (CS low = 1/1: chip not
+//                  ready, crystal not running; CS high = 1/0: high impedance, correct)
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -27,24 +27,24 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.21";
+static const char* kFwVersion = "0.8.22";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
 static bool radioOk = false;
-static uint8_t radioVersion = 0;               // Chip-Version beim Start (Ueberwachung vergleicht dagegen)
-static int8_t freqOffset = CC1101_FREQ_OFFSET;  // FSCTRL0; je Platine im NVS ("foff"), Befehl "radio"
-static int32_t estSum = 0;                      // FREQEST der gueltigen Telegramme seit dem letzten Offset
+static uint8_t radioVersion = 0;               // chip version at startup (monitoring compares against it)
+static int8_t freqOffset = CC1101_FREQ_OFFSET;  // FSCTRL0; per board in NVS ("foff"), command "radio"
+static int32_t estSum = 0;                      // FREQEST of valid telegrams since the last offset change
 static uint16_t estN = 0;
-static bool verbose = false;  // Empfangsfehler melden
-static bool monitor = false;  // alle Telegramme melden
+static bool verbose = false;  // report receive errors
+static bool monitor = false;  // report all telegrams
 static uint32_t statOk = 0, statCrc = 0, statBad = 0, statFixed = 0, statOverflow = 0, statTx = 0, statTxBusy = 0;
-static uint8_t lfn = 0;       // Link Frame Number der Bridge (3 Bit, ein Zaehler fuer alles)
-static float lastRssi = 0;    // Pegel des zuletzt empfangenen Telegramms
+static uint8_t lfn = 0;       // link frame number of the bridge (3 bits, one counter for everything)
+static float lastRssi = 0;    // level of the most recently received telegram
 static Preferences prefs;
 
 // ---------------------------------------------------------------------------
-// Hilfsfunktionen
+// Helper functions
 // ---------------------------------------------------------------------------
 static void hexStr(const uint8_t* d, size_t n, char* out) {
   static const char* hx = "0123456789abcdef";
@@ -68,7 +68,7 @@ static size_t parseHex(const char* s, uint8_t* out, size_t cap) {
     out[n++] = (uint8_t)(hi << 4 | lo);
     s += 2;
   }
-  return (s && *s) ? 0 : n;  // Rest (ungerade/zu lang) = Fehler
+  return (s && *s) ? 0 : n;  // remainder (odd/too long) = error
 }
 
 // "1.2.3" -> 0x1203
@@ -111,13 +111,13 @@ static uint8_t nextLfn() {
 }
 
 // ---------------------------------------------------------------------------
-// Uhr (vom Host gesetzt, fuer Zeitstempel beim Programmieren)
+// Clock (set by the host, for timestamps when programming)
 // ---------------------------------------------------------------------------
 static bool clockSet = false;
-static int64_t clockBase = 0;  // Sekunden seit 2000-01-01 zum Zeitpunkt clockMs
+static int64_t clockBase = 0;  // seconds since 2000-01-01 at time clockMs
 static uint32_t clockMs = 0;
 
-static int64_t daysFromCivil(int y, unsigned m, unsigned d) {  // H. Hinnant, Tage seit 1970-01-01
+static int64_t daysFromCivil(int y, unsigned m, unsigned d) {  // H. Hinnant, days since 1970-01-01
   y -= m <= 2;
   const int era = (y >= 0 ? y : y - 399) / 400;
   const unsigned yoe = (unsigned)(y - era * 400);
@@ -136,35 +136,35 @@ static bool setClock(const char* iso) {
 }
 
 // ---------------------------------------------------------------------------
-// Senden
-// Funk-LED (PIN_LED, aktiv low): kurz an bei jedem gesendeten und jedem gueltigen empfangenen Telegramm
-static uint32_t ledAus = 0;
-static bool ledAn = false;
-static void ledBlitz() {
+// Transmit
+// Radio LED (PIN_LED, active low): briefly on for every transmitted and every valid received telegram
+static uint32_t ledOffAt = 0;
+static bool ledOn = false;
+static void ledFlash() {
   if (PIN_LED < 0) return;
   digitalWrite(PIN_LED, LOW);
-  ledAn = true;
-  ledAus = millis() + 40;
+  ledOn = true;
+  ledOffAt = millis() + 40;
 }
-static void ledPruefen(uint32_t now) {
-  if (PIN_LED >= 0 && ledAn && (int32_t)(now - ledAus) >= 0) {
+static void ledCheck(uint32_t now) {
+  if (PIN_LED >= 0 && ledOn && (int32_t)(now - ledOffAt) >= 0) {
     digitalWrite(PIN_LED, HIGH);
-    ledAn = false;
+    ledOn = false;
   }
 }
 
 // ---------------------------------------------------------------------------
-// false = nicht gesendet (Kanal belegt, Fehler)
+// false = not sent (channel busy, error)
 static bool sendTelegram(const uint8_t* data, size_t len) {
   static const char* kResult[] = {"ok", "busy", "underflow", "timeout", "too_long"};
   static uint8_t chips[255];
   if (!radioOk) return false;
   size_t n = knxrf::buildTxChips(data, len, chips, sizeof(chips), KNXRF_INVERT_CHIPS);
   if (!n) return false;
-  ledBlitz();
+  ledFlash();
   CC1101::TxResult r = radio.transmit(chips, n);
   if (r == CC1101::TX_OK) ++statTx;
-  if (radio.lbtUeberschritten()) ++statTxBusy;  // nach der Wartezeit trotz belegtem Kanal gesendet
+  if (radio.lbtOverrun()) ++statTxBusy;  // sent after the wait time despite a busy channel
   if (!monitor) return r == CC1101::TX_OK;
   char hx[2 * 64 + 1];
   hexStr(data, len < 64 ? len : 64, hx);
@@ -179,7 +179,7 @@ static bool sendTelegram(const uint8_t* data, size_t len) {
 }
 
 // ---------------------------------------------------------------------------
-// Server-Funktionen: Anbindung an Funk, Ereignisse als JSON, Konfiguration im Flash
+// Server functions: radio link, events as JSON, configuration in flash
 // ---------------------------------------------------------------------------
 class BridgeIo : public enet::Io {
  public:
@@ -222,7 +222,7 @@ class BridgeIo : public enet::Io {
       sprintf(c8, "%08lx", (unsigned long)e.value32);
       d["cmd"] = c8;
     } else {
-      d["richtung"] = (e.cmd & 0xC000) == 0x8000 ? "rechts" : "links";  // Wippentasten liegen nebeneinander
+      d["richtung"] = (e.cmd & 0xC000) == 0x8000 ? "rechts" : "links";  // rocker keys are next to each other
       d["hold_ms"] = (uint32_t)(e.cmd & 0x3FFF) * 10;
       if (e.kind == enet::KeyKind::DIRECT) {
         hexStr(e.sg.replySN, 6, rsn);
@@ -231,8 +231,8 @@ class BridgeIo : public enet::Io {
         d["reply_ga"] = e.sg.replyGA;
       }
     }
-    // Batteriezustand aus dem RF-Info-Byte (KNX RF: Bit 1 = 1 Batterie in Ordnung, 0 schwach); so wertet ihn
-    // auch der eNet Server aus (kdrive DeviceMonitor, BATTERY_OK/BATTERY_WEAK)
+    // Battery state from the RF info byte (KNX RF: bit 1 = 1 battery OK, 0 weak); the eNet Server evaluates
+    // it the same way (kdrive DeviceMonitor, BATTERY_OK/BATTERY_WEAK)
     d["battery"] = (e.rfInfo & 0x02) ? "ok" : "weak";
     d["rssi"] = lastRssi;
     emit(d);
@@ -254,13 +254,13 @@ class BridgeIo : public enet::Io {
       if (st.move != 0xFF) d["move"] = st.move;
     }
     d["source"] = kSrc[(int)src];
-    if (src != enet::Source::CACHE) d["rssi"] = lastRssi;  // Pegel der Statusmeldung bzw. Antwort
+    if (src != enet::Source::CACHE) d["rssi"] = lastRssi;  // level of the status message or response
     emit(d);
   }
 
   void onResult(uint32_t id, uint16_t ia, uint16_t handle, bool isRead, enet::Origin, bool ok, int rc,
                 uint8_t tries, const uint8_t* val, size_t len) override {
-    if (!id) return;  // interne Auftraege (Status-Polling) melden nur state
+    if (!id) return;  // internal jobs (status polling) only report state
     char iab[12], hx[2 * 8 + 1];
     iaStr(ia, iab);
     JsonDocument d;
@@ -273,7 +273,7 @@ class BridgeIo : public enet::Io {
     d["handle"] = handle;
     d["type"] = isRead ? "read" : "set";
     d["tries"] = tries;
-    if (ok) d["rssi"] = lastRssi;  // Pegel der Quittung
+    if (ok) d["rssi"] = lastRssi;  // level of the acknowledgement
     if (ok && val && len) {
       hexStr(val, len < 8 ? len : 8, hx);
       d["value"] = hx;
@@ -343,10 +343,10 @@ class BridgeIo : public enet::Io {
 
 static BridgeIo bridgeIo;
 static enet::Server server(bridgeIo);
-static enet::Config cfgTmp;  // Puffer fuer Laden/Hochladen
+static enet::Config cfgTmp;  // buffer for loading/uploading
 static uint8_t cfgBlob[2048];
-static size_t cfgLen = 0;     // Laenge des gerade hochgeladenen Blobs
-static uint16_t cfgCrc = 0;   // CRC der aktiven Konfiguration (0 = keine)
+static size_t cfgLen = 0;     // length of the blob currently being uploaded
+static uint16_t cfgCrc = 0;   // CRC of the active configuration (0 = none)
 static bool cfgValid = false;
 
 static void serverOnFrame(const uint8_t* d, size_t n) {
@@ -361,18 +361,18 @@ static void loadServerConfig() {
     server.setConfig(cfgTmp);
     cfgCrc = (uint16_t)(cfgBlob[n - 2] << 8 | cfgBlob[n - 1]);
     cfgValid = true;
-  } else {  // ohne Konfiguration: Domaene und Server-SN aus config.h (Senden nur mit gueltiger Konfiguration)
+  } else {  // without configuration: domain and server SN from config.h (transmit only with a valid configuration)
     const uint8_t dom[6] = ENET_DOMAIN, sn[6] = ENET_SERVER_SN;
     memcpy(cfgTmp.domain, dom, 6);
     memcpy(cfgTmp.serverSn, sn, 6);
     server.setConfig(cfgTmp);
   }
-  // ab Werk an (neue Bridge = sofort Server); ein echter Server wird nur gemeldet (ev real_server)
+  // on by default (new bridge = server right away); a real server is only reported (ev real_server)
   server.setEnabled(prefs.getBool("srv", true));
 }
 
 // ---------------------------------------------------------------------------
-// Empfang
+// Receive
 // ---------------------------------------------------------------------------
 static void rxError(const char* kind, float rssi, const uint8_t* d, size_t n) {
   if (!verbose) return;
@@ -386,7 +386,7 @@ static void rxError(const char* kind, float rssi, const uint8_t* d, size_t n) {
   emit(doc);
 }
 
-// Liest ein Telegramm nach erkanntem Sync.
+// Reads a telegram after a detected sync.
 static void receiveFrame() {
   static uint8_t chips[2 * knxrf::kMaxFrame];
   static uint8_t raw[knxrf::kMaxFrame];
@@ -402,7 +402,7 @@ static void receiveFrame() {
       break;
     }
     if (n) {
-      // letztes Byte im FIFO stehen lassen, solange noch empfangen wird (Errata)
+      // leave the last byte in the FIFO while reception is still in progress (errata)
       if (n > 1 && (needChips == 0 || have + n < needChips)) --n;
       if (have + n > sizeof(chips)) n = sizeof(chips) - have;
       radio.readFifo(chips + have, n);
@@ -439,15 +439,15 @@ static void receiveFrame() {
   if (fixed > 0) ++statFixed;
 
   ++statOk;
-  ledBlitz();
+  ledFlash();
   lastRssi = rssi;
-  if (estN >= 1000) {  // gleitend: alte Werte halbieren
+  if (estN >= 1000) {  // moving: halve old values
     estSum /= 2;
     estN /= 2;
   }
   estSum += est;
   ++estN;
-  serverOnFrame(f.data, f.len);  // zuerst: Server-Tasten ohne Verzoegerung beantworten
+  serverOnFrame(f.data, f.len);  // first: answer server keys without delay
   if (!monitor) return;
   char hx[2 * knxrf::kMaxFrame + 1];
   hexStr(f.data, f.len, hx);
@@ -462,14 +462,14 @@ static void receiveFrame() {
 }
 
 // ---------------------------------------------------------------------------
-// Diagnose (Textbefehl d bzw. {"cmd":"diag"})
+// Diagnostics (text command d or {"cmd":"diag"})
 // ---------------------------------------------------------------------------
 static void diagnose() {
-  radio.writeReg(CC1101::IOCFG0, 0x2F);  // fest 0
+  radio.writeReg(CC1101::IOCFG0, 0x2F);  // constant 0
   radio.writeReg(CC1101::IOCFG2, 0x2F);
   delay(2);
   int g0lo = digitalRead(PIN_GDO0), g2lo = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
-  radio.writeReg(CC1101::IOCFG0, 0x6F);  // fest 1
+  radio.writeReg(CC1101::IOCFG0, 0x6F);  // constant 1
   radio.writeReg(CC1101::IOCFG2, 0x6F);
   delay(2);
   int g0hi = digitalRead(PIN_GDO0), g2hi = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
@@ -481,8 +481,8 @@ static void diagnose() {
   float rssiMin = 0, rssiMax = -200;
   uint32_t cs = 0, n = 0;
   for (uint32_t t0 = millis(); millis() - t0 < 6000; ++n) {
-    if (radio.syncDetected() || radio.marcState() != 0x0D) {  // Telegramm: AGC eingefroren (AGCCTRL0) → neu
-      radio.startRx();                                        // starten, sonst bleibt RSSI auf dessen Pegel
+    if (radio.syncDetected() || radio.marcState() != 0x0D) {  // telegram: AGC frozen (AGCCTRL0) → restart,
+      radio.startRx();                                        // otherwise RSSI stays at its level
       delay(2);
       --n;
       continue;
@@ -501,8 +501,8 @@ static void diagnose() {
   d["rssi_min"] = rssiMin;
   d["rssi_max"] = rssiMax;
   d["cs_anteil"] = n ? (float)cs / n : 0.0f;
-  d["grundrauschen"] = radio.rauschen().boden();
-  d["schwelle"] = radio.rauschen().schwelle();
+  d["grundrauschen"] = radio.noise().floorDb();
+  d["schwelle"] = radio.noise().threshold();
   emit(d);
 }
 
@@ -521,15 +521,15 @@ static void printStats(uint32_t id) {
   d["overflow"] = statOverflow;
   d["tx"] = statTx;
   d["tx_busy"] = statTxBusy;
-  if (radio.rauschen().bereit()) {
-    d["noise_dbm"] = roundf(radio.rauschen().boden() * 10) / 10;
-    d["busy_pct"] = roundf(radio.rauschen().anteil() * 1000) / 10;
+  if (radio.noise().ready()) {
+    d["noise_dbm"] = roundf(radio.noise().floorDb() * 10) / 10;
+    d["busy_pct"] = roundf(radio.noise().busyShare() * 1000) / 10;
   }
   d["uptime_s"] = millis() / 1000;
   emit(d);
 }
 
-// Kennung der Platine (MAC des ESP32), z. B. "a0b1c2d3e4f5"
+// Board identifier (MAC of the ESP32), e.g. "a0b1c2d3e4f5"
 static const char* bridgeId() {
   static char id[13];
   uint64_t mac = ESP.getEfuseMac();
@@ -541,8 +541,8 @@ static void fillRadio(JsonObject r) {
   r["ok"] = radioOk;
   r["version"] = radioOk ? radio.version() : radioVersion;
   r["freq_offset"] = freqOffset;
-  r["calibrated"] = prefs.isKey("foff");  // Offset fuer diese Platine gespeichert
-  if (estN) r["freqest"] = (float)estSum / estN;  // mittlere Abweichung (Schritte), FSCTRL0 += freqest
+  r["calibrated"] = prefs.isKey("foff");  // offset stored for this board
+  if (estN) r["freqest"] = (float)estSum / estN;  // mean deviation (steps), FSCTRL0 += freqest
   r["freqest_n"] = estN;
 }
 
@@ -553,8 +553,8 @@ static void emitRadio() {
   emit(d);
 }
 
-// CC1101 laufend pruefen: faellt er weg (Wackelkontakt, Masse ab), radio.ok = false melden und alle 5 s
-// neu initialisieren. Die Version wird auch mitten im Empfang gelesen (Statusregister).
+// Check the CC1101 continuously: if it drops out (loose contact, ground lost), report radio.ok = false and
+// reinitialize every 5 s. The version is read even in the middle of reception (status register).
 static void checkRadio(uint32_t now) {
   static uint32_t last = 0;
   static uint8_t fails = 0;
@@ -581,10 +581,10 @@ static void checkRadio(uint32_t now) {
 static void fillStatus(JsonDocument& d) {
   char crc[5];
   sprintf(crc, "%04x", cfgCrc);
-  d["product"] = "enet-bridge";  // Kennung fuer den Host: hier antwortet eine Bridge (automatisches Update)
+  d["product"] = "enet-bridge";  // identifier for the host: a bridge is answering here (automatic update)
   d["fw"] = kFwVersion;
   d["proto"] = kProtoVersion;
-  d["chip"] = CONFIG_IDF_TARGET;  // "esp32", "esp32c6": welches Firmware-Paket der Host flasht
+  d["chip"] = CONFIG_IDF_TARGET;  // "esp32", "esp32c6": which firmware package the host flashes
   d["id"] = bridgeId();
   JsonObject r = d["radio"].to<JsonObject>();
   fillRadio(r);
@@ -604,7 +604,7 @@ static void fillStatus(JsonDocument& d) {
 }
 
 // ---------------------------------------------------------------------------
-// JSON-Befehle
+// JSON commands
 // ---------------------------------------------------------------------------
 static bool channelArg(JsonDocument& in, uint32_t id, uint16_t& ia, int& ci) {
   if (!parseIA(in["ia"] | (const char*)nullptr, ia) || !in["ch"].is<int>()) {
@@ -698,7 +698,7 @@ static void handleJson(const char* line) {
     d["keys"] = cfgTmp.nKeys;
     emit(d);
   } else if (!strcmp(cmd, "radio")) {
-    // {"freq_offset"?, "save"?} – Frequenzkorrektur setzen (sofort wirksam) und/oder im NVS speichern
+    // {"freq_offset"?, "save"?} – set frequency correction (effective immediately) and/or save it in NVS
     if (!in["freq_offset"].isNull()) {
       int f = in["freq_offset"] | 1000;
       if (f < -128 || f > 127) return replyErr(id, "bad_args", "freq_offset -128..127");
@@ -731,10 +731,10 @@ static void handleJson(const char* line) {
       val[0] = 0;
       return queued(id, server.queueSet(ia, ch.offset + 2, val, 1, enet::Origin::HOST, id));
     }
-    val[0] = (uint8_t)(p * 255 / 100);  // wie der Server: floor
+    val[0] = (uint8_t)(p * 255 / 100);  // like the server: floor
     queued(id, server.queueSet(ia, ch.offset + 4, val, 1, enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "cover")) {
-    // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = oben)]}
+    // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = top)]}
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
     const enet::Channel& ch = server.config().channels[ci];
     if (!ch.blind) return replyErr(id, "bad_args", "kein Jalousiekanal");
@@ -742,13 +742,13 @@ static void handleJson(const char* line) {
     uint16_t go;
     if (!strcmp(a, "up") || !strcmp(a, "down")) {
       go = enet::kGoBlindMove;
-      val[0] = !strcmp(a, "down") ? 1 : 0;  // DPT 1.008: 0 auf, 1 ab
+      val[0] = !strcmp(a, "down") ? 1 : 0;  // DPT 1.008: 0 up, 1 down
     } else if (!strcmp(a, "step_up") || !strcmp(a, "step_down")) {
       go = enet::kGoBlindStep;
       val[0] = !strcmp(a, "step_down") ? 1 : 0;  // DPT 1.007
     } else if (!strcmp(a, "stop")) {
       go = enet::kGoBlindStop;
-      val[0] = 1;  // DPT 1.017 Trigger
+      val[0] = 1;  // DPT 1.017 trigger
     } else if (!strcmp(a, "position") || !strcmp(a, "slat")) {
       int p = in["percent"] | -1;
       if (p < 0 || p > 100) return replyErr(id, "bad_args", "percent 0..100");
@@ -770,7 +770,7 @@ static void handleJson(const char* line) {
       return replyErr(id, "bad_args", "ia, handle");
     queued(id, server.queueRead(ia, (uint16_t)in["handle"].as<int>(), enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "prop_read") || !strcmp(cmd, "prop_write")) {
-    // {"ia","obj","pid","start","count"[, "data" hex]} – A_PropertyValue_Read/Write (Parameterspeicher: PID 79)
+    // {"ia","obj","pid","start","count"[, "data" hex]} – A_PropertyValue_Read/Write (parameter memory: PID 79)
     if (!radioReady(id)) return;
     bool write = !strcmp(cmd, "prop_write");
     uint8_t data[enet::kMaxJobData];
@@ -783,14 +783,14 @@ static void handleJson(const char* line) {
                                 (uint8_t)in["obj"].as<int>(), (uint8_t)in["pid"].as<int>(),
                                 (uint16_t)in["start"].as<int>(), (uint8_t)count, data, (uint8_t)dl, id));
   } else if (!strcmp(cmd, "np_write")) {
-    // {"ia","data" hex} – A_NetworkParameter_Write P2P, ohne Antwort des Geräts
+    // {"ia","data" hex} – A_NetworkParameter_Write P2P, without a response from the device
     if (!radioReady(id)) return;
     uint8_t data[enet::kMaxJobData];
     size_t dl = parseHex(in["data"] | "", data, sizeof(data));
     if (!parseIA(in["ia"] | (const char*)nullptr, ia) || !dl) return replyErr(id, "bad_args", "ia, data");
     queued(id, server.queueNpWrite(ia, data, (uint8_t)dl, id));
   } else if (!strcmp(cmd, "fp_cmd") || !strcmp(cmd, "fp_read")) {
-    // {"ia","obj","pid","data" hex} – FuncProp auf Objekt/PID, z. B. Link-Tabelle (PID 63)
+    // {"ia","obj","pid","data" hex} – FuncProp on object/PID, e.g. link table (PID 63)
     if (!radioReady(id)) return;
     uint8_t data[enet::kMaxJobData];
     size_t dl = parseHex(in["data"] | "", data, sizeof(data));
@@ -800,7 +800,7 @@ static void handleJson(const char* line) {
                                     (uint8_t)in["obj"].as<int>(), (uint8_t)in["pid"].as<int>(), data, (uint8_t)dl,
                                     id));
   } else if (!strcmp(cmd, "scene_call")) {
-    // {"ga","nr"[,"learn"]} – KNX-Szene in den Aktoren aufrufen bzw. aktuellen Zustand lernen
+    // {"ga","nr"[,"learn"]} – recall a KNX scene in the actuators or learn the current state
     if (!radioReady(id)) return;
     int ga = in["ga"] | -1, nr = in["nr"] | -1;
     if (ga < 1 || ga > 0xFFFF || nr < 0 || nr > 63) return replyErr(id, "bad_args", "ga, nr 0..63");
@@ -863,7 +863,7 @@ static void handleJson(const char* line) {
 }
 
 // ---------------------------------------------------------------------------
-// Textbefehle zur Fehlersuche
+// Text commands for debugging
 // ---------------------------------------------------------------------------
 static void handleText(char* line) {
   char* cmd = strtok(line, " ");
@@ -882,7 +882,7 @@ static void handleText(char* line) {
     printStats(0);
   } else if (!strcmp(cmd, "d")) {
     diagnose();
-  } else if (!strcmp(cmd, "w")) {  // Register schreiben (Hex), z. B. "w 04 89"
+  } else if (!strcmp(cmd, "w")) {  // write register (hex), e.g. "w 04 89"
     if (!a1 || !a2) return replyErr(0, "bad_args", "w <Reg> <Wert>");
     uint8_t reg = (uint8_t)strtoul(a1, nullptr, 16), v = (uint8_t)strtoul(a2, nullptr, 16);
     radio.strobe(CC1101::SIDLE);
@@ -893,7 +893,7 @@ static void handleText(char* line) {
     d["addr"] = reg;
     d["value"] = radio.readReg(reg);
     emit(d);
-  } else if (!strcmp(cmd, "spi")) {  // Leitungstest ohne SPI: CSn von Hand, MISO mit Pull-up/-down lesen
+  } else if (!strcmp(cmd, "spi")) {  // line test without SPI: CSn by hand, read MISO with pull-up/-down
     SPI.end();
     pinMode(PIN_CS, OUTPUT);
     JsonDocument d;
@@ -903,7 +903,7 @@ static void handleText(char* line) {
       digitalWrite(PIN_CS, i < 2 ? HIGH : LOW);
       pinMode(PIN_MISO, (i % 2) ? INPUT_PULLDOWN : INPUT_PULLUP);
       delay(5);
-      d[namen[i]] = digitalRead(PIN_MISO);  // CC1101: CS hoch = hochohmig (folgt dem Pull), CS tief = 0 (bereit)
+      d[namen[i]] = digitalRead(PIN_MISO);  // CC1101: CS high = high impedance (follows the pull), CS low = 0 (ready)
     }
     digitalWrite(PIN_CS, HIGH);
     pinMode(PIN_SCK, INPUT_PULLDOWN);
@@ -914,7 +914,7 @@ static void handleText(char* line) {
     d["mosi"] = digitalRead(PIN_MOSI);
     d["gdo0"] = digitalRead(PIN_GDO0);
     d["gdo2"] = PIN_GDO2 >= 0 ? digitalRead(PIN_GDO2) : -1;
-    radioOk = radio.begin(freqOffset);  // SPI wieder aufnehmen
+    radioOk = radio.begin(freqOffset);  // resume SPI
     radioVersion = radioOk ? radio.version() : 0;
     d["radio_ok"] = radioOk;
     d["version"] = radio.version();
@@ -956,10 +956,10 @@ static void handleSerial() {
 }
 
 void setup() {
-  // Mehrere Befehle auf einmal (z. B. „alle Lampen an“) muessen auch waehrend Senden/Empfangen (bis ~50 ms
-  // blockiert) Platz haben; Standard 256 Byte lief ueber
+  // Several commands at once (e.g. "all lights on") must fit even while transmitting/receiving (blocked up to
+  // ~50 ms); the default of 256 bytes overflowed
   Serial.setRxBufferSize(4096);
-#if ARDUINO_USB_CDC_ON_BOOT  // native USB (z. B. XIAO ESP32-C6): Ereignisse puffern, ohne Host nicht blockieren
+#if ARDUINO_USB_CDC_ON_BOOT  // native USB (e.g. XIAO ESP32-C6): buffer events, do not block without a host
   Serial.setTxBufferSize(4096);
   Serial.setTxTimeoutMs(0);
 #endif
@@ -967,7 +967,7 @@ void setup() {
   delay(300);
   if (PIN_LED >= 0) {
     pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);  // aus
+    digitalWrite(PIN_LED, HIGH);  // off
   }
   bridgeIo.server = &server;
   prefs.begin("enet", false);
@@ -986,20 +986,20 @@ void setup() {
 
 void loop() {
   const uint32_t now = millis();
-  ledPruefen(now);
+  ledCheck(now);
   checkRadio(now);
   if (radioOk) {
     if (radio.syncDetected()) {
       receiveFrame();
     } else {
-      static uint32_t tRausch = 0;
+      static uint32_t tNoise = 0;
       const uint8_t marc = radio.marcState();
       if (marc == 0x11) {  // RX_OVERFLOW
         ++statOverflow;
         radio.startRx();
-      } else if (marc == 0x0D && now - tRausch >= 5) {  // RX: Grundrauschen für Listen-before-talk
-        tRausch = now;
-        radio.rauschProbe();
+      } else if (marc == 0x0D && now - tNoise >= 5) {  // RX: noise floor for listen-before-talk
+        tNoise = now;
+        radio.noiseSample();
       }
     }
   }

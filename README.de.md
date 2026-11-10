@@ -241,7 +241,7 @@ enthalten die Produktnummer, die das Gerät gemeldet hat, damit es unterstützt 
 
 Firmware: PlatformIO (`pio run -e esp32dev`, XIAO ESP32-C6: `-e xiao_esp32c6`; `tools/fw_bundle.sh` legt beide in `bridge_fw/`). Die
 Protokoll-Logik hat Host-Tests: `pio test -e native`. Schnittstelle Bridge ↔ Host (serielle JSON-Zeilen):
-[docs/SCHNITTSTELLE.md](docs/SCHNITTSTELLE.md).
+[docs/INTERFACE.md](docs/INTERFACE.md).
 
 ## Lizenz
 

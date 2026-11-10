@@ -6,7 +6,7 @@ namespace enet {
 
 namespace {
 
-// (int32_t) (a - b) >= 0 auch ueber den Ueberlauf von millis() hinweg
+// (int32_t) (a - b) >= 0 also across the overflow of millis()
 bool reached(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
 
 struct Reader {
@@ -41,7 +41,7 @@ struct Writer {
 
 }  // namespace
 
-// Mindestlänge 22: Kopf (2) + Domäne/SN (12) + IA (2) + Anzahlen (4) + CRC (2) – leere Anlage gültig
+// Minimum length 22: header (2) + domain/SN (12) + IA (2) + counts (4) + CRC (2) – empty installation is valid
 bool parseConfig(const uint8_t* blob, size_t len, Config& c) {
   if (len < 22 || blob[0] != 'E' || blob[1] != 0x03) return false;
   uint16_t crc = (uint16_t)(blob[len - 2] << 8 | blob[len - 1]);
@@ -340,7 +340,7 @@ void Server::finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t
     if (!cur_.read) {
       st_[ci].cmdAt = now;
       st_[ci].pollStage = 0;
-      schedulePoll(ci, now);  // Status abfragen, falls der Aktor sich nicht selbst meldet
+      schedulePoll(ci, now);  // query status in case the actuator does not report by itself
     } else if (ch.blind) {
       if (len >= 1 && cur_.handle == ch.offset + kGoBlindPosNow)
         updateBlind(ci, val[0] * 100 / 255, -1, -1, Source::POLL);
@@ -359,7 +359,7 @@ void Server::finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t
   }
 }
 
-// Szenen melden nur ihren Abschluss
+// Scenes only report their completion
 void Server::sceneStep(bool ok) {
   if (!ok) ++sceneFailed_[cur_.scene];
   if (cur_.lastOfScene) io_.onSceneDone(cur_.id, (uint8_t)cur_.scene, sceneFailed_[cur_.scene]);
@@ -373,8 +373,8 @@ void Server::updateState(int ci, bool setOn, bool on, bool setPercent, uint8_t p
   if (setOn) s.on = on;
   if (setPercent) s.percent = percent;
   s.known = true;
-  // Abfragen immer melden: der Host setzt nach Befehlen vorläufig den Sollzustand, die Tabelle hier nicht –
-  // ein ausgeführter, aber abweichender Zustand (z. B. Szene, verlorene Statusmeldung) würde sonst nie korrigiert
+  // Always report polls: after commands the host provisionally sets the target state, the table here does not –
+  // an executed but differing state (e.g. scene, lost status message) would otherwise never be corrected
   if (changed || src == Source::POLL) io_.onState(cfg_.channels[ci], s, src);
 }
 
@@ -387,12 +387,12 @@ void Server::updateBlind(int ci, int percent, int slat, int move, Source src) {
   if (percent >= 0) s.percent = (uint8_t)percent;
   if (slat >= 0) s.slat = (uint8_t)slat;
   if (move >= 0) s.move = (uint8_t)move;
-  s.on = s.percent > 0;  // „nicht ganz oben“
+  s.on = s.percent > 0;  // "not fully up"
   s.known = true;
   if (changed || src == Source::POLL) io_.onState(cfg_.channels[ci], s, src);
 }
 
-// Abfrage planen: Licht einmal nach kPollDelayMs, Jalousie in Stufen (kBlindPollMs ab dem Befehl)
+// Schedule a poll: light once after kPollDelayMs, blind in stages (kBlindPollMs from the command)
 void Server::schedulePoll(int ci, uint32_t now) {
   ChannelState& s = st_[ci];
   if (!cfg_.channels[ci].blind) {
@@ -409,8 +409,8 @@ void Server::schedulePoll(int ci, uint32_t now) {
 }
 
 void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
-  // Telegramm des echten Servers? (Die Bridge empfaengt ihre eigenen Sendungen nicht.) Nur melden, nicht
-  // abschalten: eine Fehlerkennung darf die Bridge nie dauerhaft stilllegen (Entscheidung 2026-10-29).
+  // Telegram from the real server? (The bridge does not receive its own transmissions.) Only report, do not
+  // switch off: an error detection must never permanently disable the bridge (decision 2026-10-29).
   if ((t.doa && t.src == cfg_.serverIa) || (!t.doa && memcmp(t.addr, cfg_.serverSn, 6) == 0)) {
     if (!realServerSeen_ || now - realServerAt_ >= kRealServerReportMs) {
       realServerSeen_ = true;
@@ -420,7 +420,7 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // Quittung/Antwort auf den laufenden Auftrag
+  // Acknowledgement/response to the current job
   knxrf::FuncPropResp resp;
   if (busy_ && t.doa && t.src == cur_.ia && (cur_.kind == JobKind::GO_SET || cur_.kind == JobKind::GO_READ) &&
       knxrf::parseFuncPropResp(t, resp)) {
@@ -439,16 +439,16 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // Tastendruecke: Server-Taste (SumstatusGet an Server-SN), verknuepfte Taste (SumstatusGet an Aktor)
+  // Key presses: server key (SumstatusGet to server SN), linked key (SumstatusGet to actuator)
   knxrf::SumstatusGet sg;
   if (knxrf::parseSumstatusGet(t, sg)) {
     bool toServer = memcmp(sg.replySN, cfg_.serverSn, 6) == 0;
     KeyEvent e{t.addr, t.dst, toServer ? KeyKind::SERVER : KeyKind::DIRECT, sg.cmd, sg, -1,
                (sg.cmd & 0x4000) != 0, false, false, t.rfInfo};
-    if (toServer) {  // nur unteres GA-Byte: die GA-Basis des Senders steigt mit jedem Werksreset
+    if (toServer) {  // lower GA byte only: the transmitter's GA base increases with every factory reset
       for (uint8_t i = 0; i < cfg_.nKeys; ++i)
         if ((cfg_.keys[i].ga & 0xFF) == (t.dst & 0xFF) && memcmp(cfg_.keys[i].sn, t.addr, 6) == 0) e.keyIndex = i;
-    } else {  // direkt verknuepft: 0x40xx/0x80xx, Haltedauer 0 = Druecken
+    } else {  // directly linked: 0x40xx/0x80xx, hold duration 0 = press
       e.press = (sg.cmd & 0x3FFF) == 0;
     }
     if (toServer && enabled_) {
@@ -456,14 +456,14 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
       size_t n = knxrf::buildSumstatusInfo(cfg_.serverSn, sg.replyGA, 0xFF, sg.seq, 0, frame);
       if (n) io_.transmit(frame, n);
       e.answered = true;
-      // Szene beim Druecken. 0.8.10 rief sie auch beim Loslassen auf (wie der Server) – zurueckgenommen in
-      // 0.8.11: Das liess Lampen flackern, und ein einzelnes Loslassen ohne angekommenes Druecken (zweite Taste
-      // beim Halten beruehrt) schaltete die falsche Szene. Der Anlass (Lampe dimmte beim Loslassen ab) waren
-      // Alt-Links im Aktor, siehe NOTES „FW 0.8.10“.
-      // Ausnahme (0.8.16): Loslassen mit seq = letzte gesehene + 2 – dazwischen fehlt genau ein Telegramm, und das
-      // war das Druecken (Druecken N, Loslassen N+1, je Taste fortlaufend). Ging verloren, waehrend die Bridge
-      // sendete (Statusabfragen nach einer Szene, 2026-11-09). Ein Loslassen ohne Vorgeschichte (+1 oder nach dem
-      // Start) ruft weiterhin nichts auf.
+      // Scene on press. 0.8.10 also recalled it on release (like the server) – reverted in 0.8.11: that made
+      // lamps flicker, and a single release without a received press (second key touched while holding)
+      // switched the wrong scene. The cause (lamp dimmed down on release) was old links in the actuator,
+      // see NOTES "FW 0.8.10".
+      // Exception (0.8.16): release with seq = last seen + 2 – exactly one telegram is missing in between, and
+      // that was the press (press N, release N+1, consecutive per key). It got lost while the bridge was
+      // transmitting (status polls after a scene, 2026-11-09). A release without history (+1 or after
+      // startup) still recalls nothing.
       if (e.keyIndex >= 0) {
         const uint8_t i = (uint8_t)e.keyIndex;
         bool start = false;
@@ -473,7 +473,7 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
           lastSeqValid_[i] = true;
         } else {
           start = lastAnyValid_[i] && (uint16_t)(sg.seq - lastAnySeq_[i]) == 2;
-          if (start) {  // das verlorene Druecken nachtragen: eine Wiederholung davon ist dann keine neue Szene
+          if (start) {  // make up for the lost press: a repetition of it is then not a new scene
             lastSeq_[i] = (uint16_t)(sg.seq - 1);
             lastSeqValid_[i] = true;
           }
@@ -490,7 +490,7 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // nackter Tastenwert einer unbelegten Wippe (GroupWrite, 2 Byte, unter Sender-SN)
+  // bare key value of an unassigned rocker (GroupWrite, 2 bytes, under transmitter SN)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 2) {
     uint16_t v = (uint16_t)(t.data[0] << 8 | t.data[1]);
     KeyEvent e{t.addr, t.dst, KeyKind::VALUE, v, {}, -1, (v & 0x3FFF) == 0, false, false,
@@ -499,8 +499,8 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // Jalousie: 1-Byte-Meldung unter eigener SN an Basis * 256 + Offset + 10/12/13 (Fahrinfo, Position, Lamelle)
-  // (Fahrinfo 2 Bit: als Kurzwert im APCI oder als eigenes Byte)
+  // Blind: 1-byte message under its own SN to base * 256 + offset + 10/12/13 (movement info, position, slat)
+  // (movement info 2 bits: as short value in the APCI or as a separate byte)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE) {
     for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
       const Channel& ch = cfg_.channels[i];
@@ -515,7 +515,7 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     }
   }
 
-  // 4-Byte-Gruppenwert unter Sender-SN (Energiesensor: Leistung, Energie)
+  // 4-byte group value under transmitter SN (energy sensor: power, energy)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 4) {
     KeyEvent e{t.addr, t.dst, KeyKind::VALUE4, 0, {}, -1, false, false, false, t.rfInfo,
                (uint32_t)t.data[0] << 24 | (uint32_t)t.data[1] << 16 | (uint32_t)t.data[2] << 8 | t.data[3]};
@@ -523,16 +523,16 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
     return;
   }
 
-  // 1-Byte-Gruppenwert unter Sender-SN: Szenenaufruf des Sonnensensors (DPT 18, z. B. GA Basis*256+3 bzw. +7)
+  // 1-byte group value under transmitter SN: scene recall of the sun sensor (DPT 18, e.g. GA base*256+3 or +7)
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 1) {
     KeyEvent e{t.addr, t.dst, KeyKind::VALUE1, t.data[0], {}, -1, false, false, false, t.rfInfo};
     io_.onKey(e);
     return;
   }
 
-  // spontane Statusmeldung eines Aktors: unter eigener SN an GA = Basis * 256 + Offset + 22. Nur das untere
-  // GA-Byte zaehlt (wie bei den Tasten): Die Basis steigt mit jedem Werksreset, und eine falsche Basis in der
-  // Konfiguration (z. B. Import) liesse sonst alle Meldungen des Aktors unerkannt. Die SN macht es eindeutig.
+  // Spontaneous actuator status message: under its own SN to GA = base * 256 + offset + 22. Only the lower GA
+  // byte counts (as with keys): the base increases with every factory reset, and a wrong base in the config
+  // (e.g. import) would otherwise leave all messages of the actuator unrecognized. The SN makes it unique.
   if (t.group && !t.doa && t.apciBase() == knxrf::APCI_GROUP_WRITE && t.dataLen == 3) {
     for (uint8_t i = 0; i < cfg_.nChannels; ++i) {
       const Channel& ch = cfg_.channels[i];
@@ -553,7 +553,7 @@ void Server::tick(uint32_t now) {
       if (ch.blind) {
         queueRead(ch.ia, ch.offset + kGoBlindPosNow, Origin::POLL);
         queueRead(ch.ia, ch.offset + kGoBlindSlatNow, Origin::POLL);
-        schedulePoll(i, now);  // nächste Stufe
+        schedulePoll(i, now);  // next stage
         continue;
       }
       queueRead(ch.ia, ch.offset + kGoStatus, Origin::POLL);
@@ -562,7 +562,7 @@ void Server::tick(uint32_t now) {
   }
   if (busy_ && reached(now, deadline_)) {
     if (txPending_) {
-      sendJob(now);  // Kanal war belegt: derselbe Versuch noch einmal
+      sendJob(now);  // channel was busy: the same attempt once more
     } else if (cur_.kind == JobKind::GROUP_WRITE && tries_ >= kGroupRepeats) {
       finishJob(true, 0, nullptr, 0, now);
     } else if (tries_ < kTries) {
