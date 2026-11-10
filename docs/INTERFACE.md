@@ -227,21 +227,28 @@ Timestamps come from the ESP clock; if the clock has not been set, the ESP rejec
 | `telegram` | `dir` (`rx`/`tx`), `data`, `rssi`, `foff_khz`, `ms` | only with `monitor` |
 | `error` | `err`, `msg` | error not related to a command |
 
-## 9. Configuration in the ESP (binary format version 3)
+## 9. Configuration in the ESP (binary format version 4)
 
 Big endian, terminated by CRC16 (knxrf::crc16). The host transfers it after `hello` if `config.crc` differs.
 
 ```
-'E' 0x03
+'E' 0x04
 Domain(6) ServerSN(6) ServerIA(2)
 nCh(1) nAct(1) nScenes(1) nKeys(1)
-Channels nCh ×:     IA(2) SN(6) ChannelNo(1) Offset(1) Object(1) Flags(1: bit0 dimmer) GABase(1)
+Channels nCh ×:     IA(2) SN(6) ChannelNo(1) Offset(1) Object(1) Flags(1: bit0 dimmer, bit1 blind) GABase(1)
+                    GO(10) – group object numbers of the channel type, 0 = default (see below)
 Actions  nAct ×:    IA(2) Handle(2) Length(1) Value(Length ≤ 4) – IA 0: scene call, group telegram to GA = Handle
 Scenes   nScenes ×: FirstAction(1) Count(1)
 Keys     nKeys ×:   SN(6) GA(2) Scene(1, signed, −1 = report only) – since 0.8.3 only the low GA byte counts (base irrelevant)
 CRC16(2)
 ```
-Limits: 48 channels, 128 actions, 32 scenes, 32 keys (≈ 2 KB). New compared to V2: channel number and object.
+Limits: 48 channels, 128 actions, 32 scenes, 32 keys (≈ 3 KB). New compared to V2: channel number and object.
+New in V4 (firmware 0.8.23): GO numbers per channel. Installations switch channels to variants of the default channel
+type whose group objects are numbered differently (catalog `ChannelTypes.xml`, `kanaltypen` in `definitionen.json`).
+Order of the 10 bytes (`GoSlot` in `src/server.h`):
+light `SOO ASC IOO ADV SSGI 0 0 0 0 span`, blind `MUD SSUD STOP SAPBP SAPSP IMUDS SSGI CAPBP CAPSP span`
+(span = handles per channel). All 0 for the default types CT_1F01/CT_1F02/CT_1F03. The firmware still accepts
+version 3 (without the GO bytes); the host sends version 3 to firmware older than 0.8.23.
 
 ## 10. Sequences
 

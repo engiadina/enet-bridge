@@ -612,6 +612,63 @@ void test_blind_poll_stages() {
   TEST_ASSERT_TRUE(s.state(4).pollPending);
 }
 
+// Format 3 (firmware before 0.8.23) is still accepted: no GO numbers → defaults of the channel kind
+void test_config_v3_defaults() {
+  uint8_t b[64] = {'E', 0x03};
+  size_t n = 2;
+  memcpy(b + n, kDomain, 6), n += 6;
+  memcpy(b + n, kServerSN, 6), n += 6;
+  b[n++] = 0x7F, b[n++] = 0xFF;                      // server IA
+  b[n++] = 1, b[n++] = 0, b[n++] = 0, b[n++] = 0;    // 1 channel
+  b[n++] = 0x00, b[n++] = 0x20;                      // IA
+  memcpy(b + n, kJal, 6), n += 6;
+  b[n++] = 1, b[n++] = 0, b[n++] = 3, b[n++] = 2, b[n++] = 0;  // ch 1, offset 0, obj 3, blind, base 0
+  uint16_t crc = knxrf::crc16(b, n);
+  b[n++] = crc >> 8, b[n++] = crc & 0xFF;
+  enet::Config c;
+  TEST_ASSERT_TRUE(enet::parseConfig(b, n, c));
+  TEST_ASSERT_TRUE(c.channels[0].blind);
+  TEST_ASSERT_EQUAL(enet::kGoBlindPosNow, enet::goOf(c.channels[0], enet::kSlotPosNow));
+  TEST_ASSERT_EQUAL(enet::kSpanBlind, enet::goOf(c.channels[0], enet::kSlotSpan));
+  c.channels[0].blind = false;
+  TEST_ASSERT_EQUAL(enet::kGoSumstatusInfo, enet::goOf(c.channels[0], enet::kSlotSumInfo));
+}
+
+// Channel type variants: GO numbers from the configuration (format 4)
+void test_variant_layouts() {
+  enet::Config c = jalousieConfig(), r;
+  // mini dimmer as CT_1F0C (Lighting Actuator v2): status 24, value status 25, sum status info 26, span 29
+  const uint8_t dim[enet::kGoSlots] = {2, 4, 24, 25, 26, 0, 0, 0, 0, 29};
+  memcpy(c.channels[3].go, dim, sizeof(dim));
+  // blind as CT_1F10 (Blinds Actuator v3): movement info 11, sum status 12, position 13, slat 14, span 18
+  const uint8_t bl[enet::kGoSlots] = {2, 3, 4, 5, 6, 11, 12, 13, 14, 18};
+  memcpy(c.channels[4].go, bl, sizeof(bl));
+  uint8_t blob[512];
+  size_t n = enet::serializeConfig(c, blob, sizeof(blob));
+  TEST_ASSERT_TRUE(enet::parseConfig(blob, n, r));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(dim, r.channels[3].go, enet::kGoSlots);
+  TEST_ASSERT_EQUAL(0, r.channels[0].go[enet::kSlotStatus]);  // default channel: 0 = default
+  TEST_ASSERT_EQUAL(enet::kGoStatus, enet::goOf(r.channels[0], enet::kSlotStatus));
+  FakeIo io;
+  enet::Server s(io);
+  s.setConfig(r);
+  feed(s, "1444ff02000a4567891700001e0316a20080e4ffff", 0);  // GA 3*256 + 22: not the status GO of CT_1F0C
+  TEST_ASSERT_EQUAL(0, io.states.size());
+  feed(s, "1444ff02000a4567891700001e031aa20080e4ffff", 0);  // GA 3*256 + 26
+  TEST_ASSERT_EQUAL(1, io.states.size());
+  TEST_ASSERT_EQUAL_STRING("001e/0 ein 100", io.states[0].c_str());
+  feed(s, "1244ff02000a54270018000020020da2008080", 0);  // blind GO13 = position in CT_1F10 → 50 %
+  TEST_ASSERT_EQUAL(50, s.state(4).percent);
+  feed(s, "1244ff02000a54270018000020020ca20080ff", 0);  // GO12 is the sum status there (3 bytes): ignored
+  TEST_ASSERT_EQUAL(50, s.state(4).percent);
+  const uint8_t down = 1;
+  s.queueSet(0x0020, 2, &down, 1);
+  s.tick(0);
+  feed(s, "1444ff02000a123456000000207fff6902c9003e00", 40);  // acknowledgement
+  s.tick(8040);                                                // poll position GO 13 (handle 0x0d)
+  TEST_ASSERT_EQUAL_STRING("1544ff02000a12345600007fff00206102c8003e000d", io.tx[1].c_str());
+}
+
 // Energy sensor: 4-byte value (e.g. active power DPT 14) as VALUE4 with GA and value
 void test_value4() {
   FakeIo io;
@@ -646,6 +703,8 @@ int main() {
   RUN_TEST(test_scene_with_group_action);
   RUN_TEST(test_blind_config_and_states);
   RUN_TEST(test_blind_poll_stages);
+  RUN_TEST(test_config_v3_defaults);
+  RUN_TEST(test_variant_layouts);
   RUN_TEST(test_value4);
   return UNITY_END();
 }

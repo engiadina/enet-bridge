@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 PID_LINKS = 63
-GO_SCENE, GO_SUMSTATUS_GET = 6, 19
+GO_SCENE, GO_SUMSTATUS_GET = 6, 19  # CT_1F01/CT_1F02; per channel type: Channel.go("SC" / "SSGET")
 # SCV1[0…37]; 16/17 = central key "all on/off" (FT_INAOOS), 18/19 inactive ex works (SNA = 0, meaning unknown)
 NR_FREE = [n for n in range(38) if n not in (16, 17, 18, 19)]
 SCV_START = 4            # SCV1[nr] in the channel object, PID 79 (switch 00/FF, dimmer 0–255 = 0–100 %)
@@ -353,7 +353,7 @@ class SceneManager:
     async def _links(self, k: Channel, s: SceneDef, create: bool) -> None:
         """Create or delete both links of the scene in a channel (inside the programming frame)."""
         others = [x for x in self.scenes if x is not s and k.key in x.members]
-        links = [(s.ga, GO_SCENE), (s.ga_status, GO_SUMSTATUS_GET)]
+        links = [(s.ga, k.go("SC", GO_SCENE)), (s.ga_status, k.go("SSGET", GO_SUMSTATUS_GET))]
         if not create:  # keep GAs that another scene of this channel still uses
             links = [(ga, go) for ga, go in links if not any(ga in (x.ga, x.ga_status) for x in others)]
         links = [(ga, go) for ga, go in links if ga is not None]

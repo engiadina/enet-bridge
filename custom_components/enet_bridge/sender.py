@@ -33,6 +33,7 @@ from homeassistant.components.logbook import async_log_entry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from . import layouts
 from .bridge import BridgeError
 from .const import DOMAIN
 from .pair import SRV_IA, RadioSession, apci, frame, ia_int
@@ -152,14 +153,14 @@ class Sender:
                 await self.radio_session.send_frame(f)
 
     def status_links(self, targets: list[dict[str, Any]]) -> list[tuple[str, int]]:
-        """Actuator SN + status GA (base·256 + channel offset + 22) per target – the rocker's status LED."""
+        """Actuator SN + status GA (base·256 + channel offset + SSGI, 22 for CT_1F01) per target – the rocker's status LED."""
         out = []
         for z in targets:
             a = next((g for g in self.hub.installation["geraete"] if g["ia"] == z["ia"]), None)
             k = next((k for k in (a or {}).get("kanaele", []) if k["nr"] == z["ch"]), None)
             if a is None or k is None:
                 raise BridgeError("bad_args", tr("ziel_fehlt", ia=z["ia"], ch=z["ch"]))
-            out.append((a["sn"], a.get("ga_basis", 0) * 256 + k["offset"] + 22))
+            out.append((a["sn"], a.get("ga_basis", 0) * 256 + k["offset"] + (layouts.go(k, "SSGI") or 22)))
         return out
 
     async def read_base(self) -> int:
@@ -254,7 +255,7 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
                        rockers: set[int] | None = None, only_ia: str | None = None) -> None:
     """Sync the actuator side of the rockers – based on the link table in the actuator, not on the installation
     (after a factory reset/import it does not reliably know the GA stored in the actuator). Target per channel:
-    key value GA (base·256 + 50+3n) → GO 1, status query (+1) → GO 19. All entries of this transmitter with a
+    key value GA (base·256 + 50+3n) → GO 1, status query (+1) → GO 19 (CT_1F01; per channel type). All entries of this transmitter with a
     different GA are deleted.
     rockers: only check the actuators of these rockers (old and new); None = all. Reading the link tables costs up
     to 3 s per entry (slow actuators answer only on the 5th attempt) – do not touch unchanged rockers.
@@ -270,7 +271,7 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
                 # otherwise the links of the unchanged rocker would be deleted (happened 2026-11-08, 0.12.9)
                 s = wanted.setdefault((z["ia"], z["ch"]), set())
                 if with_:
-                    s |= {(base + 50 + 3 * n, 1), (base + 51 + 3 * n, 19)}
+                    s |= {(base + 50 + 3 * n, "GBR"), (base + 51 + 3 * n, "SSGET")}
                 if rockers is None or n in rockers:
                     verify.add((z["ia"], z["ch"]))
     for (ia, ch), setpoint in sorted(wanted.items()):
@@ -280,8 +281,11 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
         if k is None:
             _LOGGER.warning("%s: target %s/%s is not part of the installation", enet_device["name"], ia, ch)
             continue
+        # GO numbers of the channel's type (CT_1F01: value GBR 1, sum status SSGET 19)
+        gos = {"GBR": k.go("GBR", 1), "SSGET": k.go("SSGET", 19)}
+        setpoint = {(ga, gos[f]) for ga, f in setpoint}
         is_: set[tuple[int, int]] = set()
-        for go in (1, 19):
+        for go in gos.values():
             for idx in range(32):
                 v = await _read_link(hub, k, go, idx)
                 if v is None:

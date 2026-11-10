@@ -21,7 +21,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from . import esp_config, firmware
+from . import esp_config, firmware, layouts
 from .bridge import Bridge, BridgeError, foreign_radio
 from .const import KIND_DIMMER, KIND_BLIND, KIND_SWITCH, KIND_KEY, KIND_ROCKER, DOMAIN, SENSOR_TYPES
 from .installation import InstallationStore
@@ -95,6 +95,15 @@ class Channel:
         """Channel object (link table, parameters); export field `obj`, otherwise the rule 2 + channel."""
         k = next((k for k in self.enet_device.get("kanaele", []) if k["nr"] == self.nr), {})
         return k.get("obj") or 2 + self.nr
+
+    @property
+    def stored(self) -> dict[str, Any]:
+        """Stored channel entry (kanaele) – kind, offset, object, channel type."""
+        return next((k for k in self.enet_device.get("kanaele", []) if k["nr"] == self.nr), {"art": self.art})
+
+    def go(self, function: str, default: int) -> int:
+        """GO number of a device function (catalog name, e.g. "SC") for this channel's type (layouts.py)."""
+        return layouts.go(self.stored, function) or default
 
 
 @dataclass
@@ -185,13 +194,17 @@ class Hub:
         self.param_groups: list[ParamGroup] = []
         for g in self.installation.get("geraete", []):
             d = self.definitions.get(g.get("typ", ""))
-            sensor = g.get("typ") in SENSOR_TYPES or is_measuring_device(g)  # no lamp channels, but parameters
+            # no lamp channels, but parameters
+            sensor = g.get("typ") in SENSOR_TYPES or (g.get("rolle") == "sensor" and is_measuring_device(g))
             if not d or (g.get("rolle") != "aktor" and not sensor):
                 continue
             gp = [Param(p) for p in d.get("geraet", [])]
             if gp := [p for p in gp if p.usable]:
                 self.param_groups.append(ParamGroup(g, None, gp, d["geraet_obj"]))
+            stored_types = {k["nr"]: k.get("kanaltyp") for k in g.get("kanaele", [])}
             for k in d.get("kanaele", []):
+                if stored_types.get(k["nr"]) not in (None, k["kanaltyp"]):
+                    continue  # channel switched to another type: the catalog parameters belong to the default type
                 kp = [p for p in map(Param, k["parameter"]) if p.usable]
                 if kp and (sensor or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
                     self.param_groups.append(ParamGroup(g, k["nr"], kp, d["geraet_obj"]))
@@ -743,7 +756,8 @@ class Hub:
 
     async def _sync_config(self, info: dict[str, Any]) -> None:
         """Transfer the server configuration from anlage.json if the bridge has a different one (or none)."""
-        blob = esp_config.build(self.installation)[0]
+        layouts_ok = firmware.version_tuple(info.get("fw")) >= esp_config.FW_GO_LAYOUTS
+        blob = esp_config.build(self.installation, version=4 if layouts_ok else 3)[0]
         crc = blob[-2:].hex()
         cfg = info.get("config", {})
         if cfg.get("valid") and cfg.get("crc") == crc:

@@ -33,6 +33,11 @@ Links (Conjunction, NOTES.md "Server-Tasten aus dem Export") → section "esp" (
 import io, json, struct, sys, zipfile
 
 try:
+    from . import layouts
+except ImportError:  # tools/iex.py, tools/enet.py import this module on its own
+    import layouts  # type: ignore[no-redef]
+
+try:
     from .texts import tr
 except ImportError:  # tools/iex.py and tools/enet.py load the module without a package
     from texts import tr
@@ -59,7 +64,12 @@ ACTIONS = {
 
 # Channel types -> kind. Actuators: "schalten" (GO 2 on/off, GO 20 status), "dimmen" (+ GO 4 value, GO 21),
 # "jalousie" (untested). Transmitters: "taste" (single key, sends to offset + 6), "wippe" (offset + 2/3).
+# Variants of the actuator types (other GO numbers, layouts.py): CT_1F05 switching with reduced GOs (DIN-rail
+# switch/blind actuator), CT_1F08 Switching Actuator v2 (sensIQ), CT_1F01_DUMMY (dimming centre plate set to switching),
+# CT_1F0C Lighting Actuator v2 dimming and CT_1F10 Blinds Actuator v3 (centre plate inserts) – untested.
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
+                 "CT_1F05": "schalten", "CT_1F08": "schalten", "CT_1F01_DUMMY": "schalten",
+                 "CT_1F0C": "dimmen", "CT_1F10": "jalousie",
                  "CT_1F19": "energie", "CT_1F1B": "bewegung", "CT_1F06": "repeater",
                  "CT_1F11": "wippe", "CT_1F13": "taste", "CT_1F13BLED": "taste"}
 
@@ -303,7 +313,8 @@ def read_iex(path):
         art = CHANNEL_TYPES.get(short_str(c["channelType"]))
         if art:
             chans_by_dev.setdefault(dev_idx, []).append(
-                {"nr": c["number"], "art": art, "offset": c["groupObjectNumberOffset"], "obj": c["interfaceObjectIndex"]})
+                {"nr": c["number"], "art": art, "offset": c["groupObjectNumberOffset"], "obj": c["interfaceObjectIndex"],
+                 "kanaltyp": short_str(c["channelType"])})
     rooms = {r["uID"]: r["name"] for r in table(REC_LOCATION) if r["_valid"] and r["locationType"] == 3 and r["name"]}
     devices = []
     for idx, dev in enumerate(table(REC_DEVICE)):
@@ -318,6 +329,8 @@ def read_iex(path):
         meas_channels = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
         if actuator_channels or keys_:
             role = "aktor" if actuator_channels else "sender"
+            if actuator_channels:  # actuator with a measuring channel (sensIQ: motion + switching)
+                actuator_channels = sorted(actuator_channels + meas_channels, key=lambda k: k["nr"])
         elif meas_channels:
             # energy sensor, motion detector, repeater (measurements.py)
             role, actuator_channels = "sensor", meas_channels
@@ -350,7 +363,8 @@ def read_iex(path):
     tab_func = int.from_bytes(raw(REC_FUNC + ".rec")[0x10:0x14], "big")
     ia_by_dev = {i: ia_str(meta[d["metaData"] & 0xFFFFFFFF]["address"]) for i, d in enumerate(dev_tab)
                  if d["_valid"] and meta[d["metaData"] & 0xFFFFFFFF]["address"] is not None}
-    # GA base of the actuators from the sum status GA (function .SSGI = base·256 + offset + 22). Not always 0:
+    # GA base of the actuators from the sum status GA (function .SSGI = base·256 + offset + SSGI GO, 22 for CT_1F01;
+    # the GO depends on the channel type). Not always 0:
     # it increases after a factory reset (one test installation: base 1 for half of the actuators). Wrong → the
     # bridge does not recognise the status messages, and in listen-only mode the actuator then has no state.
     base_by_ia = {}
@@ -360,7 +374,8 @@ def read_iex(path):
             continue
         c = chans[f["deviceChannel"] & 0xFFFFFFFF]
         ia = ia_by_dev.get(groups[c["parent"] & 0xFFFFFFFF]["device"] & 0xFFFFFFFF)
-        rel = f["sendGroupAddress"] - c["groupObjectNumberOffset"] - 22
+        rel = f["sendGroupAddress"] - c["groupObjectNumberOffset"] \
+            - (layouts.go_of_type(short_str(c["channelType"]), "SSGI") or 22)
         if ia and rel >= 0 and rel % 256 == 0:
             base_by_ia.setdefault(ia, rel >> 8)
     for d in devices:

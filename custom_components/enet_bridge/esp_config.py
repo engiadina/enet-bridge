@@ -1,4 +1,4 @@
-"""Build the bridge's server configuration (format version 3, src/server.h) from anlage.json.
+"""Build the bridge's server configuration (format version 4, src/server.h) from anlage.json.
 
 No Home Assistant dependencies: also used by tools/server_cfg.py.
 Channels come from all actuator channels of the installation; local scenes and server keys come from anlage["esp"]
@@ -10,13 +10,33 @@ from __future__ import annotations
 from typing import Any
 
 try:
+    from . import layouts
     from .texts import tr
 except ImportError:  # tools/server_cfg.py loads the module without a package
+    import layouts  # type: ignore[no-redef]
     from texts import tr
 
 PART_HEX = 400
 # Channel flags in the blob (src/server.h): bit 0 dimmer, bit 1 blind (since firmware 0.8.20)
 FLAGS = {"schalten": 0, "dimmen": 1, "jalousie": 2}  # hex characters per config command (line < 512 bytes)
+# Format 4 (firmware 0.8.23 or later): GO numbers per channel in the slot order of src/server.h (GoSlot)
+FW_GO_LAYOUTS = (0, 8, 23)
+SLOTS_LIGHT = ("SOO", "ASC", "IOO", "ADV", "SSGI")
+SLOTS_BLIND = ("MUD", "SSUD", "STOP", "SAPBP", "SAPSP", "IMUDS", "SSGI", "CAPBP", "CAPSP")
+N_SLOTS = 10  # last slot: span (handles per channel)
+
+
+def go_slots(channel: dict[str, Any]) -> bytes:
+    """GO numbers of a channel for the bridge; all 0 (= the bridge's defaults) for the default channel types, so
+    the configuration of an existing installation only changes where a channel type actually differs."""
+    ct = layouts.channel_type(channel)
+    if ct == layouts.DEFAULT_TYPES.get(channel.get("art", "")):
+        return bytes(N_SLOTS)
+    lay = layouts.layout(ct)
+    names = SLOTS_BLIND if channel["art"] == "jalousie" else SLOTS_LIGHT
+    out = [lay.get(n, 0) for n in names]
+    out += [0] * (N_SLOTS - 1 - len(out)) + [max(lay.values(), default=0) + 1]
+    return bytes(out)
 
 
 def crc16(data: bytes) -> int:
@@ -34,8 +54,9 @@ def ia_int(s: str) -> int:
     return a << 12 | b << 8 | c
 
 
-def build(installation: dict[str, Any], esp: dict[str, Any] | None = None):
-    """Return (blob, channels, scene names, keys). esp overrides anlage["esp"]."""
+def build(installation: dict[str, Any], esp: dict[str, Any] | None = None, version: int = 4):
+    """Return (blob, channels, scene names, keys). esp overrides anlage["esp"]. version 3 for firmware before
+    0.8.23 (without GO numbers: channel type variants are then handled like their default type)."""
     esp = installation.get("esp", {}) if esp is None else esp
     srv = installation["server"]
     channels = []
@@ -44,7 +65,7 @@ def build(installation: dict[str, Any], esp: dict[str, Any] | None = None):
             if k["art"] not in FLAGS:
                 continue
             channels.append((ia_int(d["ia"]), d["sn"], k["nr"], k["offset"], k.get("obj", 2 + k["nr"]),
-                             FLAGS[k["art"]], d.get("ga_basis", 0)))
+                             FLAGS[k["art"]], d.get("ga_basis", 0), go_slots(k)))
     scene_names = list(esp.get("szenen", {}))
     actions, scenes = [], []
     for name in scene_names:
@@ -57,10 +78,12 @@ def build(installation: dict[str, Any], esp: dict[str, Any] | None = None):
         sc = scene_names.index(k["szene"]) if k.get("szene") else -1
         keys.append((k["sender"], k["ga"], sc, k.get("name", "")))
 
-    b = bytearray(b"E\x03") + bytes.fromhex(srv["domain"]) + bytes.fromhex(srv["sn"])
+    b = bytearray(b"E" + bytes([version])) + bytes.fromhex(srv["domain"]) + bytes.fromhex(srv["sn"])
     b += ia_int(srv["ia"]).to_bytes(2, "big") + bytes([len(channels), len(actions), len(scenes), len(keys)])
-    for ia, sn, ch, off, obj, flags, base in channels:
+    for ia, sn, ch, off, obj, flags, base, gos in channels:
         b += ia.to_bytes(2, "big") + bytes.fromhex(sn) + bytes([ch, off, obj, flags, base])
+        if version >= 4:
+            b += gos
     for ia, h, v in actions:
         if not 1 <= len(v) <= 4:
             raise ValueError(tr("wert_laenge", wert=v.hex()))
