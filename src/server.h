@@ -29,7 +29,7 @@ constexpr uint8_t kGroupRepeats = 3;
 constexpr uint32_t kGroupGapMs = 80;
 constexpr uint16_t kGoStatus = 20, kGoStatusValue = 21, kGoSumstatusInfo = 22;
 // Blind CT_1F03 (catalog, untested): GO2 up/down (1.008), GO3 stop/step (1.007), GO4 stop (1.017),
-// GO5 position (5.001), GO6 slat (5.001), GO10 movement info (2 bits: 0 stopped at top, 1 stopped at bottom,
+// GO5 position (5.001), GO6 slat (5.001), GO10 movement info (2 bits: 0/1 stopped after moving up/down,
 // 2 moving up, 3 moving down), GO11 SumstatusInfo, GO12 current position, GO13 current slat. Position 0 % = top.
 constexpr uint16_t kGoBlindMove = 2, kGoBlindStep = 3, kGoBlindStop = 4, kGoBlindPos = 5, kGoBlindSlat = 6,
                    kGoBlindInfo = 10, kGoBlindSumstatus = 11, kGoBlindPosNow = 12, kGoBlindSlatNow = 13;

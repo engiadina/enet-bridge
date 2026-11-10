@@ -4,6 +4,10 @@ Implemented from the catalog, not yet tested on a device. The actuator counts th
 up, 100 % = fully down), HA from the bottom (100 = open) – converted here, as is the slat. Commands via the bridge
 command "cover" (firmware 0.8.20 or later): up/down GO 2, stop GO 4, position GO 5, slat GO 6; state from the travel
 info (GO 10), position (GO 12) and slat (GO 13); after a command the bridge polls at staggered intervals.
+
+The channel's operating mode (parameter OPMODE, read with the other actuator parameters) decides the device class and
+whether slats exist: almost all installations run their actuators as roller shutters (SHUTTER), where the slat
+functions are inactive; only BLINDS has slats. As long as the mode is unknown, slat control is offered.
 """
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ from homeassistant.components.cover import (
     CoverEntity,
     CoverEntityFeature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -29,7 +33,13 @@ from .hub import Hub, Channel
 
 _LOGGER = logging.getLogger(__name__)
 
-MOVING_UP, MOVING_DOWN = 2, 3  # travel info GO 10 (0 stopped at top, 1 stopped at bottom)
+# travel info GO 10: 0 stopped after moving up, 1 stopped after moving down (last direction, not the end position)
+MOVING_UP, MOVING_DOWN = 2, 3
+BASIC = (CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
+         | CoverEntityFeature.SET_POSITION)
+TILT = CoverEntityFeature.OPEN_TILT | CoverEntityFeature.CLOSE_TILT | CoverEntityFeature.SET_TILT_POSITION
+DEVICE_CLASSES = {"BLINDS": CoverDeviceClass.BLIND, "SHUTTER": CoverDeviceClass.SHUTTER,
+                  "MARQUEE": CoverDeviceClass.AWNING}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
@@ -39,11 +49,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
 
 
 class EnetBlind(EnetEntity, CoverEntity):
-    _attr_device_class = CoverDeviceClass.BLIND
-    _attr_supported_features = (CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
-                                | CoverEntityFeature.SET_POSITION | CoverEntityFeature.OPEN_TILT
-                                | CoverEntityFeature.CLOSE_TILT | CoverEntityFeature.SET_TILT_POSITION)
-
     def __init__(self, hub: Hub, channel: Channel) -> None:
         super().__init__(hub)
         self.channel = channel
@@ -56,12 +61,35 @@ class EnetBlind(EnetEntity, CoverEntity):
         return self.hub.state_[self.channel.key]
 
     @property
+    def _mode(self) -> str | None:
+        """Operating mode BLINDS/SHUTTER/MARQUEE from the cached actuator parameters (None = not read yet)."""
+        sn = self.channel.enet_device["sn"]
+        for g in self.hub.device_params(self.channel.enet_device):
+            if g.channel == self.channel.nr:
+                for p in g.params:
+                    if p.id == "OPMODE":
+                        return self.hub.params.value(sn, p)
+        return None
+
+    @property
+    def _has_slats(self) -> bool:
+        return self._mode in (None, "BLINDS")
+
+    @property
+    def device_class(self) -> CoverDeviceClass:
+        return DEVICE_CLASSES.get(self._mode or "", CoverDeviceClass.BLIND)
+
+    @property
+    def supported_features(self) -> CoverEntityFeature:
+        return BASIC | TILT if self._has_slats else BASIC
+
+    @property
     def current_cover_position(self) -> int | None:
         return 100 - self._z.percent if self._z.known else None
 
     @property
     def current_cover_tilt_position(self) -> int | None:
-        return None if self._z.slat is None else 100 - self._z.slat
+        return None if self._z.slat is None or not self._has_slats else 100 - self._z.slat
 
     @property
     def is_closed(self) -> bool | None:
@@ -78,6 +106,12 @@ class EnetBlind(EnetEntity, CoverEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self._listen(f"state_{self.channel.key}")
+        self._listen("params", self._on_params)
+
+    @callback
+    def _on_params(self, sn: str) -> None:
+        if sn == self.channel.enet_device["sn"]:
+            self.async_write_ha_state()  # operating mode read or changed
 
     async def _send(self, action: str, percent: int | None = None) -> None:
         fields_: dict[str, Any] = {"action": action}
