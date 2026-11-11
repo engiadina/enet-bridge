@@ -142,6 +142,11 @@ class Catalogue:
         out = {"name": g.get("name"), "generisch": gdvt_id, "hersteller": manufacturer_, "produkt": product,
                "artikel": article, "produktname": product_name,
                "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0), "kanaele": [], "geraet": []}
+        # parameters a channel type can depend on (e.g. the insert type of an operating top unit), by ID
+        selectors = {}
+        for el in g.iter("KnxRfDeviceParameterType"):
+            if el.get("id") and (p := self.parameter(el, 0)) and p["typ"].get("art") == "auswahl":
+                selectors[el.get("id")] = p
         for grp in g.iter("KnxRfDeviceChannelConfigurationGroupType"):
             for ch in grp.iter("KnxRfDeviceChannelType"):
                 ct_id, nr = ch.get("channelTypeID"), int(ch.get("number"))
@@ -166,7 +171,32 @@ class Catalogue:
                 else:
                     if ct is not None:
                         entry_["alias"] = ct.get("aliasID")
+                    if variants := self.channel_variants(ch, selectors):
+                        entry_["varianten"] = variants
                     out["kanaele"].append(entry_)
+        return out
+
+    @staticmethod
+    def channel_variants(ch, selectors):
+        """Channel type chosen by a device parameter (KnxRfDependentValueChannelSetting), e.g. operating top unit
+        UP1A: the insert type (obj 9 PID 62) decides whether channel 2 switches, dims or drives a blind. Returns
+        [{"parameter": {id, obj, pid, start, kodierung}, "werte": {"<raw value>": {kanaltyp, obj, go_offset}}}] in
+        catalog order; only parameters with a radio address."""
+        out = []
+        for dep in ch.iter("KnxRfDependentDeviceParameterValueType"):
+            p = selectors.get(dep.get("dependOnParameterTypeID"))
+            if p is None:
+                continue
+            values = {}
+            for s in dep.iter("KnxRfDependentValueChannelSetting"):
+                raw = p["typ"]["werte"].get(s.get("dependOnValue"))
+                if s.get("channelTypeID") and raw is not None:
+                    values[str(raw)] = {"kanaltyp": s.get("channelTypeID"),
+                                        "obj": int(s.get("interfaceObjectIndex") or 0),
+                                        "go_offset": int(s.get("groupObjectNumberOffset") or 0)}
+            if values:
+                out.append({"parameter": {k: p[k] for k in ("katalog_id", "obj", "pid", "start")}
+                            | {"kodierung": p["typ"]["kodierung"]}, "werte": values})
         return out
 
     def channel_type_layouts(self):
