@@ -106,6 +106,7 @@ im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten
 | Bewegungsmelder | Jung FMDW360WW | Bewegung, Helligkeit |
 | Repeater | Zwischenstecker (5321 02) | Signal, letzte Meldung |
 | REG-Schalt-/Dimmmodule | 5430 00, 5431 00, 5433 00 | wie die Mini-Aktoren |
+| Bedienaufsätze | Memory (5492, 5493) auf System-3000-Schalt-, Schalt-2fach-, Dimm- oder Jalousieeinsatz | Licht oder Rollladen je nach Einsatz, Wippe als Ereignis |
 
 Gerätedefinitionen (Parameter) für alle 41 eNet-Gerätetypen des Katalogs sind enthalten. Verschlüsselte Anlagen
 (eNet Server 2.0 mit AES) werden nicht unterstützt.

@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .bridge import BridgeError
-from .iex import CHANNEL_TYPES, DEVICE_TYPES, PRODUCT_TYPES, ia_str, product_ident
+from .iex import ACTUATOR_ROCKERS, CHANNEL_TYPES, DEVICE_TYPES, PRODUCT_TYPES, ia_str, product_ident
 from .measurements import MEASUREMENT_KINDS
 from .texts import tr
 
@@ -112,17 +112,55 @@ def _type_for(hub: Hub, product: str) -> str | None:
     return catalogue.get(gira) or PRODUCT_TYPES.get(gira)
 
 
-def _type_data(hub: Hub, typ: str) -> tuple[str, str, list[dict[str, Any]]]:
-    """Description, role and actuator channels of a type – from the catalogue (channel type, GO offset, object),
-    otherwise from our own table. Channel types without an implementation (e.g. energy sensor) are left out."""
+async def _channel_variants(hub: Hub, typ: str, ia: str) -> dict[int, dict[str, Any]]:
+    """Channel types chosen by device parameters (catalogue `varianten`), read from the paired device.
+
+    Example: an operating top unit (UP1A) reports its insert (obj 9 PID 62: switching, dimming, blind …); the insert
+    decides the type of channel 2 (CT_1F0B/CT_1F0C/CT_1F10 …) and of the rocker channel 1. A rule only applies while
+    the channel still has one of the types it chooses between (a later rule refines an earlier one, e.g. the operating
+    mode of a 2-channel switching insert). Returns {channel no.: {kanaltyp, obj, go_offset}}; unreadable → default."""
+    chosen: dict[int, dict[str, Any]] = {}
+    cache: dict[tuple, int | None] = {}
+    for k in (hub.definitions.get(typ) or {}).get("kanaele", []):
+        current = k["kanaltyp"]
+        for rule in k.get("varianten", []):
+            if current not in {v["kanaltyp"] for v in rule["werte"].values()}:
+                continue
+            p = rule["parameter"]
+            loc = (p["obj"], p["pid"], p["start"])
+            if loc not in cache:
+                try:
+                    r = await hub.bridge.request("prop_read", ia=ia, obj=p["obj"], pid=p["pid"], start=p["start"],
+                                                 count=1)
+                    data = bytes.fromhex(r.get("value", ""))
+                    cache[loc] = data[0] if data else None
+                except BridgeError as err:
+                    _LOGGER.warning("Pairing %s: %s not read: %s", ia, p["katalog_id"], err)
+                    cache[loc] = None
+            if (v := rule["werte"].get(str(cache[loc]))) is not None:
+                chosen[k["nr"]], current = v, v["kanaltyp"]
+                _LOGGER.info("Pairing %s: channel %d → %s (%s = %d)", ia, k["nr"], current, p["katalog_id"],
+                             cache[loc])
+    return chosen
+
+
+def _type_data(hub: Hub, typ: str, variants: dict[int, dict[str, Any]] | None = None
+               ) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Description, role, actuator channels and rocker channels of a type – from the catalogue (channel type, GO
+    offset, object; `variants` = types read from the device), otherwise from our own table. Channel types without an
+    implementation (e.g. energy sensor) are left out. Rocker channels of an actuator (operating top unit: the rocker
+    switches its own insert by wire and is also a transmitter) become keys of the actuator."""
     d = hub.definitions.get(typ)
     if d is None:
         desc, role, channels_ = DEVICE_TYPES[typ]
-        return desc, role, [{"nr": i + 1, "art": a, "offset": o} for i, (a, o) in enumerate(channels_)]
-    kinds = [(k, CHANNEL_TYPES.get(k["kanaltyp"])) for k in d["kanaele"]]
+        return desc, role, [{"nr": i + 1, "art": a, "offset": o} for i, (a, o) in enumerate(channels_)], []
+    defs = [k | (variants or {}).get(k["nr"], {}) for k in d["kanaele"]]
+    kinds = [(k, CHANNEL_TYPES.get(k["kanaltyp"])) for k in defs]
     channels_ = [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"]}
                for k, art in kinds if art in ("schalten", "dimmen", "jalousie")]
-    role = "aktor" if channels_ else ("sender" if any(a in ("wippe", "taste") for _, a in kinds) else "unbekannt")
+    # the rocker of an operating top unit does not make it a transmitter (no batteries, no sender programming)
+    role = "aktor" if channels_ else ("sender" if any(a in ("wippe", "taste") and k["kanaltyp"] not in ACTUATOR_ROCKERS
+                                                      for k, a in kinds) else "unbekannt")
     if role == "aktor":  # actuator with a measuring channel (sensIQ: motion + switching)
         channels_ += [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"]}
                       for k, art in kinds if art in MEASUREMENT_KINDS]
@@ -130,8 +168,10 @@ def _type_data(hub: Hub, typ: str) -> tuple[str, str, list[dict[str, Any]]]:
     if role == "unbekannt" and (meas := [{"nr": k["nr"], "art": art, "offset": k["go_offset"], "obj": k["obj"],
                                            "kanaltyp": k["kanaltyp"]} for k, art in kinds if art in MEASUREMENT_KINDS]):
         role, channels_ = "sensor", meas  # energy sensor, motion detector, repeater (measurements.py)
+    rockers = [{"nr": k["nr"], "art": "wippe", "offset": k["go_offset"], "obj": k["obj"], "kanaltyp": k["kanaltyp"],
+                "ziele": []} for k, art in kinds if art == "wippe"] if role == "aktor" else []
     desc = DEVICE_TYPES.get(typ, (d.get("produktname") or d.get("name") or typ,))[0]
-    return desc, role, channels_
+    return desc, role, channels_, rockers
 
 
 def _free_ia(hub: Hub) -> str:
@@ -236,7 +276,7 @@ async def pair(hub: Hub, name: str | None = None) -> dict[str, Any]:
         elif not calibrated:
             await hub._radio(freq_offset=offset, save=True)
 
-    desc, role, channels_ = _type_data(hub, typ)
+    desc, role, channels_, rockers = _type_data(hub, typ, await _channel_variants(hub, typ, ia_s))
     enet_device = {"name": name or f"{desc} {ia_s}", "ia": ia_s, "sn": sn, "typ": typ, "beschreibung": desc,
               "rolle": role, "kanaele": channels_,
               "ga_basis": base, "ga_basis_geprueft": True, "produkt": product,
@@ -249,6 +289,8 @@ async def pair(hub: Hub, name: str | None = None) -> dict[str, Any]:
         enet_device["name"] = previous["name"]
     if previous and "raum" in previous:
         enet_device["raum"] = previous["raum"]
+    if rockers:  # operating top unit: its rocker as a key of the actuator (events in HA)
+        enet_device["tasten"] = rockers
     if role == "sender":  # assignment: as before removal, otherwise all rockers free (program afterwards)
         from .sender import default_assignment, keys_from
         enet_device["tasten"] = (previous or {}).get("tasten") or keys_from(enet_device, default_assignment(enet_device))

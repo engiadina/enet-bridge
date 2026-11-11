@@ -65,13 +65,21 @@ ACTIONS = {
 # Channel types -> kind. Actuators: "schalten" (GO 2 on/off, GO 20 status), "dimmen" (+ GO 4 value, GO 21),
 # "jalousie" (untested). Transmitters: "taste" (single key, sends to offset + 6), "wippe" (offset + 2/3).
 # Variants of the actuator types (other GO numbers, layouts.py): CT_1F05 switching with reduced GOs (DIN-rail
-# switch/blind actuator), CT_1F08 Switching Actuator v2 (sensIQ), CT_1F01_DUMMY (dimming centre plate set to switching),
-# CT_1F0C Lighting Actuator v2 dimming and CT_1F10 Blinds Actuator v3 (centre plate inserts) – untested.
+# switch/blind actuator), CT_1F08 Switching Actuator v2 (sensIQ), CT_1F01_DUMMY (System 2000 dimming top unit set to
+# switching) – untested.
+# Operating top unit (UP1A/UP1AV): the actuator sits in the top unit, the flush-mounted insert only provides the load
+# output. The insert decides channel 2: CT_1F0B switching insert, CT_1F0D 2-channel switching insert, CT_1F0C
+# dimming insert, CT_1F10 blind insert. Channel 1 is the rocker of the top unit (CT_1F12 light, CT_1F1E blind): it
+# operates its own insert by wire and is a transmitter for other actuators – a key of the actuator. Not mapped:
+# CT_1F0E/CT_1F0E_SA (extension insert, no status object). All untested.
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
                  "CT_1F05": "schalten", "CT_1F08": "schalten", "CT_1F01_DUMMY": "schalten",
-                 "CT_1F0C": "dimmen", "CT_1F10": "jalousie",
+                 "CT_1F0B": "schalten", "CT_1F0D": "schalten", "CT_1F0C": "dimmen", "CT_1F10": "jalousie",
                  "CT_1F19": "energie", "CT_1F1B": "bewegung", "CT_1F06": "repeater",
-                 "CT_1F11": "wippe", "CT_1F13": "taste", "CT_1F13BLED": "taste"}
+                 "CT_1F11": "wippe", "CT_1F12": "wippe", "CT_1F1E": "wippe",
+                 "CT_1F13": "taste", "CT_1F13BLED": "taste"}
+# rocker channels inside an actuator (operating top unit)
+ACTUATOR_ROCKERS = {"CT_1F12", "CT_1F1E"}
 
 # Own device definitions: type -> (description, role, channels [(kind, GO offset)])
 # Channel kind "schalten": GO 2 on/off, GO 20 status. "dimmen": additionally GO 4 value, GO 21 value status.
@@ -327,7 +335,7 @@ def read_iex(path):
         actuator_channels = [k for k in exp if k["art"] in ("schalten", "dimmen", "jalousie")]
         keys_ = [k for k in exp if k["art"] in ("taste", "wippe")]
         meas_channels = [k for k in exp if k["art"] in ("energie", "bewegung", "repeater")]
-        if actuator_channels or keys_:
+        if actuator_channels or any(k["kanaltyp"] not in ACTUATOR_ROCKERS for k in keys_):
             role = "aktor" if actuator_channels else "sender"
             if actuator_channels:  # actuator with a measuring channel (sensIQ: motion + switching)
                 actuator_channels = sorted(actuator_channels + meas_channels, key=lambda k: k["nr"])
