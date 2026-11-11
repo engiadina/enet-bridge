@@ -17,5 +17,5 @@
     "pyserial>=3.5",
     "esptool==5.6.0"
   ],
-  "version": "0.14.0"
+  "version": "0.15.0"
 }
