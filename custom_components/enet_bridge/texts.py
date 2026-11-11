@@ -54,6 +54,8 @@ TEXTS: dict[str, tuple[str, str]] = {
     "zentral_unbekannt": ("{name}: Ziele des Zentralkanals unbekannt (Anlage neu importieren)",
                           "{name}: targets of the central channel unknown (import the installation again)"),
     "keine_antwort_ga": ("Taste {k}: keine Antwort-GA", "Button {k}: no reply group address"),
+    "keine_einzeltasten": ("{name}: Einzeltasten werden bei diesem Sender nicht unterstützt (nur Wippen)",
+                           "{name}: single buttons are not supported for this transmitter (rockers only)"),
     "zweck_verknuepfungen": ("Verknüpfungen mit {name}", "links with {name}"),
     "linktabelle_unlesbar": ("Link-Tabelle von {key} nicht lesbar ({err})", "Link table of {key} not readable ({err})"),
     "programmierung_laeuft": ("Programmierung läuft bereits – bitte warten, bis sie beendet ist",

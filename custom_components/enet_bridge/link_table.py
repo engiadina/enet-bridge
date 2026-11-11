@@ -63,13 +63,20 @@ def channel_gos(installation: dict[str, Any], key: str) -> tuple[int, int, int]:
             layouts.go(ch, "GBR") or GO_VALUE_IN)
 
 
-def _rocker(ga: int, go: int, gos: tuple[int, int, int] = (GO_SCENE, GO_SUMSTATUS_GET, GO_VALUE_IN)) -> int | None:
-    """Rocker n for (GA, GO) on the actuator side of a rocker, otherwise None."""
+def _rocker(ga: int, go: int, gos: tuple[int, int, int] = (GO_SCENE, GO_SUMSTATUS_GET, GO_VALUE_IN),
+            offsets: dict[int, int] | None = None) -> int | None:
+    """Rocker n for (GA, GO) on the actuator side of a rocker, otherwise None. The rocker sends its key value to
+    offset + 2 and its status query to offset + 3; offsets = rocker n → GO offset of the transmitter (installation
+    `tasten`), otherwise the rule of wall and hand transmitters (offset 48 + 3n)."""
     lo = ga & 0xFF
-    if go == gos[2] and lo >= 53 and (lo - 50) % 3 == 0:
-        return (lo - 50) // 3
-    if go == gos[1] and lo >= 54 and (lo - 51) % 3 == 0:
-        return (lo - 51) // 3
+    rel = {gos[2]: 2, gos[1]: 3}.get(go)
+    if rel is None:
+        return None
+    for n, offset in (offsets or {}).items():
+        if lo == offset + rel:
+            return n
+    if lo >= 51 + rel and (lo - 48 - rel) % 3 == 0:
+        return (lo - 48 - rel) // 3
     return None
 
 
@@ -108,7 +115,8 @@ def evaluate(installation: dict[str, Any], scenes: Iterable[Any], key: str, link
     if g.get("rolle") != "sender":
         return "geraet", {"sender": g["name"]}
     rockers = _rockers(g)
-    n = _rocker(link.ga, link.go, gos)
+    offsets = {(t["nr"] + 1) // 2: t["offset"] for t in g.get("tasten", []) if t.get("art") == "wippe" and "offset" in t}
+    n = _rocker(link.ga, link.go, gos, offsets)
     if rockers is None:
         return "geraet", {"sender": g["name"]}  # assignment unknown: do not evaluate
     if n is not None and key in rockers.get(n, []):
