@@ -255,7 +255,7 @@ class EnetOptionsFlow(OptionsFlow):
         if user_input is not None:
             self._kinds = {n: user_input[f"wippe_{n}"] for n in range(1, n_rockers + 1)}
             return await self.async_step_details()
-        options_ = ["wippe", "tasten"]  # labels: strings.json `selector.wippen_art`
+        options_ = sender.modes(hub, g)  # labels: strings.json `selector.wippen_art`
         fields_ = {}
         for n in range(1, n_rockers + 1):
             a = old.get(n)

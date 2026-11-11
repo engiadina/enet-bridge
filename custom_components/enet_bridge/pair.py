@@ -250,8 +250,9 @@ async def pair(hub: Hub, name: str | None = None) -> dict[str, Any]:
     if previous and "raum" in previous:
         enet_device["raum"] = previous["raum"]
     if role == "sender":  # assignment: as before removal, otherwise all rockers free (program afterwards)
-        from .sender import default_assignment, keys_from
-        enet_device["tasten"] = (previous or {}).get("tasten") or keys_from(enet_device, default_assignment(enet_device))
+        from .sender import default_assignment, keys_from, layout
+        enet_device["tasten"] = (previous or {}).get("tasten") or keys_from(
+            enet_device, default_assignment(enet_device), layout(hub, enet_device))
         enet_device["zentral"] = (previous or {}).get("zentral", [])
         if previous and "ga_basis" in previous:  # keep the old base until "Program transmitter" has
             enet_device["ga_basis"] = previous["ga_basis"]  # moved the actuator links to the new one

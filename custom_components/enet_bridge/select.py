@@ -63,11 +63,11 @@ class RockerMode(EnetEntity, SelectEntity):
 
     _attr_translation_key = "wippe_betriebsart"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = list(sender.OPERATING_MODES)
 
     def __init__(self, hub, enet_device, n: int) -> None:
         super().__init__(hub)
         self.enet_device, self.n = enet_device, n
+        self._attr_options = sender.modes(hub, enet_device)
         self._attr_unique_id = f"{enet_device['sn']}_wippe{n}_betriebsart"
         self._attr_device_info = rocker_info(hub, enet_device, n)
 

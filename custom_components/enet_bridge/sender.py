@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -44,8 +45,47 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-OBJ_CENTRAL, OBJ_DEVICE = 0x0B, 0x10
+OBJ_CENTRAL, OBJ_DEVICE = 0x0B, 0x10  # standard layout (wall and hand transmitters)
 PID_LINKS = 0x3F
+CT_CENTRAL, CT_ROCKER = "CT_1F15", "CT_1F11"
+
+
+@dataclass(frozen=True)
+class Layout:
+    """Objects, channel numbers and GO offsets of a transmitter. Wall and hand transmitters (WS…, HS…) all follow
+    the server's rule: device object 0x10, central channel 9 at obj 0x0B / offset 48, rocker n at channel 2n−1,
+    obj 0x0B+n, offset 48+3n; single key k at obj 2+k, offset 6(k−1) (key objects 2n+1/2n+2 switch a rocker to
+    single keys). Others differ (universal transmitter US2M: device object 8, central obj 5 / offset 12, rocker
+    obj 6 / offset 15; it switches to single keys with a device parameter instead) – taken from the catalogue."""
+
+    device_obj: int = OBJ_DEVICE
+    central: tuple[int, int, int] = (9, OBJ_CENTRAL, 48)  # channel no., object, GO offset
+    rockers: tuple[tuple[int, int, int], ...] | None = None  # None: rule above for any n
+
+    def rocker(self, n: int) -> tuple[int, int, int]:
+        """Channel no., object and GO offset of rocker n (1-based)."""
+        if self.rockers is None:
+            return 2 * n - 1, OBJ_CENTRAL + n, 48 + 3 * n
+        return self.rockers[n - 1]
+
+    @property
+    def single_keys(self) -> bool:
+        """Rockers can be switched to single keys via the key objects (standard layout only)."""
+        return self.device_obj == OBJ_DEVICE and self.central == (9, OBJ_CENTRAL, 48) and (
+            self.rockers is None or all(r == (2 * n - 1, OBJ_CENTRAL + n, 48 + 3 * n)
+                                        for n, r in enumerate(self.rockers, 1)))
+
+
+def layout(hub: Hub | None, enet_device: dict[str, Any]) -> Layout:
+    """Layout of a transmitter from its catalogue definition (central channel CT_1F15, rockers CT_1F11 in channel
+    order); without a definition the standard layout."""
+    d = (hub.definitions if hub is not None else {}).get(enet_device.get("typ", ""))
+    channels_ = sorted((d or {}).get("kanaele", []), key=lambda k: k["nr"])
+    central = next((k for k in channels_ if k["kanaltyp"] == CT_CENTRAL), None)
+    rockers = tuple((k["nr"], k["obj"], k["go_offset"]) for k in channels_ if k["kanaltyp"] == CT_ROCKER)
+    if central is None or not rockers:
+        return Layout()
+    return Layout(d.get("geraet_obj") or OBJ_DEVICE, (central["nr"], central["obj"], central["go_offset"]), rockers)
 WAKE_S = 60
 KEEP_AWAKE_S = 5.0
 
@@ -75,6 +115,7 @@ class Sender:
         self.base = enet_device.get("ga_basis", 0) * 256
         self.dom = hub.installation["server"]["domain"]
         self.srv = hub.installation["server"]["sn"]
+        self.lay = layout(hub, enet_device)
 
     # --- Building blocks ----------------------------------------------------------
     async def _request(self, art: str, description: str, **kw: Any) -> dict:
@@ -167,7 +208,7 @@ class Sender:
         """GA base from the factory entry GO 1 of the central channel (increments on every factory reset). Links
         (type 00) come before the factory entry (type 01, own SN) in the table – so search up to it."""
         for idx in range(16):
-            r = await self.hub.bridge.request("fp_read", ia=self.ia, obj=OBJ_CENTRAL, pid=PID_LINKS,
+            r = await self.hub.bridge.request("fp_read", ia=self.ia, obj=self.lay.central[1], pid=PID_LINKS,
                                               data=f"000001{idx:02x}")
             v = bytes.fromhex(r.get("value", ""))
             if len(v) >= 9 and v[0] == 0x01 and v[1:7].hex() == self.sn:
@@ -176,25 +217,31 @@ class Sender:
 
     async def write(self, assigned: dict[int, dict[str, Any]]) -> None:
         rockers = sorted(assigned)  # only the assigned rockers; the others stay as they are
+        lay, dev = self.lay, self.lay.device_obj
+        if not lay.single_keys and any(assigned[n]["art"] != "wippe" for n in rockers):
+            raise BridgeError("bad_args", tr("keine_einzeltasten", name=self.g["name"]))
         self.base = await self.read_base() * 256
-        await self.pr(OBJ_DEVICE, 0x39)
-        for n in rockers:
-            await self.pr(2 * n + 1, 0xCF)
+        await self.pr(dev, 0x39)
+        if lay.single_keys:
+            for n in rockers:
+                await self.pr(2 * n + 1, 0xCF)
         await self.pr(1, 6)
         await self.pw(1, 6, b"\x02" + bytes(9))  # load state: loading starts
         await self.pr(1, 6)
-        await self.pr(OBJ_DEVICE, 0x39)
-        await self.pw(OBJ_DEVICE, 0x39, bytes.fromhex("000000000003"))
-        for n in rockers:  # key objects: rocker or single keys
-            w = assigned[n]["art"] == "wippe"
-            await self.pw(2 * n + 1, 0x4F, bytes([0x0B + n if w else 0]))
-            await self.pw(2 * n + 2, 0x4F, bytes([0xFF if w else 0]))
+        await self.pr(dev, 0x39)
+        await self.pw(dev, 0x39, bytes.fromhex("000000000003"))
+        if lay.single_keys:
+            for n in rockers:  # key objects: rocker or single keys
+                w = assigned[n]["art"] == "wippe"
+                await self.pw(2 * n + 1, 0x4F, bytes([lay.rocker(n)[1] if w else 0]))
+                await self.pw(2 * n + 2, 0x4F, bytes([0xFF if w else 0]))
         # central channel (channel 9, CT_1F15, FT_INAOOS): only status LED links to actuators (installation `zentral`)
         if "zentral" not in self.g:  # unknown ≠ empty: otherwise existing links would be deleted
             raise BridgeError("bad_args", tr("zentral_unbekannt", name=self.g["name"]))
-        await self.channel(OBJ_CENTRAL, (2, b"\x01\x01"), 9, [(self.base + 49 + i, 1 + i) for i in range(3)],
+        c_nr, c_obj, c_off = lay.central
+        await self.channel(c_obj, (2, b"\x01\x01"), c_nr, [(self.base + c_off + 1 + i, 1 + i) for i in range(3)],
                          self.status_links(self.g["zentral"]), cd=False)
-        await self.pw(OBJ_DEVICE, 0x41, b"\x01")
+        await self.pw(dev, 0x41, b"\x01")
         for n in rockers:
             b = assigned[n]
             if b["art"] == "tasten":
@@ -218,22 +265,26 @@ class Sender:
                     if b.get("antwort_ga") is None:
                         raise BridgeError("bad_args", tr("keine_antwort_ga", k=2 * n - 1))
                     links.append((self.srv, b["antwort_ga"]))
-                await self.channel(0x0B + n, (1, b"\x01\x01"), 2 * n - 1,
-                                 [(self.base + 48 + 3 * n + 1 + i, 1 + i) for i in range(3)], links)
+                r_nr, r_obj, r_off = lay.rocker(n)
+                await self.channel(r_obj, (1, b"\x01\x01"), r_nr,
+                                 [(self.base + r_off + 1 + i, 1 + i) for i in range(3)], links)
         t = datetime.now()
-        await self.pw(OBJ_DEVICE, 0x39, bytes([t.year % 100, t.month, t.day, t.hour, t.minute, t.second]))
+        await self.pw(dev, 0x39, bytes([t.year % 100, t.month, t.day, t.hour, t.minute, t.second]))
         lade = await self.pr(1, 6)
         if lade[:1] != b"\x01":
             _LOGGER.warning("%s: load state after programming %s instead of 01", self.g["name"], lade.hex())
 
 
-def keys_from(enet_device: dict[str, Any], assigned: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Assignment → installation `tasten` entries (offsets/objects following the server's rule)."""
+def keys_from(enet_device: dict[str, Any], assigned: dict[int, dict[str, Any]], lay: Layout | None = None
+              ) -> list[dict[str, Any]]:
+    """Assignment → installation `tasten` entries (offsets/objects of the transmitter's layout)."""
+    lay = lay or Layout()
     out = []
     for n in sorted(assigned):
         b = assigned[n]
         if b["art"] == "wippe":
-            e = {"nr": 2 * n - 1, "art": "wippe", "offset": 48 + 3 * n, "obj": 0x0B + n, "ziele": b["ziele"]}
+            _, obj, offset = lay.rocker(n)
+            e = {"nr": 2 * n - 1, "art": "wippe", "offset": offset, "obj": obj, "ziele": b["ziele"]}
             if b.get("ha_ziele"):
                 e["ha_ziele"], e["antwort_ga"] = list(b["ha_ziele"]), b.get("antwort_ga")
             out.append(e)
@@ -255,11 +306,12 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
                        rockers: set[int] | None = None, only_ia: str | None = None) -> None:
     """Sync the actuator side of the rockers – based on the link table in the actuator, not on the installation
     (after a factory reset/import it does not reliably know the GA stored in the actuator). Target per channel:
-    key value GA (base·256 + 50+3n) → GO 1, status query (+1) → GO 19 (CT_1F01; per channel type). All entries of this transmitter with a
+    key value GA (base·256 + rocker offset + 2, 50+3n) → GO 1, status query (+1) → GO 19 (CT_1F01; per channel type). All entries of this transmitter with a
     different GA are deleted.
     rockers: only check the actuators of these rockers (old and new); None = all. Reading the link tables costs up
     to 3 s per entry (slow actuators answer only on the 5th attempt) – do not touch unchanged rockers.
     only_ia: only this device (actuator re-paired after a factory reset)."""
+    lay = layout(hub, enet_device)
     wanted: dict[tuple[str, int], set[tuple[int, int]]] = {}
     verify: set[tuple[str, int]] = set()  # actuators on changed rockers (old or new)
     for assigned, with_ in ((old, False), (new, True)):
@@ -271,7 +323,9 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
                 # otherwise the links of the unchanged rocker would be deleted (happened 2026-11-08, 0.12.9)
                 s = wanted.setdefault((z["ia"], z["ch"]), set())
                 if with_:
-                    s |= {(base + 50 + 3 * n, "GBR"), (base + 51 + 3 * n, "SSGET")}
+                    off = lay.rocker(n)[2]  # rocker CT_1F11: key value GBR GO 2, status query SSGET GO 3
+                    s |= {(base + off + (layouts.go_of_type(CT_ROCKER, "GBR") or 2), "GBR"),
+                          (base + off + (layouts.go_of_type(CT_ROCKER, "SSGET") or 3), "SSGET")}
                 if rockers is None or n in rockers:
                     verify.add((z["ia"], z["ch"]))
     for (ia, ch), setpoint in sorted(wanted.items()):
@@ -410,8 +464,8 @@ async def _program(hub: Hub, enet_device: dict[str, Any], assigned: dict[int, di
         finally:
             hold.cancel()
             with contextlib.suppress(BridgeError):
-                await s.pw(OBJ_DEVICE, 0x48, b"\x03")  # release transmitter
-    enet_device["tasten"] = keys_from(enet_device, assigned)
+                await s.pw(s.lay.device_obj, 0x48, b"\x03")  # release transmitter
+    enet_device["tasten"] = keys_from(enet_device, assigned, s.lay)
     enet_device["ga_basis"], enet_device["ga_basis_geprueft"] = s.base >> 8, True
     new_keys = _server_key_base(hub, enet_device, s.base)
     await hub.save_installation()
@@ -610,6 +664,11 @@ def pending(enet_device: dict[str, Any]) -> bool:
 def clear_pending(enet_device: dict[str, Any]) -> None:
     for k in PENDING:
         enet_device.pop(k, None)
+
+
+def modes(hub: Hub, enet_device: dict[str, Any]) -> list[str]:
+    """Selectable operating modes of the transmitter's rockers (single keys only with the standard layout)."""
+    return list(OPERATING_MODES) if layout(hub, enet_device).single_keys else ["wippe"]
 
 
 def mode(enet_device: dict[str, Any], n: int) -> str:

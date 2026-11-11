@@ -13,6 +13,7 @@ TEXTS_NB: dict[str, str] = {
     "werkseintrag_fehlt": "Fant ikke senderens fabrikkoppføring",
     "zentral_unbekannt": "{name}: ukjente mål for sentralkanalen (importer anlegget på nytt)",
     "keine_antwort_ga": "Tast {k}: ingen svar-gruppeadresse",
+    "keine_einzeltasten": "{name}: enkelttaster støttes ikke for denne senderen (bare vippebrytere)",
     "zweck_verknuepfungen": "koblinger med {name}",
     "linktabelle_unlesbar": "Koblingstabellen til {key} kan ikke leses ({err})",
     "programmierung_laeuft": "Programmering pågår allerede – vent til den er ferdig",
