@@ -71,7 +71,7 @@ ACTIONS = {
 # output. The insert decides channel 2: CT_1F0B switching insert, CT_1F0D 2-channel switching insert, CT_1F0C
 # dimming insert, CT_1F10 blind insert. Channel 1 is the rocker of the top unit (CT_1F12 light, CT_1F1E blind): it
 # operates its own insert by wire and is a transmitter for other actuators – a key of the actuator. Not mapped:
-# CT_1F0E/CT_1F0E_SA (extension insert, no status object). All untested.
+# CT_1F0E/CT_1F0E_SA (extension insert: runs in parallel to the main insert, which switches the load). All untested.
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
                  "CT_1F05": "schalten", "CT_1F08": "schalten", "CT_1F01_DUMMY": "schalten",
                  "CT_1F0B": "schalten", "CT_1F0D": "schalten", "CT_1F0C": "dimmen", "CT_1F10": "jalousie",
