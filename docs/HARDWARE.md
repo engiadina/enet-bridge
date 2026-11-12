@@ -87,7 +87,7 @@ connection via Thread instead of USB.
 GDO0 2), so no wiring is needed – plug it in by USB-C and let the integration flash the bridge firmware (it
 replaces busware’s own culfw32). Tested: the integration recognised the stick (culfw32 does not answer the bridge
 protocol), flashed the ESP32-C6 build in about 15 s, and lights, transmitters and calibration worked straight away.
-Its blue status LED is not used yet.
+Its blue status LED is not used yet. Thanks to [Magnus Nordseth](https://github.com/mnordseth) for finding this stick.
 
 The green module has no pin labels – use the drawing below. Other modules may be wired differently.
 
