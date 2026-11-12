@@ -117,7 +117,7 @@ Two ways, both connected by USB to the Home Assistant host and running the same 
 
 - **Build it yourself:** Seeed **XIAO ESP32-C6** + CC1101 868 MHz module (7 wires) + 868 MHz antenna.
 - **Ready-made:** **busware CUL32** (ESP32-C6 + CC1101 with antenna socket, no soldering) – same pin assignment,
-  support expected but not yet tested on the device itself.
+  tested: plug it in and the integration replaces busware’s firmware with the bridge firmware.
 
 The original **ESP32 DevKit** (classic ESP32) build is **being phased out**: existing bridges keep working and still
 get their firmware from the integration, but new features are developed for the ESP32-C6 only, and support will

@@ -7,7 +7,7 @@ The bridge is a small radio modem: an **ESP32-C6** microcontroller and a **TI CC
 | Option | What | Status |
 |---|---|---|
 | **Build it yourself** (recommended) | **Seeed XIAO ESP32-C6** + CC1101 868 MHz module, 7 wires, ≈ 20–30 € | Tested in the office installation: receiving, switching/dimming, server buttons and scenes, programming transmitters, firmware updates from Home Assistant |
-| **Ready-made** | **[busware CUL32](https://busware.de/products/cul32/)** – ESP32-C6 + CC1101 with RP-SMA antenna socket, optional housing; no soldering | The firmware uses exactly its pin assignment; not yet tested on the device itself |
+| **Ready-made** | **[busware CUL32](https://busware.de/products/cul32/)** – ESP32-C6 + CC1101 with RP-SMA antenna socket, optional housing; no soldering | The firmware uses exactly its pin assignment; tested |
 | Original build | ESP32 DevKit (classic ESP32) + CC1101 | **Being phased out** – see [below](#esp32-devkit-being-phased-out) |
 
 All three run the same bridge firmware; the integration recognises the chip and flashes the matching build.
@@ -85,8 +85,9 @@ connection via Thread instead of USB.
 
 **busware CUL32:** the ESP32-C6 firmware uses exactly its CC1101 pin assignment (CSn 18, SCK 19, MOSI 21, MISO 20,
 GDO0 2), so no wiring is needed – plug it in by USB-C and let the integration flash the bridge firmware (it
-replaces busware’s own culfw32). Its blue status LED is not used yet. Not yet tested on the device itself – feedback
-welcome.
+replaces busware’s own culfw32). Tested: the integration recognised the stick (culfw32 does not answer the bridge
+protocol), flashed the ESP32-C6 build in about 15 s, and lights, transmitters and calibration worked straight away.
+Its blue status LED is not used yet.
 
 The green module has no pin labels – use the drawing below. Other modules may be wired differently.
 
