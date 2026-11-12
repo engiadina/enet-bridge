@@ -361,6 +361,14 @@ class Hub:
         """Device object (timestamp when programming): from the device definitions, otherwise 4."""
         return self.definitions.get(enet_device.get("typ", ""), {}).get("geraet_obj") or 4
 
+    def sleeps(self, enet_device: dict[str, Any]) -> bool:
+        """Battery device that sleeps between telegrams (catalogue sleepModeSupported) and has to be woken by a key
+        press before any radio access. Older local definitions without the flag: transmitters and the sun sensor."""
+        d = self.definitions.get(enet_device.get("typ", ""), {})
+        if "schlaeft" in d:
+            return bool(d["schlaeft"])
+        return enet_device.get("rolle") == "sender" or enet_device.get("typ") in SENSOR_TYPES
+
     def _device_versions(self, info: dict[str, Any]) -> None:
         """Firmware, radio chip and ID of the bridge on the HA device (device page: "Firmware: 0.8.9")."""
         if not getattr(self, "bridge_device_id", None):
@@ -393,7 +401,7 @@ class Hub:
     async def woken(self, enet_device: dict[str, Any], job):
         """Run job(); wake a sleeping device (sun sensor) first like a transmitter: repeat the wake-up call until
         it answers after a press on a test key, keep it awake meanwhile, release it afterwards."""
-        if enet_device.get("typ") not in SENSOR_TYPES:
+        if not self.sleeps(enet_device):
             return await job()
         from .pair import RadioSession
         from .sender import Sender
@@ -443,7 +451,7 @@ class Hub:
     async def _preload_parameters(self) -> None:
         """Read missing actuator parameters (all on first start; re-read via the "Read parameters" button)."""
         for g in {id(x.enet_device): x.enet_device for x in self.param_groups}.values():
-            if g.get("typ") in SENSOR_TYPES:
+            if self.sleeps(g):
                 continue  # sleeps: only on button press (with wake-up)
             if n := await self.read_parameters(g, only_missing=True):
                 _LOGGER.info("%s: %d parameters read", g["name"], n)

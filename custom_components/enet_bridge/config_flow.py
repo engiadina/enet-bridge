@@ -356,6 +356,8 @@ class EnetOptionsFlow(OptionsFlow):
             if a["tasten"]:
                 rows.append(tr("folge_tasten_entfallen", liste=", ".join(a["tasten"])))
         else:
+            if self._hub().sleeps(g):
+                rows.append(tr("folge_geraet_wecken"))
             if a["verweise"]:
                 rows.append(tr("folge_verweise", liste=", ".join(a["verweise"])))
             if a["esp_szenen"]:
