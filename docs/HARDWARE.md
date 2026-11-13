@@ -175,8 +175,13 @@ Reference measurements of the radio modules (office test installation, same plac
 |---|---|---|---|
 | Chip version (register 0xF1) | 0x04 | 0x14 | 0x14 |
 | Frequency correction | ≈ +95 kHz (≈ 110 ppm) | ≈ −6 kHz (≈ −7 ppm) | ≈ +1.6 kHz |
-| Noise floor | −112 dBm (without antenna) | −119 dBm (without antenna) | −101 dBm (with antenna) |
+| Noise floor without antenna | −112 dBm | −119 dBm | not measured |
 | All actuators with antenna | 4/4, first attempt | 4/4, first attempt | all, first attempt |
+
+**The noise floor with an antenna is not a module property.** With an antenna the bridge also picks up everything
+on 868 MHz around it (radio traffic, power supplies, USB, computers), so the value depends mainly on the place and
+the time: in the same office the CUL32 showed −101 dBm and a XIAO with RC module −90 dBm on another day, a bridge
+at home −106 dBm. A fair comparison needs both bridges at the same place at the same time with the same antenna.
 
 Diagnostics over the serial console (115200 baud): `d` shows the GDO lines, chip state, RSSI and channel
 occupancy, `s` the receive statistics, `r` the CC1101 registers, `spi` checks the CSn and MISO lines without SPI
