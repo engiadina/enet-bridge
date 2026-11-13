@@ -162,7 +162,9 @@ class Catalogue:
             return None
         out = {"name": g.get("name"), "generisch": gdvt_id, "hersteller": manufacturer_, "produkt": product,
                "artikel": article, "produktname": product_name,
-               "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0), "kanaele": [], "geraet": []}
+               "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0),
+               "schlaeft": g.get("sleepModeSupported") == "true",  # battery devices: wake before radio access
+               "kanaele": [], "geraet": []}
         # parameters a channel type can depend on (e.g. the insert type of an operating top unit), by ID
         selectors = {}
         for el in g.iter("KnxRfDeviceParameterType"):

@@ -8,7 +8,7 @@ TEXTS_NB: dict[str, str] = {
     # --- Program transmitter / keys ------------------------------------------------------------------
     "wippe_ziele_unbekannt": "{name} vippe {n}: ukjente mål (importer anlegget på nytt)",
     "links_reset_unbestaetigt": "Kanal {kanal}: tilbakestilling av koblinger ikke bekreftet",
-    "nicht_aufgewacht": "{name} våknet ikke (trykk på en tast på senderen)",
+    "nicht_aufgewacht": "{name} våknet ikke (trykk på en tast på enheten)",
     "ziel_fehlt": "Målet {ia}/{ch} er ikke en del av anlegget",
     "werkseintrag_fehlt": "Fant ikke senderens fabrikkoppføring",
     "zentral_unbekannt": "{name}: ukjente mål for sentralkanalen (importer anlegget på nytt)",
@@ -117,7 +117,7 @@ TEXTS_NB: dict[str, str] = {
     "verweis_aktor_wippe": "{aktor} k{ch} (vippe {n})",
     "verweis_wippe": "{name} vippe {n}",
     "verweis_zentral": "{name} sentralkanal",
-    "akt_entfernen_wecken": "– fjerner {name}: trykk på en tast på senderen nå (vekk den)",
+    "akt_entfernen_wecken": "– fjerner {name}: trykk på en tast på enheten nå (vekk den)",
     "reset_unbestaetigt": ("Enheten bekreftet ikke tilbakestillingen (tilbakestill den til fabrikkinnstilling "
                            "på enheten ved behov)"),
     "links_nicht_geloescht": "Aktuatorkoblingene er ikke fullstendig slettet: {err}",
@@ -137,6 +137,8 @@ TEXTS_NB: dict[str, str] = {
     "unbekannt": "ukjent",
     "ungetestet_zusatz": "{modell} (utestet)",
     "folge_sender_wecken": "- Sender: etter «Send» trykker du på en tast på senderen (vekk den)",
+    "folge_geraet_wecken": ("- Enheten sover: etter «Send» trykker du på en tast på enheten (vekk den; på "
+                            "solsensoren en testknapp)"),
     "folge_links_geloescht": "- Koblinger i aktuatorene slettes: {liste}",
     "folge_tasten_entfallen": "- Broens servertaster fjernes: {liste}",
     "folge_verweise": ("- Sendere som peker hit (vippen blir ledig, koblingen i senderen blir værende til den "
