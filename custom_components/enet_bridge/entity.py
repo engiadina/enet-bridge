@@ -97,6 +97,12 @@ class EnetParamEntity(EnetEntity):
         except BridgeError as err:
             raise HomeAssistantError(f"{g['name']} – {self.param.name}: {err}") from err
         if self.hub.controls_others(self.param_group, self.param):
+            # dependent settings that are now fixed get their constant (e.g. slat time 0 for roller shutters)
+            for grp, p, const in self.hub.dependent_constants(self.param_group):
+                try:
+                    await self.hub.params.write(g["ia"], g["sn"], grp.device_obj, p, const)
+                except BridgeError as err:
+                    raise HomeAssistantError(f"{g['name']} – {p.name}: {err}") from err
             # other settings appear or disappear with this value (visibility.py)
             self.hass.config_entries.async_schedule_reload(self.hub.entry_id)
 

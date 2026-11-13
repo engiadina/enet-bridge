@@ -570,6 +570,26 @@ class Hub:
         return any(c["parameter"] == p.id for g in self.device_params(group.enet_device) for q in g.params
                    for c in (q.d.get("abhaengig") or {}).get("bedingungen", []))
 
+    def dependent_constants(self, group: ParamGroup) -> list[tuple[ParamGroup, Param, Any]]:
+        """Parameters whose value type is a constant with the current values of the parameters they depend on (e.g.
+        the slat/fabric time is fixed 0 for the operating mode SHUTTER) but which hold a different value – the eNet
+        Server writes the constant when the controlling parameter changes; the actuator would otherwise keep using
+        the old value (roller shutter ran back by the old fabric tensioning time, office test 2026-11-13)."""
+        out = []
+        sn = group.enet_device["sn"]
+        for g in self.device_params(group.enet_device):
+            for p in g.params:
+                if "abhaengig" not in p.d:
+                    continue
+                self.param_active(g, p)  # sets p.current for the current controlling values
+                t = p.typ
+                if p.current is None or t.get("min") is None or t.get("min") != t.get("max"):
+                    continue
+                const = t["min"]
+                if (v := self.params.value(sn, p)) is not None and v != const:
+                    out.append((g, p, const))
+        return out
+
     def param_active(self, group: ParamGroup, p: Param) -> bool:
         """Is the parameter active with the current values of the parameters it depends on (catalogue
         DeviceMemberTypeDependency, e.g. slat time only for BLINDS)? Also sets its value type for that case."""
