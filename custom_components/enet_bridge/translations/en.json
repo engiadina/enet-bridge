@@ -215,7 +215,7 @@
         }
       },
       "wippe_lampe": {
-        "name": "Lamp {lampe}"
+        "name": "Actuator {lampe}"
       },
       "wippe_abdimmen": {
         "name": "Switches when dimming down",
@@ -389,13 +389,13 @@
         "title": "{name}: assignment",
         "description": "Lamps of the rockers or action of each single key. If mode or lamps change, the sender is programmed afterwards (press a key on it); a changed action only needs the bridge. Home Assistant lamps (other integrations) are switched and dimmed by Home Assistant; the bridge acknowledges the rocker (green LED, only while no eNet Server is running).",
         "data": {
-          "lampen_1": "Rocker 1: eNet lamps",
+          "lampen_1": "Rocker 1: eNet actuators",
           "ha_lampen_1": "Rocker 1: Home Assistant lamps",
-          "lampen_2": "Rocker 2: eNet lamps",
+          "lampen_2": "Rocker 2: eNet actuators",
           "ha_lampen_2": "Rocker 2: Home Assistant lamps",
-          "lampen_3": "Rocker 3: eNet lamps",
+          "lampen_3": "Rocker 3: eNet actuators",
           "ha_lampen_3": "Rocker 3: Home Assistant lamps",
-          "lampen_4": "Rocker 4: eNet lamps",
+          "lampen_4": "Rocker 4: eNet actuators",
           "ha_lampen_4": "Rocker 4: Home Assistant lamps",
           "taste_1": "Key 1",
           "taste_2": "Key 2",

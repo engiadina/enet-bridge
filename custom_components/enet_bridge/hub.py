@@ -57,6 +57,12 @@ PID_LINKS = 63  # link table in the channel object
 
 # GAs per key kind relative to the offset (docs/NOTES.md "Sender-Programmierung")
 GA_SPAN = {KIND_KEY: 6, KIND_ROCKER: 3}
+# Blinds: travel info GO 10 is not sent by every actuator (Gira 5427 00 only reports its position via the sum status
+# GO 11, about every 2 s while moving). The motion is therefore derived from position changes and ends when they stop.
+MOVING_UP, MOVING_DOWN = 2, 3
+BLIND_IDLE_S = 5.0     # no position change for this long while moving: stopped
+BLIND_MARGIN_S = 15.0  # without any position report: stopped after travel time + this
+BLIND_TRAVEL_S = 120.0  # travel time if the parameter has not been read (catalogue default)
 
 
 def rocker_as_server_key(msg: dict[str, Any]) -> None:
@@ -145,6 +151,9 @@ class ChannelState:
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
+    moved_at: float = 0.0  # blind: time.monotonic() of the last command or position change while moving
+    tracking: bool = False  # blind: position changes were reported since the command
+    watch: Any = None  # blind: cancel function of the motion check
 
 
 @dataclass
@@ -378,6 +387,47 @@ class Hub:
         if not german():
             model = self.definitions.get(enet_device.get("typ", ""), {}).get("produktname") or model
         return tr("ungetestet_zusatz", modell=model) if enet_device.get("typ") in UNTESTED else model
+
+    def blind_moving(self, k: Channel, motion: int | None) -> None:
+        """Provisional motion after a command (cover): until position reports confirm or end it."""
+        z = self.state_[k.key]
+        z.motion, z.moved_at, z.tracking = motion, time.monotonic(), False
+        self._watch_blind(k.key)
+
+    def _travel_time(self, key: str) -> float:
+        k = next((k for k in self.blinds if k.key == key), None)
+        if k is not None:
+            for g in self.device_params(k.enet_device):
+                if g.channel == k.nr:
+                    for p in g.params:
+                        if p.id == "MUDT" and isinstance(v := self.params.value(k.enet_device["sn"], p), (int, float)) \
+                                and v > 0:
+                            return float(v)
+        return BLIND_TRAVEL_S
+
+    def _watch_blind(self, key: str) -> None:
+        """End the motion when the position no longer changes (or after the travel time without any report)."""
+        z = self.state_[key]
+        if z.watch is not None:
+            z.watch()
+            z.watch = None
+        if z.motion not in (MOVING_UP, MOVING_DOWN):
+            return
+        limit = self._travel_time(key) + BLIND_MARGIN_S
+
+        @callback
+        def check(_now: Any) -> None:
+            z.watch = None
+            if z.motion not in (MOVING_UP, MOVING_DOWN):
+                return
+            idle = time.monotonic() - z.moved_at
+            if (z.tracking and idle >= BLIND_IDLE_S) or idle >= limit:
+                z.motion = None
+                async_dispatcher_send(self.hass, self.signal(f"state_{key}"))
+            else:
+                z.watch = async_call_later(self.hass, 1.0, check)
+
+        z.watch = async_call_later(self.hass, 1.0, check)
 
     def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
         return [g for g in self.param_groups if g.enet_device is enet_device]
@@ -916,11 +966,16 @@ class Hub:
             if (z := self.state_.get(key)) is not None:
                 _LOGGER.debug("State %s: %s", key, msg)
                 self.check.answers(msg.get("ia"))
+                old_known, old_percent = z.known, z.percent
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
                 if msg.get("kind") == "blind":
                     z.slat = msg.get("slat")
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
+                    elif old_known and z.percent != old_percent:
+                        z.motion = MOVING_DOWN if z.percent > old_percent else MOVING_UP
+                        z.moved_at, z.tracking = time.monotonic(), True
+                        self._watch_blind(key)
                 if msg.get("source") != "poll":
                     z.reported = time.monotonic()
                 async_dispatcher_send(self.hass, self.signal(f"state_{key}"))

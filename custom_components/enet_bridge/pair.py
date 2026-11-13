@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .bridge import BridgeError
+from .const import KIND_BLIND
 from .iex import ACTUATOR_ROCKERS, CHANNEL_TYPES, DEVICE_TYPES, PRODUCT_TYPES, ia_str, product_ident
 from .measurements import MEASUREMENT_KINDS
 from .texts import tr
@@ -379,6 +380,28 @@ async def remove(hub: Hub, enet_device: dict[str, Any]) -> dict[str, Any]:
     return {"bestaetigt": r is not None, "offen": open_items}
 
 
+async def _init_blinds(hub: Hub, g: dict[str, Any]) -> None:
+    """Blind channels: write the travel time (MUDT) once with its current value. Without this, the actuator does not
+    track its position (always 0 %, ignores position commands) – the eNet Server sets the travel time when
+    commissioning (Gira 5427 00, office test 2026-11-13)."""
+    d = hub.definitions.get(g.get("typ", ""), {})
+    blinds = {k["nr"] for k in g.get("kanaele", []) if k.get("art") == KIND_BLIND}
+    for k in d.get("kanaele", []):
+        p = next((p for p in k.get("parameter", []) if p["id"] == "MUDT" and p.get("aktiv")), None)
+        if k["nr"] not in blinds or p is None:
+            continue
+        try:
+            r = await hub.bridge.request("prop_read", ia=g["ia"], obj=p["obj"], pid=p["pid"], start=p["start"], count=2)
+            data = bytes.fromhex(r.get("value", ""))[:2]
+            if len(data) != 2 or data == b"\x00\x00":
+                data = int(p["typ"].get("standard") or 120).to_bytes(2, "big")
+            await hub.params.write_raw(g["ia"], hub.device_obj(g), p["obj"], p["start"], data,
+                                       purpose=tr("zweck_fahrzeit", name=g["name"]))
+            _LOGGER.info("%s: travel time channel %d written (%d s)", g["name"], k["nr"], int.from_bytes(data, "big"))
+        except BridgeError as err:
+            _LOGGER.warning("%s: travel time channel %d not written: %s", g["name"], k["nr"], err)
+
+
 async def add(hub: Hub, name: str | None = None, room: str | None = None) -> dict[str, Any]:
     """Complete pairing (service and "+ Add device"): search, take over, set room; a transmitter is programmed right
     away (awake in learning mode) and released – its learning LED stops blinking = paired."""
@@ -393,6 +416,8 @@ async def add(hub: Hub, name: str | None = None, room: str | None = None) -> dic
         errors += await restore_rocker_links(hub, g["ia"])
         if errors:
             _LOGGER.warning("Restoring scenes of %s: %s", g["name"], "; ".join(errors))
+    if g["rolle"] == "aktor":
+        await _init_blinds(hub, g)
     if room:
         g["raum"] = room  # suggestion for the HA area when creating the device
         await hub.save_installation()

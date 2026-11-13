@@ -72,6 +72,7 @@ TEXTS_NB: dict[str, str] = {
     "link_keine_szene": "fra serveren, ingen scene",
     "link_fremd": "fra enhet {sn}, ikke en del av anlegget",
     "zweck_einstellung": "innstilling {name}",
+    "zweck_fahrzeit": "kjøretid {name}",
     "zweck_szenenwert": "sceneverdi {name}",
     "zweck_parameterspeicher": "parameterminne",
     "akt_sensor_wecken": "– trykk på en testknapp på sensoren (vekk den)",

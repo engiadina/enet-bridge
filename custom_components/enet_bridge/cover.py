@@ -1,6 +1,7 @@
 """Blind channels (CT_1F03, e.g. Gira 5427 00) as roller shutter/blind.
 
-Implemented from the catalog, not yet tested on a device. The actuator counts the position from the top (0 % = fully
+Tested with a Gira 5427 00 (office, 2026-11-13). The actuator tracks its position only after the travel time has been
+written once (as the eNet Server does when commissioning – pair.py writes it after pairing). The actuator counts the position from the top (0 % = fully
 up, 100 % = fully down), HA from the bottom (100 = open) – converted here, as is the slat. Commands via the bridge
 command "cover" (firmware 0.8.20 or later): up/down GO 2, stop GO 4, position GO 5, slat GO 6; state from the travel
 info (GO 10), position (GO 12) and slat (GO 13); after a command the bridge polls at staggered intervals.
@@ -29,12 +30,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import EnetConfigEntry, channel_info
 from .bridge import BridgeError
 from .entity import EnetEntity
-from .hub import Hub, Channel
+from .hub import MOVING_DOWN, MOVING_UP, Hub, Channel  # motion: hub.ChannelState
 
 _LOGGER = logging.getLogger(__name__)
 
-# travel info GO 10: 0 stopped after moving up, 1 stopped after moving down (last direction, not the end position)
-MOVING_UP, MOVING_DOWN = 2, 3
 BASIC = (CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
          | CoverEntityFeature.SET_POSITION)
 TILT = CoverEntityFeature.OPEN_TILT | CoverEntityFeature.CLOSE_TILT | CoverEntityFeature.SET_TILT_POSITION
@@ -129,8 +128,8 @@ class EnetBlind(EnetEntity, CoverEntity):
                         result["tries"])
 
     def _moving(self, motion: int | None) -> None:
-        """Provisional until the actuator's travel info or the bridge's poll arrives."""
-        self._z.motion = motion
+        """Provisional until position reports of the actuator confirm or end it (hub.blind_moving)."""
+        self.hub.blind_moving(self.channel, motion)
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:

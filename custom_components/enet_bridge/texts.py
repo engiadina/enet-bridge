@@ -135,6 +135,7 @@ TEXTS: dict[str, tuple[str, str]] = {
     "link_keine_szene": ("vom Server, zu keiner Szene", "from the server, no scene"),
     "link_fremd": ("von Gerät {sn}, das nicht in der Anlage ist", "from device {sn}, not part of the installation"),
     "zweck_einstellung": ("Einstellung {name}", "setting {name}"),
+    "zweck_fahrzeit": ("Fahrzeit {name}", "travel time {name}"),
     "zweck_szenenwert": ("Szenenwert {name}", "scene value {name}"),
     "zweck_parameterspeicher": ("Parameterspeicher", "parameter memory"),
     "akt_sensor_wecken": ("– am Sensor bitte eine Testtaste drücken (aufwecken)",

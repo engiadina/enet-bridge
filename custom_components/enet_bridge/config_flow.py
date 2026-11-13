@@ -287,7 +287,8 @@ class EnetOptionsFlow(OptionsFlow):
                         self._actions[k] = user_input.get(f"taste_{k}", sender.REPORT)
             self._programmed = sender.needs_programming(g, self._assignment)
             return await self.async_step_uebernehmen()
-        lamps = [SelectOptionDict(value=k.key, label=f"{k.enet_device['name']} K{k.nr} ({k.key})") for k in hub.channels_]
+        # eNet targets: lamps and blinds – the blind actuator takes the rocker's key value (GBR) like a lamp
+        lamps = [SelectOptionDict(value=k.key, label=f"{k.enet_device['name']} K{k.nr} ({k.key})") for k in hub.all_channels]
         actions = [SelectOptionDict(value=w, label=t) for w, t in sender.action_options(hub)]
         own = [e.entity_id for e in er.async_entries_for_config_entry(er.async_get(self.hass), self.config_entry.entry_id)]
         fields_ = {}

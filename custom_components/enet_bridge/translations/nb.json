@@ -215,7 +215,7 @@
         }
       },
       "wippe_lampe": {
-        "name": "Lampe {lampe}"
+        "name": "Aktuator {lampe}"
       },
       "wippe_abdimmen": {
         "name": "Ved nedtoning",
@@ -389,13 +389,13 @@
         "title": "{name}: tilordning",
         "description": "Lamper for vippene eller handling for hver enkelttast. Hvis modus eller lamper endres, programmeres senderen etterpå (trykk på en tast på den); en endret handling trenger bare broen. Home Assistant-lamper (andre integrasjoner) slås av/på og dimmes av Home Assistant; broen bekrefter vippen (grønn LED, bare så lenge ingen eNet Server kjører).",
         "data": {
-          "lampen_1": "Vippe 1: eNet-lamper",
+          "lampen_1": "Vippe 1: eNet-aktuatorer",
           "ha_lampen_1": "Vippe 1: Home Assistant-lamper",
-          "lampen_2": "Vippe 2: eNet-lamper",
+          "lampen_2": "Vippe 2: eNet-aktuatorer",
           "ha_lampen_2": "Vippe 2: Home Assistant-lamper",
-          "lampen_3": "Vippe 3: eNet-lamper",
+          "lampen_3": "Vippe 3: eNet-aktuatorer",
           "ha_lampen_3": "Vippe 3: Home Assistant-lamper",
-          "lampen_4": "Vippe 4: eNet-lamper",
+          "lampen_4": "Vippe 4: eNet-aktuatorer",
           "ha_lampen_4": "Vippe 4: Home Assistant-lamper",
           "taste_1": "Tast 1",
           "taste_2": "Tast 2",

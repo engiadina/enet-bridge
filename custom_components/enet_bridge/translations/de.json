@@ -215,7 +215,7 @@
         }
       },
       "wippe_lampe": {
-        "name": "Lampe {lampe}"
+        "name": "Aktor {lampe}"
       },
       "wippe_abdimmen": {
         "name": "Schalter beim Abdimmen",
@@ -389,13 +389,13 @@
         "title": "{name}: Belegung",
         "description": "Lampen der Wippen bzw. Aktion jeder Einzeltaste. Ändern sich Betriebsart oder Lampen, wird der Sender danach programmiert (eine Taste daran drücken); eine geänderte Aktion braucht nur die Bridge. Home-Assistant-Lampen (andere Integrationen) schaltet und dimmt Home Assistant; die Bridge quittiert die Wippe (grüne LED, nur solange kein eNet Server läuft).",
         "data": {
-          "lampen_1": "Wippe 1: eNet-Lampen",
+          "lampen_1": "Wippe 1: eNet-Aktoren",
           "ha_lampen_1": "Wippe 1: Home-Assistant-Lampen",
-          "lampen_2": "Wippe 2: eNet-Lampen",
+          "lampen_2": "Wippe 2: eNet-Aktoren",
           "ha_lampen_2": "Wippe 2: Home-Assistant-Lampen",
-          "lampen_3": "Wippe 3: eNet-Lampen",
+          "lampen_3": "Wippe 3: eNet-Aktoren",
           "ha_lampen_3": "Wippe 3: Home-Assistant-Lampen",
-          "lampen_4": "Wippe 4: eNet-Lampen",
+          "lampen_4": "Wippe 4: eNet-Aktoren",
           "ha_lampen_4": "Wippe 4: Home-Assistant-Lampen",
           "taste_1": "Taste 1",
           "taste_2": "Taste 2",

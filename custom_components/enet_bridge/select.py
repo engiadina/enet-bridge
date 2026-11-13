@@ -170,7 +170,7 @@ class RockerLamp(EnetEntity, SelectEntity):
         ha = ha_lamps(self.hass)
         names_ = list(ha.values())
         # short "Name (HA)" so the selection fits on the card; entity_id only for duplicate names
-        return {**{f"{k.enet_device['name']} K{k.nr} ({k.key})": k.key for k in self.hub.channels_},
+        return {**{f"{k.enet_device['name']} K{k.nr} ({k.key})": k.key for k in self.hub.all_channels},
                 **{tr("lampe_ha_eid" if names_.count(name) > 1 else "lampe_ha", name=name, eid=eid): eid
                    for eid, name in ha.items()}}
 
