@@ -15,11 +15,10 @@ import math
 import time
 from typing import TYPE_CHECKING
 
-from homeassistant.components.logbook import async_log_entry
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 
 from .bridge import BridgeError
-from .const import DOMAIN
+from .logbook import EVENT_DEVICE_MESSAGE
 from .texts import tr
 
 if TYPE_CHECKING:
@@ -65,13 +64,14 @@ class Calibration:
             await self.hub.bridge.request("cover", ia=self.channel.ia, ch=self.channel.nr, action=action)
 
     def _log(self, text: str) -> None:
-        """Activity list of the device: on "Position reached" while measuring, otherwise on "Read parameters"."""
+        """Activity list of the device (logbook.py: an entry of the device, not of one of its buttons)."""
+        from . import channel_info
+
         g = self.channel.enet_device
-        reg = er.async_get(self.hub.hass)
-        entity_id = (reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_{self.channel.nr}_einmessen_endlage")
-                     if self.running else None) \
-            or reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_parameter_lesen")
-        async_log_entry(self.hub.hass, g["name"], text, DOMAIN, entity_id)
+        ident = next(iter(channel_info(self.hub, self.channel)["identifiers"]))
+        device = dr.async_get(self.hub.hass).async_get_device(identifiers={ident})
+        self.hub.hass.bus.async_fire(EVENT_DEVICE_MESSAGE, {"device_id": device.id if device else None,
+                                                             "name": g["name"], "message": text})
 
     def _switch_page(self, message: str) -> None:
         """Reload: the device page shows the measuring buttons or its normal entities again (visibility.py). The

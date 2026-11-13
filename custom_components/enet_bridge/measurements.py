@@ -34,7 +34,7 @@ KIND_ENERGY, KIND_MOTION, KIND_REPEATER = "energie", "bewegung", "repeater"
 MEASUREMENT_KINDS = (KIND_ENERGY, KIND_MOTION, KIND_REPEATER)
 # device types whose mapping comes only from the catalog ("untested" shown on the device)
 UNTESTED = {"DVT_ES1M", "DVT_ES1Z", "DVT_ES4R", "DVT_BS1BP", "DVT_RPZS",
-              "DVT_JA1M", "DVT_JA1R", "DVT_SJA1", "DVT_SJAR",
+              "DVT_JA1R", "DVT_SJA1", "DVT_SJAR",  # DVT_JA1M (5427 00) tested 2026-11-13
               # channel type variants (layouts.py), known from installation dumps only
               "DVT_UP1A", "DVT_UP1AV", "DVT_SENSIQ", "DVT_SENSIQv2"}
 

@@ -93,6 +93,7 @@ Tested in two installations:
 | Switching actuators | Mini 1-gang (SA1M, SA1MP), Mini 2-gang (SA2M), intermediate plug (SA1Z) |
 | Dimming actuators | Mini dimmer (DA1M), DALI Mini (SD1M) |
 | Transmitters | Wall transmitter 3-gang (WS3BG), hand-held transmitter 4-gang (HS4) |
+| Blind/shutter actuators | Mini (5427 00): up/down/stop, position, slats, travel time measurement, rocker of a transmitter |
 | Sensors | Sun/twilight sensor (SF1S, Jung FM FS 1 S) |
 
 **Implemented from the manufacturer catalogue, not yet tested on a device** – shown in Home Assistant with
@@ -101,7 +102,7 @@ Tested in two installations:
 
 | Type | Devices | In Home Assistant |
 |---|---|---|
-| Blind/shutter actuators | Mini (5427 00), DIN-rail 1-gang (5437 00) and 4-gang (5435 00), System 2000 insert (5491) | cover: up/down/stop, position, slats |
+| Blind/shutter actuators | DIN-rail 1-gang (5437 00) and 4-gang (5435 00), System 2000 insert (5491) | cover: up/down/stop, position, slats |
 | Energy sensors | Mini (5471 00), intermediate plug (5472 02), DIN-rail 4-gang (5473 00) | voltage, current, active/reactive/apparent power, energy (energy dashboard) |
 | Motion detector | Jung FMDW360WW | motion, illuminance |
 | Repeater | intermediate plug (5321 02) | signal, last message |
