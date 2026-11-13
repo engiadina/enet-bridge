@@ -131,7 +131,28 @@ class Catalogue:
         }
         if el.get("writeProtectedAtDevice") == "true":
             p["schreibgeschuetzt"] = True
+        if (dep := self.dependency(el)) is not None:
+            p["abhaengig"] = dep
         return p
+
+    def dependency(self, el):
+        """Activity (and value type) depending on other parameters (DeviceMemberTypeDependency), e.g. the slat time
+        only for the operating mode BLINDS: {"verknuepfung": NONE|AND|OR, "bedingungen": [{"parameter": short ID,
+        "werte": {value: {"aktiv": bool[, "typ": value type]}}}]}."""
+        dep = el.find("DeviceMemberTypeDependency")
+        if dep is None:
+            return None
+        conditions = []
+        for d in dep.iter("DependentDeviceParameterValueType"):
+            values = {}
+            for s in d.iter("DependentValueMemberSetting"):
+                w = {"aktiv": s.get("active", "true") != "false"}
+                if s.get("valueTypeContainerTypeID"):
+                    w["typ"] = self.value_type(s.get("valueTypeContainerTypeID"))
+                values[s.get("dependOnValue")] = w
+            conditions.append({"parameter": re.sub(r"^PT_[A-Z0-9]+[._]", "", d.get("dependOnParameterTypeID") or ""),
+                               "werte": values})
+        return {"verknuepfung": dep.get("activationOperand") or "NONE", "bedingungen": conditions} if conditions else None
 
     def enet_device(self, dvt):
         gdvt_id, manufacturer_, product, article, product_name = self.devtypes.get(

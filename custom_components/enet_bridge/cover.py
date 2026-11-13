@@ -31,6 +31,7 @@ from . import EnetConfigEntry, channel_info
 from .bridge import BridgeError
 from .entity import EnetEntity
 from .hub import MOVING_DOWN, MOVING_UP, Hub, Channel  # motion: hub.ChannelState
+from .visibility import filtered
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ DEVICE_CLASSES = {"BLINDS": CoverDeviceClass.BLIND, "SHUTTER": CoverDeviceClass.
                   "MARQUEE": CoverDeviceClass.AWNING}
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data

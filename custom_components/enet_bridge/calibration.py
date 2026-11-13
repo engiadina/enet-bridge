@@ -1,10 +1,12 @@
-"""Measure the travel time of a blind channel on its device page (buttons "Measure travel time", "End position
-reached", "Cancel measuring", sensor "Measuring").
+"""Measure the travel time of a blind channel on its device page.
 
-The actuator knows one travel time for both directions (parameter MUDT) and switches off after it – so for the
-measurement it is set to the maximum first. Sequence: up to the top end position (not timed), down (timed), up
-(timed); each "End position reached" sends stop. Result: the longer of both times, rounded up (moving up under load
-usually takes a little longer). Cancelling stops the blind and writes the previous travel time back.
+Normally the page has the button "Measure travel time". Pressing it switches the page to only "Position reached" and
+"Cancel measuring" (visibility.py removes the other entities of the device and restores them afterwards); every step is
+announced in the device's activity list. The actuator knows one travel time for both directions (parameter MUDT) and
+switches off after it – so for the measurement it is set to the maximum first. Sequence: up to the top end position
+(not timed), down (timed), up (timed); each "Position reached" sends stop. Result: the longer of both times, rounded up
+(moving up under load usually takes a little longer). Cancelling stops the blind and writes the previous travel time
+back. The state lives in hass.data, so it survives the reloads that switch the page.
 """
 from __future__ import annotations
 
@@ -13,9 +15,11 @@ import math
 import time
 from typing import TYPE_CHECKING
 
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.components.logbook import async_log_entry
+from homeassistant.helpers import entity_registry as er
 
 from .bridge import BridgeError
+from .const import DOMAIN
 from .texts import tr
 
 if TYPE_CHECKING:
@@ -36,12 +40,11 @@ class Calibration:
         self.old: int | None = None  # travel time before the measurement
         self.started = 0.0
         self.down: float | None = None
-        self.up: float | None = None
-        self.result: str | None = None  # text of the last result (sensor)
+        self.pending: str | None = None  # message for after the page switch (logged by the new buttons)
 
     @property
-    def key(self) -> str:
-        return self.channel.key
+    def running(self) -> bool:
+        return self.step != IDLE
 
     def _param(self):
         g = self.channel.enet_device
@@ -60,83 +63,85 @@ class Calibration:
     async def _move(self, action: str) -> None:
         async with self.hub.params.programming(self.channel.ia):
             await self.hub.bridge.request("cover", ia=self.channel.ia, ch=self.channel.nr, action=action)
-        if action != "stop":
-            from .hub import MOVING_DOWN, MOVING_UP
 
-            self.hub.blind_moving(self.channel, MOVING_UP if action == "up" else MOVING_DOWN)
-        else:
-            self.hub.blind_moving(self.channel, None)
+    def _log(self, text: str) -> None:
+        """Activity list of the device: on "Position reached" while measuring, otherwise on "Read parameters"."""
+        g = self.channel.enet_device
+        reg = er.async_get(self.hub.hass)
+        entity_id = (reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_{self.channel.nr}_einmessen_endlage")
+                     if self.running else None) \
+            or reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_parameter_lesen")
+        async_log_entry(self.hub.hass, g["name"], text, DOMAIN, entity_id)
 
-    def _changed(self) -> None:
-        async_dispatcher_send(self.hub.hass, self.hub.signal(f"einmessen_{self.key}"))
+    def _switch_page(self, message: str) -> None:
+        """Reload: the device page shows the measuring buttons or its normal entities again (visibility.py). The
+        message goes to the activity list once the new page exists (flush, called by the buttons)."""
+        self.pending = message
+        self.hub.hass.config_entries.async_schedule_reload(self.hub.entry_id)
 
-    def text(self) -> str:
-        if self.step == TO_TOP:
-            return tr("einmessen_nach_oben")
-        if self.step == DOWN:
-            return tr("einmessen_ab")
-        if self.step == UP:
-            return tr("einmessen_auf")
-        return self.result or tr("einmessen_bereit")
+    def flush(self) -> None:
+        if self.pending:
+            text, self.pending = self.pending, None
+            self._log(text)
 
     async def start(self) -> None:
-        if self.step != IDLE:
+        if self.running:
             raise BridgeError("busy", tr("einmessen_laeuft"))
         g = self.channel.enet_device
         grp, p = self._param()
         value = self.hub.params.value(g["sn"], p)
         self.old = int(value) if isinstance(value, (int, float)) and value > 0 else None
-        self.down = self.up = self.result = None
+        self.down = None
         await self._write(MAX_TRAVEL_S)
         await self._move("up")
         self.step = TO_TOP
-        self.hub.device_activity(g, tr("akt_einmessen_start"))
-        self._changed()
+        self._switch_page(tr("einmessen_schritt_oben"))
 
     async def end_reached(self) -> None:
         now = time.monotonic()
-        if self.step == IDLE:
+        if not self.running:
             raise BridgeError("bad_args", tr("einmessen_nicht_gestartet"))
         await self._move("stop")
         if self.step == TO_TOP:
             await self._move("down")
             self.started, self.step = time.monotonic(), DOWN
+            self._log(tr("einmessen_schritt_ab"))
         elif self.step == DOWN:
             self.down = now - self.started
             await self._move("up")
             self.started, self.step = time.monotonic(), UP
+            self._log(tr("einmessen_schritt_auf", ab=f"{self.down:.1f}"))
         elif self.step == UP:
-            self.up = now - self.started
-            seconds = max(1, min(MAX_TRAVEL_S, math.ceil(max(self.down or 0, self.up))))
-            self.step = IDLE
+            up = now - self.started
+            seconds = max(1, min(MAX_TRAVEL_S, math.ceil(max(self.down or 0, up))))
+            text = tr("einmessen_fertig", ab=f"{self.down or 0:.1f}", auf=f"{up:.1f}", s=seconds)
             try:
                 await self._write(seconds)
-            except BridgeError:
-                self._changed()
+            except BridgeError as err:
+                text = tr("einmessen_fehler", err=err)
                 raise
-            self.result = tr("einmessen_fertig", ab=f"{self.down:.1f}", auf=f"{self.up:.1f}", s=seconds)
-            self.hub.device_activity(self.channel.enet_device, self.result)
+            finally:
+                self.step = IDLE
+                self._switch_page(text)
             _LOGGER.info("%s: travel time measured: down %.1f s, up %.1f s → %d s",
-                         self.channel.enet_device["name"], self.down or 0, self.up, seconds)
-        self._changed()
+                         self.channel.enet_device["name"], self.down or 0, up, seconds)
 
     async def cancel(self) -> None:
-        if self.step == IDLE:
+        if not self.running:
             return
-        self.step = IDLE
-        self.result = tr("einmessen_abgebrochen")
-        self._changed()
         try:
             await self._move("stop")
-        finally:
             if self.old is not None:
                 await self._write(self.old)
-            self.hub.device_activity(self.channel.enet_device, self.result)
-            self._changed()
+        finally:
+            self.step = IDLE
+            self._switch_page(tr("einmessen_abgebrochen"))
 
 
 def calibration(hub: Hub, channel: Channel) -> Calibration:
-    """The measuring state of a blind channel (kept in the hub for all entities of the channel)."""
-    if channel.key not in hub.calibrations:
-        hub.calibrations[channel.key] = Calibration(hub, channel)
-    return hub.calibrations[channel.key]
+    """The measuring state of a blind channel (kept across reloads; hub and channel are renewed on every setup)."""
+    c = hub.calibrations.get(channel.key)
+    if c is None:
+        c = hub.calibrations[channel.key] = Calibration(hub, channel)
+    c.hub, c.channel = hub, channel
+    return c

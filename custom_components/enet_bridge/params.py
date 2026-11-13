@@ -10,7 +10,7 @@ import contextlib
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -60,10 +60,12 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "RPT": ("Umschaltpause", "Reversal pause", True),
     "OPMODE": ("Betriebsart", "Operating mode", True),
     "BPMPU": ("Position bei Netzwiederkehr", "Position on power return", True),
-    "EIM": ("Fahrrichtung umkehren", "Invert direction", False),
+    "EIM": ("Fahrrichtung umkehren", "Invert direction", True),
+    "MSMT": ("Lamellen-Fahrzeit", "Slat travel time", True),
+    "SPMPU": ("Lamellenposition bei Netzwiederkehr", "Slat position on power return", True),
     "CAPS": ("Position senden", "Send position", False),
     "BNRT": ("Umkehrsperrzeit", "No-reversal time", False),
-    "SST": ("Lamellen-Schrittzeit", "Slat step time", False),
+    "SST": ("Lamellen-Schrittzeit", "Slat step time", True),
     "REPEATER_MODE_ENABLE": ("Repeater", "Repeater", False),
     "LEARN_MODE_ENABLE": ("Lernmodus", "Learn mode", False),
     "SUMSTATE_MAX_TIMEOUT": ("Statusmeldung Wartezeit", "Status message timeout", False),
@@ -122,7 +124,7 @@ def channel_name(typ: str, channel: int | None) -> str | None:
 
 
 # scene memory and special functions belong to scene handling, not to the settings
-EXCLUDED = ("SCV1[", "SNA[", "PSN[", "CHANNEL_CONFIG")
+EXCLUDED = ("SCV1[", "SCV2[", "SNA[", "PSN[", "CHANNEL_CONFIG")
 
 
 @dataclass
@@ -130,6 +132,7 @@ class Param:
     """A parameter of a device/channel with radio address and value description."""
 
     d: dict[str, Any]
+    current: dict[str, Any] | None = field(default=None, compare=False)  # value type by dependency (Hub.param_active)
 
     @property
     def id(self) -> str:
@@ -141,7 +144,7 @@ class Param:
 
     @property
     def typ(self) -> dict[str, Any]:
-        return self.d["typ"]
+        return self.current or self.d["typ"]
 
     @property
     def art(self) -> str:
@@ -174,8 +177,9 @@ class Param:
 
     @property
     def usable(self) -> bool:
-        return (self.d.get("aktiv", True) and self.typ.get("kodierung") not in (None, "unbekannt")
-                and not self.id.startswith(EXCLUDED))
+        # inactive by default but switched on by another parameter (e.g. slat time with operating mode BLINDS)
+        return ((self.d.get("aktiv", True) or "abhaengig" in self.d)
+                and self.typ.get("kodierung") not in (None, "unbekannt") and not self.id.startswith(EXCLUDED))
 
     # --- Conversion ------------------------------------------------------
     def decode(self, raw: bytes) -> Any:

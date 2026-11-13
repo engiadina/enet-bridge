@@ -11,8 +11,10 @@ from . import EnetConfigEntry, bridge_info, device_info_for
 from .measurements import KIND_MOTION
 from .const import SENSOR_TYPES
 from .entity import EnetEntity
+from .visibility import filtered
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data

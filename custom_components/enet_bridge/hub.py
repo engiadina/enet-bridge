@@ -182,7 +182,8 @@ class Hub:
     _sync_task: asyncio.Task | None = None
     _cal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _tracking_task: asyncio.Task | None = None
-    calibrations: dict[str, Any] = field(default_factory=dict)  # blind key → calibration.Calibration
+    calibrations: dict[str, Any] = field(default_factory=dict)  # blind key → calibration.Calibration (hass.data)
+    added: set[str] = field(default_factory=set)  # unique IDs of the entities created at this setup (visibility.py)
     _tracked_at: float = 0.0  # time.monotonic() of the last tracking adjustment
     _unsub: Any = None
 
@@ -440,6 +441,41 @@ class Hub:
 
         z.watch = async_call_later(self.hass, 1.0, check)
 
+    def measuring_sns(self) -> set[str]:
+        """Devices whose travel time is being measured (their page shows only the measuring buttons)."""
+        return {c.channel.enet_device["sn"] for c in self.calibrations.values() if c.running}
+
+    def controls_others(self, group: ParamGroup, p: Param) -> bool:
+        """Does another parameter of the device depend on this one (then its entities change with the value)?"""
+        return any(c["parameter"] == p.id for g in self.device_params(group.enet_device) for q in g.params
+                   for c in (q.d.get("abhaengig") or {}).get("bedingungen", []))
+
+    def param_active(self, group: ParamGroup, p: Param) -> bool:
+        """Is the parameter active with the current values of the parameters it depends on (catalogue
+        DeviceMemberTypeDependency, e.g. slat time only for BLINDS)? Also sets its value type for that case."""
+        dep = p.d.get("abhaengig")
+        if not dep:
+            return p.d.get("aktiv", True)
+        sn, results, typ = group.enet_device["sn"], [], None
+        for c in dep["bedingungen"]:
+            ctrl = self._param_by_id(group, c["parameter"]) if c["parameter"] else None
+            v = self.params.value(sn, ctrl) if ctrl is not None else None
+            s = c["werte"].get(str(v).lower() if isinstance(v, bool) else str(v)) if v is not None else None
+            if s is None:
+                continue  # unknown (not read yet): does not decide
+            results.append(s.get("aktiv", True))
+            typ = typ or s.get("typ")
+        p.current = typ
+        if not results:
+            return p.d.get("aktiv", True)
+        return any(results) if dep.get("verknuepfung") == "OR" else all(results)
+
+    def _param_by_id(self, group: ParamGroup, ident: str) -> Param | None:
+        """Parameter by short ID: in the same channel first, then device parameters."""
+        same = [g for g in self.device_params(group.enet_device) if g.channel == group.channel]
+        others = [g for g in self.device_params(group.enet_device) if g.channel != group.channel]
+        return next((p for g in same + others for p in g.params if p.id == ident), None)
+
     def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
         return [g for g in self.param_groups if g.enet_device is enet_device]
 
@@ -650,7 +686,6 @@ class Hub:
     # --- Lifecycle ----------------------------------------------------------
     async def async_start(self) -> None:
         self.fw_bundle = await self.hass.async_add_executor_job(firmware.bundled)
-        await self.params.laden()
         self._unsub = self.bridge.add_listener(self._on_message)
         self.bridge.start()
         self.ha_scenes.start()

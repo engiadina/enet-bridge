@@ -14,8 +14,10 @@ from .bridge import BridgeError
 from .calibration import calibration
 from .entity import EnetEntity
 from .texts import tr
+from .visibility import filtered
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
@@ -108,16 +110,26 @@ class ProgramSender(EnetEntity, ButtonEntity):
 
 
 class _Measure(EnetEntity, ButtonEntity):
-    """Travel time measurement of a blind channel (calibration.py)."""
+    """Travel time measurement of a blind channel (calibration.py). Normally only "Measure travel time" exists; while
+    measuring, only "End position reached" and "Cancel measuring" (visibility.py removes everything else)."""
 
     _attr_entity_category = EntityCategory.CONFIG
     _suffix = ""
+    measuring_only = True  # visibility.py: True = exists only while measuring, False = only when idle
 
     def __init__(self, hub, channel) -> None:
         super().__init__(hub)
         self.channel = channel
         self._attr_unique_id = f"{channel.enet_device['sn']}_{channel.nr}_{self._suffix}"
         self._attr_device_info = channel_info(hub, channel)
+
+    @property
+    def _cal(self):
+        return calibration(self.hub, self.channel)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._cal.flush()  # message of the page switch, now that the page exists
 
     async def _run(self, job) -> None:
         try:
@@ -129,17 +141,18 @@ class _Measure(EnetEntity, ButtonEntity):
 class MeasureStart(_Measure):
     _attr_translation_key = "fahrzeit_einmessen"
     _suffix = "einmessen_start"
+    measuring_only = False
 
     async def async_press(self) -> None:
-        await self._run(calibration(self.hub, self.channel).start)
+        await self._run(self._cal.start)
 
 
 class MeasureEnd(_Measure):
-    _attr_translation_key = "endlage_erreicht"
+    _attr_translation_key = "position_erreicht"
     _suffix = "einmessen_endlage"
 
     async def async_press(self) -> None:
-        await self._run(calibration(self.hub, self.channel).end_reached)
+        await self._run(self._cal.end_reached)
 
 
 class MeasureCancel(_Measure):
@@ -147,4 +160,4 @@ class MeasureCancel(_Measure):
     _suffix = "einmessen_abbrechen"
 
     async def async_press(self) -> None:
-        await self._run(calibration(self.hub, self.channel).cancel)
+        await self._run(self._cal.cancel)

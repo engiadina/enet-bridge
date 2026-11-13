@@ -74,8 +74,12 @@ class EnetParamEntity(EnetEntity):
                                                                         self.param, value))
         except BridgeError as err:
             raise HomeAssistantError(f"{g['name']} – {self.param.name}: {err}") from err
+        if self.hub.controls_others(self.param_group, self.param):
+            # other settings appear or disappear with this value (visibility.py)
+            self.hass.config_entries.async_schedule_reload(self.hub.entry_id)
 
 
 def param_entities(hub: Hub, cls, condition):
     """All parameters for which condition(param) holds, as entities of class cls."""
     return [cls(hub, gr, p) for gr in hub.param_groups for p in gr.params if condition(p)]
+

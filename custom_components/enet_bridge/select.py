@@ -18,8 +18,10 @@ from .entity import EnetEntity, EnetParamEntity, param_entities
 from .hub import sensor_action_key
 from .params import choice
 from .texts import tr
+from .visibility import filtered
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data
