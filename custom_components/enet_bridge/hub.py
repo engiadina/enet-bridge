@@ -1029,7 +1029,10 @@ class Hub:
                     z.slat = msg.get("slat")
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
-                    elif old_known and z.percent != old_percent:
+                    elif old_known and z.percent != old_percent and (
+                            msg.get("source") == "status" or z.motion in (MOVING_UP, MOVING_DOWN)):
+                        # direction only from the actuator's own reports (or confirming a command), not from a
+                        # first query after the start
                         z.motion = MOVING_DOWN if z.percent > old_percent else MOVING_UP
                         z.moved_at, z.tracking = time.monotonic(), True
                         if z.target is not None and z.percent == z.target:
