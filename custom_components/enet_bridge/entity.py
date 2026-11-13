@@ -10,6 +10,7 @@ from homeassistant.helpers.entity import Entity
 from .bridge import BridgeError
 from .hub import Hub
 from .params import channel_name
+from .texts import tr
 
 
 class EnetEntity(Entity):
@@ -45,7 +46,12 @@ class EnetParamEntity(EnetEntity):
         self._attr_device_info = channel_info(hub, channel) if channel else device_info_for(hub, g)
         self._attr_unique_id = f"{g['sn']}_p_{param.key}"
         prefix_ = channel_name(g.get("typ", ""), param_group.channel)
-        self._attr_name = f"{prefix_} {param.name}" if prefix_ else param.name
+        name = param.name
+        if param.id == "MSMT":  # one parameter: slat reversing time (venetian blind) or fabric tensioning (awning)
+            mode = hub._param_by_id(param_group, "OPMODE")
+            if mode is not None and hub.params.value(g["sn"], mode) == "MARQUEE":
+                name = tr("tuchstraffzeit")
+        self._attr_name = f"{prefix_} {name}" if prefix_ else name
         self._attr_entity_category = EntityCategory.DIAGNOSTIC if param.read_only else EntityCategory.CONFIG
         self._attr_entity_registry_enabled_default = param.default_active
         self._attr_extra_state_attributes = {"parameter": param.id, "adresse": param.key}
@@ -69,9 +75,25 @@ class EnetParamEntity(EnetEntity):
 
     async def write(self, value) -> None:
         g = self.param_group.enet_device
+        # priority of a special function: PSN[n] (call) and PSN[n+1] (cancel) are kept equal, as the catalogue makes
+        # each depend on the other
+        partner = None
+        if self.param.id.startswith("PSN["):
+            from .params import Param
+
+            n = int(self.param.id[4:-1])
+            channels_ = self.hub.definitions.get(g.get("typ", ""), {}).get("kanaele", [])
+            k = next((k for k in channels_ if k["nr"] == self.param_group.channel), {})
+            d = next((d for d in k.get("parameter", []) if d["id"] == f"PSN[{n + 1}]"), None)
+            partner = Param(d) if d else None  # no setting of its own (not in the parameter groups)
+
+        async def job() -> None:
+            await self.hub.params.write(g["ia"], g["sn"], self.param_group.device_obj, self.param, value)
+            if partner is not None:
+                await self.hub.params.write(g["ia"], g["sn"], self.param_group.device_obj, partner, value)
+
         try:
-            await self.hub.woken(g, lambda: self.hub.params.write(g["ia"], g["sn"], self.param_group.device_obj,
-                                                                        self.param, value))
+            await self.hub.woken(g, job)
         except BridgeError as err:
             raise HomeAssistantError(f"{g['name']} – {self.param.name}: {err}") from err
         if self.hub.controls_others(self.param_group, self.param):

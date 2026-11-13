@@ -240,8 +240,8 @@ def encoding(t):
         return "dpt9"
     if dpt.startswith("DPT_5.001") or dpt.startswith("DPT_5.004") and t.get("einheit") == "%":
         return "prozent255" if dpt.startswith("DPT_5.001") else "u8"
-    if bits == 8 or t.get("art") in ("bool", "auswahl") and bits <= 8:
-        return "u8"
+    if bits == 8 or t.get("art") in ("bool", "auswahl") and bits <= 8 or dpt.startswith("DPT_PSN"):
+        return "u8"  # priority of a special scene (PSN): 0…4, one byte per element
     if bits == 16:
         return "u16_x100" if "RESOLUTION_100" in conv else "u16"
     if bits == 32:

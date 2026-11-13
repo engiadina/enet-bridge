@@ -220,7 +220,8 @@ class Hub:
             for k in d.get("kanaele", []):
                 if stored_types.get(k["nr"]) not in (None, k["kanaltyp"]):
                     continue  # channel switched to another type: the catalog parameters belong to the default type
-                kp = [p for p in map(Param, k["parameter"]) if p.usable]
+                kind = next((c["art"] for c in g.get("kanaele", []) if c["nr"] == k["nr"]), None)
+                kp = [p for p in (Param(d, kind=kind) for d in k["parameter"]) if p.usable]
                 if kp and (sensor or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
                     self.param_groups.append(ParamGroup(g, k["nr"], kp, d["geraet_obj"]))
         self.params = ParamStore(self.hass, self.entry_id, self.bridge, self.signal("params"))
@@ -460,7 +461,9 @@ class Hub:
         for c in dep["bedingungen"]:
             ctrl = self._param_by_id(group, c["parameter"]) if c["parameter"] else None
             v = self.params.value(sn, ctrl) if ctrl is not None else None
-            s = c["werte"].get(str(v).lower() if isinstance(v, bool) else str(v)) if v is not None else None
+            key = str(v).lower() if isinstance(v, bool) else str(v)
+            # "" = setting for all values not listed (e.g. "cancel" values only with priority 0)
+            s = c["werte"].get(key, c["werte"].get("")) if v is not None else None
             if s is None:
                 continue  # unknown (not read yet): does not decide
             results.append(s.get("aktiv", True))
