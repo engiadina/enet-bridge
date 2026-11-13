@@ -247,7 +247,9 @@ def encoding(t):
     if bits == 16:
         return "u16_x100" if "RESOLUTION_100" in conv else "u16"
     if bits == 32:
-        return "u32"
+        if conv.startswith("CVT_4_OCTET_FLOAT"):
+            return "f32"  # DPT 14 (e.g. absolute power threshold of the energy sensor)
+        return "s32" if dpt.startswith("DPT_13") else "u32"  # DPT 13: signed (active energy counter)
     return "unbekannt"
 
 

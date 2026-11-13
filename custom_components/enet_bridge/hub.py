@@ -25,7 +25,7 @@ from . import esp_config, firmware, layouts
 from .bridge import Bridge, BridgeError, foreign_radio
 from .const import KIND_DIMMER, KIND_BLIND, KIND_SWITCH, KIND_KEY, KIND_ROCKER, DOMAIN, SENSOR_TYPES
 from .installation import InstallationStore
-from .params import Param, ParamStore, dpt9_decode
+from .params import NOT_FOR_TYPE, Param, ParamStore, dpt9_decode
 from .ha_scenes import HaScenes
 from .ha_rocker import HaRocker
 from .measurements import UNTESTED, Measurements, is_measuring_device
@@ -227,18 +227,21 @@ class Hub:
             d = self.definitions.get(g.get("typ", ""))
             # no lamp channels, but parameters
             sensor = g.get("typ") in SENSOR_TYPES or (g.get("rolle") == "sensor" and is_measuring_device(g))
-            if not d or (g.get("rolle") != "aktor" and not sensor):
-                continue
+            if not d or (g.get("rolle") not in ("aktor", "sender") and not sensor):
+                continue  # transmitters too (manual commissioning, local operation …; read/written with wake-up)
+            skip = NOT_FOR_TYPE.get(g.get("typ", ""), set())
             gp = [Param(p) for p in d.get("geraet", [])]
-            if gp := [p for p in gp if p.usable]:
+            if gp := [p for p in gp if p.usable and p.id not in skip]:
                 self.param_groups.append(ParamGroup(g, None, gp, d["geraet_obj"]))
             stored_types = {k["nr"]: k.get("kanaltyp") for k in g.get("kanaele", [])}
             for k in d.get("kanaele", []):
                 if stored_types.get(k["nr"]) not in (None, k["kanaltyp"]):
                     continue  # channel switched to another type: the catalog parameters belong to the default type
-                kind = next((c["art"] for c in g.get("kanaele", []) if c["nr"] == k["nr"]), None)
-                kp = [p for p in (Param(d, kind=kind) for d in k["parameter"]) if p.usable]
-                if kp and (sensor or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
+                kind = "sender" if g.get("rolle") == "sender" else \
+                    next((c["art"] for c in g.get("kanaele", []) if c["nr"] == k["nr"]), None)
+                kp = [p for p in (Param(d, kind=kind) for d in k["parameter"]) if p.usable and p.id not in skip]
+                if kp and (sensor or g.get("rolle") == "sender"
+                           or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
                     self.param_groups.append(ParamGroup(g, k["nr"], kp, d["geraet_obj"]))
         self.params = ParamStore(self.hass, self.entry_id, self.bridge, self.signal("params"))
         self.params.remember_states = self._remember_states
