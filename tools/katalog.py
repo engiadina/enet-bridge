@@ -162,7 +162,9 @@ class Catalogue:
             return None
         out = {"name": g.get("name"), "generisch": gdvt_id, "hersteller": manufacturer_, "produkt": product,
                "artikel": article, "produktname": product_name,
-               "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0), "kanaele": [], "geraet": []}
+               "geraet_obj": int(g.get("interfaceObjectIndexUserObjectSystem") or 0),
+               "schlaeft": g.get("sleepModeSupported") == "true",  # battery devices: wake before radio access
+               "kanaele": [], "geraet": []}
         # parameters a channel type can depend on (e.g. the insert type of an operating top unit), by ID
         selectors = {}
         for el in g.iter("KnxRfDeviceParameterType"):
@@ -245,7 +247,9 @@ def encoding(t):
     if bits == 16:
         return "u16_x100" if "RESOLUTION_100" in conv else "u16"
     if bits == 32:
-        return "u32"
+        if conv.startswith("CVT_4_OCTET_FLOAT"):
+            return "f32"  # DPT 14 (e.g. absolute power threshold of the energy sensor)
+        return "s32" if dpt.startswith("DPT_13") else "u32"  # DPT 13: signed (active energy counter)
     return "unbekannt"
 
 
