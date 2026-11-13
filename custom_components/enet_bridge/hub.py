@@ -160,9 +160,12 @@ class ChannelState:
     s: float | None = None  # blind model: slat position in % (followed from motor movement, corrected by queries)
     h: float | None = None  # blind model: position of the hanging in % (0 = top) – what the cover shows
     settle: bool = False  # blind: moved since the last query – query exact values when the movement stops
-    c: float = 0.0  # awning model: tensioning runs counted into the motor position since fully retracted (s)
-    armed: float = 0.0  # awning model: tensioning time still expected after an extension (s)
+    anchor: tuple[float, float] | None = None  # awning: (motor %, awning %) where the current movement started
+    direction: int = 0  # awning: +1 extending, −1 retracting, 0 at rest / tensioning
+    tension_left: float = 0.0  # awning: tensioning time still expected after an extension (s)
+    full: bool = False  # awning: the extension reached the end position (tensioning there does not move it)
     cmd_up: bool = False  # last command of the integration was up/in (no tensioning then)
+    h_target: float | None = None  # position command running: target of the hanging (%) – no overshoot shown
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
@@ -413,10 +416,12 @@ class Hub:
             model = self.definitions.get(enet_device.get("typ", ""), {}).get("produktname") or model
         return tr("ungetestet_zusatz", modell=model) if enet_device.get("typ") in UNTESTED else model
 
-    def blind_moving(self, k: Channel, motion: int | None, target: int | None = None) -> None:
+    def blind_moving(self, k: Channel, motion: int | None, target: int | None = None,
+                     h_target: float | None = None) -> None:
         """Provisional motion after a command (cover): until position reports confirm or end it."""
         z = self.state_[k.key]
         z.motion, z.moved_at, z.tracking, z.target, z.quiet = motion, time.monotonic(), False, target, 0
+        z.h_target = h_target
         if motion is not None:
             z.cmd_up = motion == MOVING_UP
         self._watch_blind(k.key)
@@ -470,31 +475,47 @@ class Hub:
         return 0.0 if old_h is None else z.h - old_h
 
     def _awning_model(self, z: ChannelState, t_new: float, slat_now: float, times: tuple[float, float]) -> float:
-        """Awning: after extending, the actuator tensions the fabric by moving in for the tensioning time M without
-        the awning moving – and counts that into its position (fully extended: 76 % with 21 s / 4.9 s, office test
-        2026-11-13). Retracting has no tensioning. So: a movement in right after an extension, without a command to
-        move in, is tensioning (up to M) and collects in the offset c; position = motor position + c. Fully
-        retracted (motor position 0) resets c. When positioning outwards the actuator extends to target + M and
-        tensions back to the target (25 % → motor up to ≈ 98 %, then 75 %, office test 2026-11-13)."""
+        """Awning: the actuator positions outwards by running past the target by the tensioning time M and tensioning
+        back to the target – so its position is the awning's position. Only at full extension the arms stand at the
+        stop: the tensioning run back does not move the awning, but the actuator then reports 100 % − M (76 % with
+        21 s / 4.9 s, office test 2026-11-13) – shown as 100 %. To avoid jumps, every movement is mapped linearly from
+        its starting point (anchor) to the end position it heads for: extending to 100 %, retracting to 0 %. Without
+        a full extension the mapping is the identity. Overshooting a position target is not shown."""
         travel, m = times
         old_h = z.h
         z.s = slat_now
-        if z.t is not None:
-            dt = (t_new - z.t) / 100 * travel
-            if dt > 0:
-                z.armed = m  # extending: tensioning follows when it stops
-            elif dt < 0 and z.armed > 0 and not z.cmd_up:
-                # tensioning started: it always runs the full tensioning time (the status comes only every ~2 s,
-                # the turning point itself is not reported)
-                z.c += z.armed
-                z.armed = 0.0
-            elif dt < 0:
-                z.armed = 0.0
+        if z.t is None or z.h is None:
+            z.t, z.h, z.anchor, z.direction = t_new, t_new, (t_new, t_new), 0
+            return 0.0
+        t0, h0 = z.anchor or (z.t, z.h)
+        dt = (t_new - z.t) / 100 * travel
+        if dt > 0:
+            if z.direction != 1:
+                t0, h0 = z.anchor = (z.t, z.h)
+                z.direction = 1
+            z.tension_left, z.full = m + 0.5, t_new >= 99.6  # tensioning follows when it stops
+            h = h0 + (t_new - t0) * (100 - h0) / (100 - t0) if t0 < 100 else 100.0
+        elif dt < 0 and z.tension_left > 0 and not z.cmd_up:
+            z.tension_left += dt  # tensioning after extending (no command to move in)
+            if z.full:  # at the end stop the awning stays out
+                z.anchor, z.direction, h = (t_new, 100.0), 0, 100.0
+            else:  # elsewhere it follows the actuator back to the target: same mapping as extending
+                h = h0 + (t_new - t0) * (100 - h0) / (100 - t0) if t0 < 100 else 100.0
+        elif dt < 0:
+            z.tension_left = 0.0
+            if z.direction != -1:
+                t0, h0 = z.anchor = (z.t, z.h)
+                z.direction = -1
+            h = h0 * t_new / t0 if t0 > 0 else 0.0
+        else:
+            h = z.h
         if t_new <= 0.05:
-            z.c, z.armed = 0.0, 0.0
+            h, z.anchor, z.tension_left = 0.0, (0.0, 0.0), 0.0
         z.t = t_new
-        z.h = max(0.0, min(100.0, (t_new / 100 * travel + z.c) / travel * 100))
-        return 0.0 if old_h is None else z.h - old_h
+        if z.h_target is not None:  # no overshoot while positioning
+            h = min(h, z.h_target) if z.h_target >= old_h else max(h, z.h_target)
+        z.h = max(0.0, min(100.0, h))
+        return z.h - old_h
 
     def _travel_time(self, key: str) -> float:
         k = next((k for k in self.blinds if k.key == key), None)
@@ -522,7 +543,7 @@ class Hub:
             z.watch()
             z.watch = None
         if z.motion not in (MOVING_UP, MOVING_DOWN):
-            z.tracking, z.target = False, None
+            z.tracking, z.target, z.h_target, z.direction = False, None, None, 0
             return
         limit = self._travel_time(key) + BLIND_MARGIN_S
 

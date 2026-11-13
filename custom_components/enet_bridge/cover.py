@@ -89,12 +89,17 @@ class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
         """Actuator position for a hanging position (hub._blind_model): moving down, the actuator turns the slats
         back by the slat time after arriving, moving up it ends with the slats turned up – so the target differs by
         the slat time depending on the direction."""
-        if self._z.h is not None and (aw := self.hub.blind_times(self.channel.key, "MARQUEE")) is not None:
-            # awning: motor position = position − tensioning offset (hub._awning_model); extending, the actuator
-            # runs on by the tensioning time and tensions back to the target – one more tensioning time to subtract
-            travel, m = aw
-            target_s = real / 100 * travel - self._z.c - (m if real > self._z.h else 0.0)
-            return max(0, min(255, round(target_s / travel * 255)))
+        if self.hub.blind_times(self.channel.key, "MARQUEE") is not None:
+            # awning (hub._awning_model): the actuator's position is the awning's; only after tensioning at full
+            # extension its scale ends at the remembered motor position
+            z = self._z
+            if real >= 100 or z.t is None or z.h is None:
+                return round(real * 2.55)
+            if real > z.h:  # extending: linear from here to 100 %
+                t = z.t + (real - z.h) * (100 - z.t) / (100 - z.h)
+            else:  # retracting: linear from here to 0 %
+                t = z.t * real / z.h if z.h > 0 else 0.0
+            return max(0, min(255, round(t * 2.55)))
         t = self.hub.blind_times(self.channel.key)
         if t is None or self._z.h is None:
             return round(real * 2.55)
@@ -133,16 +138,18 @@ class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
         await super().async_added_to_hass()
         self._listen(f"state_{self.channel.key}")
         self._listen("params", self._on_params)
-        # awning: tensioning offset survives restarts (the actuator keeps counting it into its position)
+        # awning: motor and awning position at rest survive restarts (after a full extension they differ)
         if (last := await self.async_get_last_state()) is not None and \
-                isinstance(c := last.attributes.get("straffung_s"), (int, float)) and not self._z.c:
-            self._z.c = float(c)
+                isinstance(stand := last.attributes.get("motor_markise"), list) and len(stand) == 2 and self._z.h is None:
+            self._z.t, self._z.h = float(stand[0]), float(stand[1])
+            self._z.anchor = (self._z.t, self._z.h)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         if self.hub.blind_times(self.channel.key, "MARQUEE") is None:
             return None
-        return {"straffung_s": round(self._z.c, 2)}
+        z = self._z
+        return {"motor_markise": [round(z.t, 2), round(z.h, 2)]} if z.t is not None and z.h is not None else {}
 
     @callback
     def _on_params(self, sn: str) -> None:
@@ -166,9 +173,9 @@ class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
                         "%s: cover %s acknowledged only after %d tries", self.channel.enet_device["name"], action,
                         result["tries"])
 
-    def _moving(self, motion: int | None, target: int | None = None) -> None:
+    def _moving(self, motion: int | None, target: int | None = None, h_target: float | None = None) -> None:
         """Provisional until position reports of the actuator confirm or end it (hub.blind_moving)."""
-        self.hub.blind_moving(self.channel, motion, target)
+        self.hub.blind_moving(self.channel, motion, target, h_target)
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:
@@ -191,7 +198,7 @@ class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
         now = self._real_position()
         if self._z.known and round(now) != real:
             # without slats the target position ends the movement; with slats the actuator turns them afterwards
-            self._moving(MOVING_DOWN if real > now else MOVING_UP, None if self.hub.blind_times(self.channel.key) else target)
+            self._moving(MOVING_DOWN if real > now else MOVING_UP, None if self.hub.blind_times(self.channel.key) else target, float(real))
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         await self._send("slat", 0)
