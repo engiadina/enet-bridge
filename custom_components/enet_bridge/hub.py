@@ -155,6 +155,7 @@ class ChannelState:
     t: float | None = None  # blind model: motor position of the actuator in % (includes slat turning)
     s: float | None = None  # blind model: slat position in % (followed from motor movement, corrected by queries)
     h: float | None = None  # blind model: position of the hanging in % (0 = top) – what the cover shows
+    settle: bool = False  # blind: moved since the last query – query exact values when the movement stops
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
@@ -1080,6 +1081,16 @@ class Hub:
                     z.slat = msg.get("slat")
                     z.pos_raw, z.slat_raw = msg.get("pos_raw"), msg.get("slat_raw")
                     dh = self._blind_model(key, z, old_slat_raw)
+                    if msg.get("source") == "poll":
+                        z.settle = False
+                    elif z.percent != old_percent:
+                        z.settle = True
+                    elif z.settle:
+                        # unchanged status message after moving = the relay switched off: the sum status has whole
+                        # percent only – query the exact raw position and the slats now (not only at the next
+                        # staged poll ~20 s later)
+                        z.settle = False
+                        self._poll_after_move(msg)
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
                     elif old_known and z.percent != old_percent and (
@@ -1100,7 +1111,6 @@ class Hub:
                         if z.tracking or z.quiet >= 1:
                             z.motion = None
                             self._watch_blind(key)
-                            self._poll_after_move(msg)
                         else:
                             z.quiet += 1
                 if msg.get("source") != "poll":
