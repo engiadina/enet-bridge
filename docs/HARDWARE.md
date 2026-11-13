@@ -13,7 +13,7 @@ There are two ways to get one, both with the same firmware:
   one board with an RP-SMA antenna socket and USB-C, optional housing. No soldering: plug it in and the integration
   installs the bridge firmware. Thanks to [Magnus Nordseth](https://github.com/mnordseth) for finding this stick.
 - **Build it yourself: [Seeed XIAO ESP32-C6](https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/)**
-  (bottom left) **+ CC1101 868 MHz module** (bottom right: the cheap green module and the Radiocontrolli
+  (bottom left) **+ CC1101 868 MHz module** (bottom right: the cheap 8-pin module and, below it, the Radiocontrolli
   RC-CC1101-SPI-868), 7 wires, parts ≈ 20–30 €.
 
 Both are tested in a real installation: receiving, switching/dimming, blinds, server buttons and scenes,
@@ -41,7 +41,7 @@ see [Antenna connection](#antenna-connection).
 
 ### Cheap “CC1101 868 MHz” modules
 
-The common green 8-pin modules sold as “CC1101 868 MHz” also work, but:
+The cheap 8-pin modules sold as “CC1101 868 MHz” also work, but:
 
 - their crystal was off by ≈ 100 ppm (≈ 95 kHz at 868 MHz) – the bridge corrects this automatically;
 - the chip reported a different version (0x04 instead of 0x14), possibly a clone;
@@ -56,7 +56,7 @@ With the RC-CC1101-SPI-868 the weakest decodable telegram was ≈ −98 dBm. Use
 The GPIOs are fixed in the firmware (`src/config.h`) and are the same as on the CUL32; only the pin order on the
 radio module differs.
 
-| Signal | XIAO ESP32-C6 | RC-CC1101-SPI-868 pin | green 8-pin module pin |
+| Signal | XIAO ESP32-C6 | RC-CC1101-SPI-868 pin | cheap 8-pin module pin |
 |---|---|---|---|
 | VCC (**3.3 V, never 5 V**) | 3V3 | 12 | 1 |
 | GND | GND | 7, 8, 9 (connect all three) | 2 |
@@ -91,7 +91,7 @@ Module 21.5 × 15.6 mm, 2.54 mm pitch, 11 pins in two rows (pin 11 is missing). 
 Pin 1 is top left when the crystal points down. The drawing does not say whether it shows the top or the bottom
 side, so **check before soldering: pins 7, 8 and 9 must be connected to each other (GND).**
 
-#### Green “CC1101 868MHz Module” pinout
+#### Cheap 8-pin “CC1101 868MHz Module” pinout
 
 About 15 × 17 mm, no pin labels. 8 pads in one row on the edge opposite the antenna, three antenna pads on the
 other edge.
@@ -165,13 +165,13 @@ traffic, like the yellow LED of the XIAO.
 5. **Frequency correction** is found and tracked automatically (search via status requests when no actuator
    answers, then continuous fine adjustment from received telegrams, also in listen-only mode). Nothing to set by
    hand. The diagnostic entity “Frequency correction” (disabled by default) shows the value: RC module and CUL32 a
-   few kHz, green modules ≈ +95 kHz.
+   few kHz, cheap 8-pin modules ≈ +95 kHz.
 
 ## Checks and measurements
 
 Reference measurements of the radio modules (office test installation, same place):
 
-| | green module | RC-CC1101-SPI-868 | CUL32 |
+| | cheap 8-pin module | RC-CC1101-SPI-868 | CUL32 |
 |---|---|---|---|
 | Chip version (register 0xF1) | 0x04 | 0x14 | 0x14 |
 | Frequency correction | ≈ +95 kHz (≈ 110 ppm) | ≈ −6 kHz (≈ −7 ppm) | ≈ +1.6 kHz |
