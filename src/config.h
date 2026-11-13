@@ -34,7 +34,7 @@
 // ---------------------------------------------------------------------------
 // Fine frequency correction (FSCTRL0, steps of ~1.59 kHz, signed): only the initial value while the
 // board is not calibrated. Afterwards the value in NVS applies ("foff", command "radio", HA "Funk kalibrieren").
-// Green 26 MHz modules: crystal ~110 ppm off -> 60 (measured 2026-10-26, second bridge 2026-10-29).
+// Cheap 8-pin "CC1101 868MHz" modules: crystal ~110 ppm off -> 60 (measured 2026-10-26, second bridge 2026-10-29).
 #define CC1101_FREQ_OFFSET  60
 
 // If nothing is received although telegrams are present: FSK polarity
