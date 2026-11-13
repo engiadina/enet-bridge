@@ -127,9 +127,9 @@ class EnetBlind(EnetEntity, CoverEntity):
                         "%s: cover %s acknowledged only after %d tries", self.channel.enet_device["name"], action,
                         result["tries"])
 
-    def _moving(self, motion: int | None) -> None:
+    def _moving(self, motion: int | None, target: int | None = None) -> None:
         """Provisional until position reports of the actuator confirm or end it (hub.blind_moving)."""
-        self.hub.blind_moving(self.channel, motion)
+        self.hub.blind_moving(self.channel, motion, target)
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs: Any) -> None:
@@ -148,7 +148,7 @@ class EnetBlind(EnetEntity, CoverEntity):
         target = 100 - int(kwargs[ATTR_POSITION])  # actuator: 0 % = top
         await self._send("position", target)
         if self._z.known and target != self._z.percent:
-            self._moving(MOVING_DOWN if target > self._z.percent else MOVING_UP)
+            self._moving(MOVING_DOWN if target > self._z.percent else MOVING_UP, target)
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         await self._send("slat", 0)

@@ -405,7 +405,9 @@ void Server::updateBlind(int ci, int percent, int slat, int move, Source src) {
   if (move >= 0) s.move = (uint8_t)move;
   s.on = s.percent > 0;  // "not fully up"
   s.known = true;
-  if (changed || src == Source::POLL) io_.onState(cfg_.channels[ci], s, src);
+  // every status message, even unchanged: the actuator repeats its sum status when the travel ends (Gira 5427 00
+  // sends no travel info GO 10) – the host recognises the end of a movement by it
+  if (changed || src == Source::POLL || src == Source::STATUS_MSG) io_.onState(cfg_.channels[ci], s, src);
 }
 
 // Schedule a poll: light once after kPollDelayMs, blind in stages (kBlindPollMs from the command)

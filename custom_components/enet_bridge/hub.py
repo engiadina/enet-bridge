@@ -58,9 +58,11 @@ PID_LINKS = 63  # link table in the channel object
 # GAs per key kind relative to the offset (docs/NOTES.md "Sender-Programmierung")
 GA_SPAN = {KIND_KEY: 6, KIND_ROCKER: 3}
 # Blinds: travel info GO 10 is not sent by every actuator (Gira 5427 00 only reports its position via the sum status
-# GO 11, about every 2 s while moving). The motion is therefore derived from position changes and ends when they stop.
+# GO 11, about every 2 s while moving, and repeats it unchanged when the relay switches off; firmware 0.8.26 passes on
+# unchanged status messages). The motion is derived from position changes and ends with the target position, an
+# unchanged status message after position changes, or – as a fallback – when the reports stop.
 MOVING_UP, MOVING_DOWN = 2, 3
-BLIND_IDLE_S = 5.0     # no position change for this long while moving: stopped
+BLIND_IDLE_S = 8.0     # fallback: no position change for this long while moving: stopped
 BLIND_MARGIN_S = 15.0  # without any position report: stopped after travel time + this
 BLIND_TRAVEL_S = 120.0  # travel time if the parameter has not been read (catalogue default)
 
@@ -153,6 +155,8 @@ class ChannelState:
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
     moved_at: float = 0.0  # blind: time.monotonic() of the last command or position change while moving
     tracking: bool = False  # blind: position changes were reported since the command
+    target: int | None = None  # blind: target position of a position command (as in the actuator)
+    quiet: int = 0  # blind: unchanged status messages since the command (1st = start of the movement)
     watch: Any = None  # blind: cancel function of the motion check
 
 
@@ -388,10 +392,10 @@ class Hub:
             model = self.definitions.get(enet_device.get("typ", ""), {}).get("produktname") or model
         return tr("ungetestet_zusatz", modell=model) if enet_device.get("typ") in UNTESTED else model
 
-    def blind_moving(self, k: Channel, motion: int | None) -> None:
+    def blind_moving(self, k: Channel, motion: int | None, target: int | None = None) -> None:
         """Provisional motion after a command (cover): until position reports confirm or end it."""
         z = self.state_[k.key]
-        z.motion, z.moved_at, z.tracking = motion, time.monotonic(), False
+        z.motion, z.moved_at, z.tracking, z.target, z.quiet = motion, time.monotonic(), False, target, 0
         self._watch_blind(k.key)
 
     def _travel_time(self, key: str) -> float:
@@ -412,6 +416,7 @@ class Hub:
             z.watch()
             z.watch = None
         if z.motion not in (MOVING_UP, MOVING_DOWN):
+            z.tracking, z.target = False, None
             return
         limit = self._travel_time(key) + BLIND_MARGIN_S
 
@@ -975,7 +980,17 @@ class Hub:
                     elif old_known and z.percent != old_percent:
                         z.motion = MOVING_DOWN if z.percent > old_percent else MOVING_UP
                         z.moved_at, z.tracking = time.monotonic(), True
+                        if z.target is not None and z.percent == z.target:
+                            z.motion = None  # target position reached
                         self._watch_blind(key)
+                    elif msg.get("source") == "status" and z.motion in (MOVING_UP, MOVING_DOWN):
+                        # unchanged status message: the first one after a command marks the start, one after
+                        # position changes (or a second one, already in the end position) the end of the travel
+                        if z.tracking or z.quiet >= 1:
+                            z.motion = None
+                            self._watch_blind(key)
+                        else:
+                            z.quiet += 1
                 if msg.get("source") != "poll":
                     z.reported = time.monotonic()
                 async_dispatcher_send(self.hass, self.signal(f"state_{key}"))
