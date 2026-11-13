@@ -144,7 +144,7 @@
     },
     "button": {
       "parameter_lesen": {
-        "name": "Parameter lesen"
+        "name": "* Parameter lesen *"
       },
       "szene_speichern": {
         "name": "{szene} speichern"

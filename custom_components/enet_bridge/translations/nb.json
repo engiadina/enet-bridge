@@ -144,7 +144,7 @@
     },
     "button": {
       "parameter_lesen": {
-        "name": "Les parametere"
+        "name": "* Les parametere *"
       },
       "szene_speichern": {
         "name": "Lagre {szene}"
