@@ -208,6 +208,12 @@
       },
       "energie": {
         "name": "Energy"
+      },
+      "einmessen": {
+        "name": "Measuring"
+      },
+      "einmessen_laufzeit": {
+        "name": "Running time"
       }
     },
     "update": {

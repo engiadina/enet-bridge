@@ -208,6 +208,12 @@
       },
       "energie": {
         "name": "Energi"
+      },
+      "einmessen": {
+        "name": "Måling"
+      },
+      "einmessen_laufzeit": {
+        "name": "Kjøretid"
       }
     },
     "update": {

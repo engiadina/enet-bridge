@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .bridge import BridgeError
 from .logbook import EVENT_DEVICE_MESSAGE
@@ -73,6 +74,23 @@ class Calibration:
         self.hub.hass.bus.async_fire(EVENT_DEVICE_MESSAGE, {"device_id": device.id if device else None,
                                                              "name": g["name"], "message": text})
 
+    def status(self) -> str:
+        """Step sensor while measuring: what to do now (changes only per step – no logbook flood)."""
+        if self.step == TO_TOP:
+            return tr("einmessen_status_oben")
+        if self.step == DOWN:
+            return tr("einmessen_status_ab")
+        if self.step == UP:
+            return tr("einmessen_status_auf", ab=f"{self.down or 0:.1f}")
+        return ""
+
+    def elapsed(self) -> float | None:
+        """Running time of the timed run (seconds), None while moving to the top first."""
+        return round(time.monotonic() - self.started, 1) if self.step in (DOWN, UP) else None
+
+    def _changed(self) -> None:
+        async_dispatcher_send(self.hub.hass, self.hub.signal(f"einmessen_{self.channel.key}"))
+
     def _switch_page(self, message: str) -> None:
         """Reload: the device page shows the measuring buttons or its normal entities again (visibility.py). The
         message goes to the activity list once the new page exists (flush, called by the buttons)."""
@@ -106,11 +124,13 @@ class Calibration:
             await self._move("down")
             self.started, self.step = time.monotonic(), DOWN
             self._log(tr("einmessen_schritt_ab"))
+            self._changed()
         elif self.step == DOWN:
             self.down = now - self.started
             await self._move("up")
             self.started, self.step = time.monotonic(), UP
             self._log(tr("einmessen_schritt_auf", ab=f"{self.down:.1f}"))
+            self._changed()
         elif self.step == UP:
             up = now - self.started
             seconds = max(1, min(MAX_TRAVEL_S, math.ceil(max(self.down or 0, up))))

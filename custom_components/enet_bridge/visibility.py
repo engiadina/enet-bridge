@@ -91,7 +91,8 @@ async def sync_registry(hass: HomeAssistant, hub: Hub) -> None:
                 changed = True
             reg.async_remove(e.entity_id)
             hass.states.async_remove(e.entity_id)  # no "unavailable → unknown" entry when it comes back
-        elif "_p_" in uid or uid.endswith(("_einmessen_endlage", "_einmessen_abbrechen", "_einmessen_start")):
+        elif "_p_" in uid or uid.endswith(("_einmessen_endlage", "_einmessen_abbrechen", "_einmessen_start", "_einmessen",
+                                                                "_einmessen_laufzeit")):
             reg.async_remove(e.entity_id)
             hass.states.async_remove(e.entity_id)
     for uid, s in list(saved.items()):

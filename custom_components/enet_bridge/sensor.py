@@ -2,14 +2,18 @@
 Bridge: frequency correction."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import (LIGHT_LUX, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory,
                                  UnitOfApparentPower, UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfEnergy,
                                  UnitOfPower, UnitOfReactivePower, UnitOfTime)
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EnetConfigEntry, _part_info, bridge_info, device_info_for
+from . import EnetConfigEntry, _part_info, bridge_info, channel_info, device_info_for
+from .calibration import calibration
 from .measurements import KIND_MOTION, KIND_ENERGY, VALUES
 from .const import SENSOR_TYPES
 from .entity import EnetEntity, EnetParamEntity, param_entities
@@ -28,8 +32,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     entities += [MeasuredValue(hub, g, k, w.key) for g, k in hub.measurements.channels_(KIND_ENERGY)
                  for w in VALUES[KIND_ENERGY].values()]
     entities += [MeasuredValue(hub, g, k, "helligkeit") for g, k in hub.measurements.channels_(KIND_MOTION)]
+    # exist only while measuring (visibility.py)
+    entities += [cls(hub, k) for k in hub.blinds for cls in (Measuring, MeasuringTime)]
     entities += [FrequencyCorrection(hub), Programming(hub)]
     async_add_entities(entities)
+
+
+class Measuring(EnetEntity, SensorEntity):
+    """Travel time measurement of a blind channel: instruction and running time, updated every second."""
+
+    _attr_translation_key = "einmessen"
+    _attr_icon = "mdi:timer-outline"
+    measuring_only = True
+
+    def __init__(self, hub, channel) -> None:
+        super().__init__(hub)
+        self.channel = channel
+        self._attr_unique_id = f"{channel.enet_device['sn']}_{channel.nr}_einmessen"
+        self._attr_device_info = channel_info(hub, channel)
+
+    @property
+    def native_value(self) -> str:
+        return calibration(self.hub, self.channel).status()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._listen(f"einmessen_{self.channel.key}")
+
+
+class MeasuringTime(Measuring):
+    """Running time of the timed run, every second (with a unit: not listed in the activity list)."""
+
+    _attr_translation_key = "einmessen_laufzeit"
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, hub, channel) -> None:
+        super().__init__(hub, channel)
+        self._attr_unique_id = f"{channel.enet_device['sn']}_{channel.nr}_einmessen_laufzeit"
+
+    @property
+    def native_value(self) -> float | None:
+        return calibration(self.hub, self.channel).elapsed()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(async_track_time_interval(self.hass, lambda _now: self.async_write_ha_state(),
+                                                       timedelta(seconds=1)))
 
 
 
