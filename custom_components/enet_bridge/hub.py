@@ -65,6 +65,10 @@ MOVING_UP, MOVING_DOWN = 2, 3
 BLIND_IDLE_S = 8.0     # fallback: no position change for this long while moving: stopped
 BLIND_MARGIN_S = 15.0  # without any position report: stopped after travel time + this
 BLIND_TRAVEL_S = 120.0  # travel time if the parameter has not been read (catalogue default)
+# The sum status during travel has whole percent only: with the slat time taken out, the hanging position jitters by
+# up to ≈ 1.5 % (21 s / 4.9 s). Smaller changes are no travel and are not shown while at rest; the exact query at the
+# end of the movement sets the final value.
+BLIND_JITTER = 2.0
 
 
 def rocker_as_server_key(msg: dict[str, Any]) -> None:
@@ -1080,7 +1084,10 @@ class Hub:
                     old_slat_raw = z.slat_raw
                     z.slat = msg.get("slat")
                     z.pos_raw, z.slat_raw = msg.get("pos_raw"), msg.get("slat_raw")
+                    old_h = z.h
                     dh = self._blind_model(key, z, old_slat_raw)
+                    if abs(dh) < BLIND_JITTER and msg.get("source") != "poll" and old_h is not None:
+                        z.h, dh = old_h, 0.0  # rounding noise of whole-percent reports
                     if msg.get("source") == "poll":
                         z.settle = False
                     elif z.percent != old_percent:
@@ -1098,7 +1105,7 @@ class Hub:
                         # direction only from the actuator's own reports (or confirming a command), not from a
                         # first query after the start; only when the hanging moves – turning the slats is no travel
                         z.moved_at, z.tracking = time.monotonic(), True
-                        if abs(dh) > 0.01:
+                        if abs(dh) >= BLIND_JITTER:
                             z.motion = MOVING_DOWN if dh > 0 else MOVING_UP
                         if (z.target is not None and z.percent == z.target) or (
                                 z.motion == MOVING_DOWN and (z.h or 0) >= 99.95) or (
