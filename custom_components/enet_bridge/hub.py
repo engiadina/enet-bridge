@@ -160,6 +160,9 @@ class ChannelState:
     s: float | None = None  # blind model: slat position in % (followed from motor movement, corrected by queries)
     h: float | None = None  # blind model: position of the hanging in % (0 = top) – what the cover shows
     settle: bool = False  # blind: moved since the last query – query exact values when the movement stops
+    c: float = 0.0  # awning model: tensioning runs counted into the motor position since fully retracted (s)
+    armed: float = 0.0  # awning model: tensioning time still expected after an extension (s)
+    cmd_up: bool = False  # last command of the integration was up/in (no tensioning then)
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
@@ -414,10 +417,13 @@ class Hub:
         """Provisional motion after a command (cover): until position reports confirm or end it."""
         z = self.state_[k.key]
         z.motion, z.moved_at, z.tracking, z.target, z.quiet = motion, time.monotonic(), False, target, 0
+        if motion is not None:
+            z.cmd_up = motion == MOVING_UP
         self._watch_blind(k.key)
 
-    def blind_times(self, key: str) -> tuple[float, float] | None:
-        """Venetian blind: (travel time, slat time) in seconds, if known and plausible – otherwise None."""
+    def blind_times(self, key: str, mode: str = "BLINDS") -> tuple[float, float] | None:
+        """(travel time, slat/fabric time) in seconds for the operating mode (BLINDS: slats, MARQUEE: fabric
+        tensioning), if the actuator runs in it and both are known and plausible – otherwise None."""
         k = next((k for k in self.blinds if k.key == key), None)
         if k is None:
             return None
@@ -428,7 +434,7 @@ class Hub:
                     if p.id in ("OPMODE", "MUDT", "MSMT"):
                         values[p.id] = self.params.value(k.enet_device["sn"], p)
         travel, slats = values.get("MUDT"), values.get("MSMT")
-        if values.get("OPMODE") != "BLINDS" or not isinstance(travel, (int, float)) \
+        if values.get("OPMODE") != mode or not isinstance(travel, (int, float)) \
                 or not isinstance(slats, (int, float)):
             return None
         travel, slats = float(travel), float(slats) / 1000
@@ -446,6 +452,8 @@ class Hub:
         slat_now = z.slat_raw / 2.55 if z.slat_raw is not None else float(z.slat or 0)
         times = self.blind_times(key)
         old_h = z.h
+        if times is None and (awning := self.blind_times(key, "MARQUEE")) is not None:
+            return self._awning_model(z, t_new, slat_now, awning)
         if times is None:
             z.t, z.s, z.h = t_new, slat_now, t_new
             return 0.0 if old_h is None else t_new - old_h
@@ -459,6 +467,31 @@ class Hub:
         z.t = t_new
         h_s = t_new / 100 * travel - z.s / 100 * m
         z.h = max(0.0, min(100.0, h_s / (travel - m) * 100))
+        return 0.0 if old_h is None else z.h - old_h
+
+    def _awning_model(self, z: ChannelState, t_new: float, slat_now: float, times: tuple[float, float]) -> float:
+        """Awning: after extending, the actuator tensions the fabric by moving in for the tensioning time M without
+        the awning moving – and counts that into its position (fully extended: 76 % with 21 s / 4.9 s, office test
+        2026-11-13). Retracting has no tensioning. So: a movement in right after an extension, without a command to
+        move in, is tensioning (up to M) and collects in the offset c; position = motor position + c. Fully
+        retracted (motor position 0) resets c."""
+        travel, m = times
+        old_h = z.h
+        z.s = slat_now
+        if z.t is not None:
+            dt = (t_new - z.t) / 100 * travel
+            if dt > 0:
+                z.armed = m  # extending: tensioning follows when it stops
+            elif dt < 0 and z.armed > 0 and not z.cmd_up:
+                take = min(-dt, z.armed)
+                z.c += take
+                z.armed -= take
+            elif dt < 0:
+                z.armed = 0.0
+        if t_new <= 0.05:
+            z.c, z.armed = 0.0, 0.0
+        z.t = t_new
+        z.h = max(0.0, min(100.0, (t_new / 100 * travel + z.c) / travel * 100))
         return 0.0 if old_h is None else z.h - old_h
 
     def _travel_time(self, key: str) -> float:

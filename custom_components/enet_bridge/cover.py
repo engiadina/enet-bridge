@@ -26,6 +26,7 @@ from homeassistant.components.cover import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import EnetConfigEntry, channel_info
 from .bridge import BridgeError
@@ -49,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     async_add_entities(EnetBlind(hub, k) for k in hub.blinds)
 
 
-class EnetBlind(EnetEntity, CoverEntity):
+class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
     def __init__(self, hub: Hub, channel: Channel) -> None:
         super().__init__(hub)
         self.channel = channel
@@ -88,6 +89,9 @@ class EnetBlind(EnetEntity, CoverEntity):
         """Actuator position for a hanging position (hub._blind_model): moving down, the actuator turns the slats
         back by the slat time after arriving, moving up it ends with the slats turned up – so the target differs by
         the slat time depending on the direction."""
+        if self._z.h is not None and (aw := self.hub.blind_times(self.channel.key, "MARQUEE")) is not None:
+            travel, _m = aw  # awning: motor position = position − tensioning offset (hub._awning_model)
+            return max(0, min(255, round((real / 100 * travel - self._z.c) / travel * 255)))
         t = self.hub.blind_times(self.channel.key)
         if t is None or self._z.h is None:
             return round(real * 2.55)
@@ -126,6 +130,16 @@ class EnetBlind(EnetEntity, CoverEntity):
         await super().async_added_to_hass()
         self._listen(f"state_{self.channel.key}")
         self._listen("params", self._on_params)
+        # awning: tensioning offset survives restarts (the actuator keeps counting it into its position)
+        if (last := await self.async_get_last_state()) is not None and \
+                isinstance(c := last.attributes.get("straffung_s"), (int, float)) and not self._z.c:
+            self._z.c = float(c)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.hub.blind_times(self.channel.key, "MARQUEE") is None:
+            return None
+        return {"straffung_s": round(self._z.c, 2)}
 
     @callback
     def _on_params(self, sn: str) -> None:
