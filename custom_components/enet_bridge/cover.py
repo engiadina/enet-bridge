@@ -110,23 +110,26 @@ class EnetBlind(EnetEntity, CoverEntity):
         only the slats turn: moving down, the slats turn first (slat 0 → 100 % in the slat time M), then the hanging
         moves; moving up the other way round. Hanging position H = T − slat · M, range 0 … travel time − M (office
         test 2026-11-13: actuator 5 % + slats 24 % with 21 s / 4.9 s = hanging at the top)."""
+        z = self._z
+        pos = z.pos_raw / 2.55 if z.pos_raw is not None else float(z.percent)  # raw 0…255: finer than percent
         t = self._times()
-        if t is None or self._z.slat is None:
-            return float(self._z.percent)
+        if t is None or z.slat is None:
+            return pos
+        slat = z.slat_raw / 2.55 if z.slat_raw is not None else float(z.slat)
         travel, m = t
-        h = self._z.percent / 100 * travel - self._z.slat / 100 * m
+        h = pos / 100 * travel - slat / 100 * m
         return max(0.0, min(100.0, h / (travel - m) * 100))
 
-    def _actuator_target(self, real: float) -> int:
+    def _actuator_target(self, real: float) -> int:  # 0…255 (raw, GO 5)
         """Actuator position for a hanging position: moving down it turns the slats on arrival back by the slat time,
         moving up it ends with the slats turned up – so the target differs by M depending on the direction."""
         t = self._times()
         if t is None or self._z.slat is None:
-            return round(real)
+            return round(real * 2.55)
         travel, m = t
         h = real / 100 * (travel - m)
         target_t = h + m if real > self._real_position() else h
-        return max(0, min(100, round(target_t / travel * 100)))
+        return max(0, min(255, round(target_t / travel * 255)))
 
     @property
     def current_cover_position(self) -> int | None:
@@ -158,10 +161,12 @@ class EnetBlind(EnetEntity, CoverEntity):
         if sn == self.channel.enet_device["sn"]:
             self.async_write_ha_state()  # operating mode read or changed
 
-    async def _send(self, action: str, percent: int | None = None) -> None:
+    async def _send(self, action: str, percent: int | None = None, raw: int | None = None) -> None:
         fields_: dict[str, Any] = {"action": action}
         if percent is not None:
             fields_["percent"] = percent
+        if raw is not None:  # 0…255, firmware 0.8.27+ (the integration installs it automatically)
+            fields_["raw"] = raw
         try:
             async with self.hub.params.programming(self.channel.ia):  # not in the middle of a parameter download
                 result = await self.hub.bridge.request("cover", ia=self.channel.ia, ch=self.channel.nr, **fields_)
@@ -192,8 +197,9 @@ class EnetBlind(EnetEntity, CoverEntity):
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         real = 100 - int(kwargs[ATTR_POSITION])  # actuator: 0 % = top
-        target = self._actuator_target(real)
-        await self._send("position", target)
+        raw = self._actuator_target(real)
+        target = round(raw / 2.55)
+        await self._send("position", raw=raw)
         now = self._real_position()
         if self._z.known and round(now) != real:
             # without slats the target position ends the movement; with slats the actuator turns them afterwards

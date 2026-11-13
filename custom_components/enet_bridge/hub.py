@@ -150,6 +150,8 @@ class ChannelState:
     on: bool = False
     percent: int = 0  # blind: position as in the actuator (0 % = top)
     slat: int | None = None  # blind only
+    pos_raw: int | None = None  # blind: position 0…255 as reported (finer than percent; firmware 0.8.27+)
+    slat_raw: int | None = None  # blind: slats 0…255
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
@@ -1027,6 +1029,7 @@ class Hub:
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
                 if msg.get("kind") == "blind":
                     z.slat = msg.get("slat")
+                    z.pos_raw, z.slat_raw = msg.get("pos_raw"), msg.get("slat_raw")
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
                     elif old_known and z.percent != old_percent and (

@@ -4,6 +4,9 @@
 
 namespace enet {
 
+// 0…255 → percent, rounded (not truncated: 255 steps of the actuator would otherwise lose up to 1 %)
+static int pct255(int v) { return (v * 100 + 127) / 255; }
+
 namespace {
 
 // (int32_t) (a - b) >= 0 also across the overflow of millis()
@@ -358,10 +361,13 @@ void Server::finishJob(bool ok, int rc, const uint8_t* val, size_t len, uint32_t
       st_[ci].pollStage = 0;
       schedulePoll(ci, now);  // query status in case the actuator does not report by itself
     } else if (ch.blind) {
-      if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotPosNow))
-        updateBlind(ci, val[0] * 100 / 255, -1, -1, Source::POLL);
-      else if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotSlatNow))
-        updateBlind(ci, -1, val[0] * 100 / 255, -1, Source::POLL);
+      if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotPosNow)) {
+        st_[ci].posRaw = val[0];
+        updateBlind(ci, pct255(val[0]), -1, -1, Source::POLL);
+      } else if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotSlatNow)) {
+        st_[ci].slatRaw = val[0];
+        updateBlind(ci, -1, pct255(val[0]), -1, Source::POLL);
+      }
     } else if (len >= 1 && cur_.handle == ch.offset + goOf(ch, kSlotStatus)) {
       updateState(ci, true, val[0] != 0, false, 0, Source::POLL);
     } else if (len >= 1 && ch.dimmer && cur_.handle == ch.offset + goOf(ch, kSlotStatusValue)) {
@@ -527,12 +533,20 @@ void Server::onFrame(const knxrf::Telegram& t, uint32_t now) {
       const uint8_t go = (uint8_t)((t.dst & 0xFF) - ch.offset);
       const uint8_t v = t.dataLen ? t.data[0] : (uint8_t)(t.apci & 0x3F);
       if (go == goOf(ch, kSlotInfo)) return updateBlind(i, -1, -1, v & 3, Source::STATUS_MSG);
-      if (go == goOf(ch, kSlotPosNow) && t.dataLen == 1)
-        return updateBlind(i, v * 100 / 255, -1, -1, Source::STATUS_MSG);
-      if (go == goOf(ch, kSlotSlatNow) && t.dataLen == 1)
-        return updateBlind(i, -1, v * 100 / 255, -1, Source::STATUS_MSG);
-      if (go == goOf(ch, kSlotSum) && t.dataLen == 3)
-        return updateBlind(i, t.data[0] & 0x7F, -1, -1, Source::STATUS_MSG);
+      if (go == goOf(ch, kSlotPosNow) && t.dataLen == 1) {
+        st_[i].posRaw = v;
+        return updateBlind(i, pct255(v), -1, -1, Source::STATUS_MSG);
+      }
+      if (go == goOf(ch, kSlotSlatNow) && t.dataLen == 1) {
+        st_[i].slatRaw = v;
+        return updateBlind(i, -1, pct255(v), -1, Source::STATUS_MSG);
+      }
+      if (go == goOf(ch, kSlotSum) && t.dataLen == 3) {
+        // sum status: whole percent only – drop the finer raw value if it no longer matches
+        const int p = t.data[0] & 0x7F;
+        if (st_[i].posRaw >= 0 && pct255(st_[i].posRaw) != p) st_[i].posRaw = -1;
+        return updateBlind(i, p, -1, -1, Source::STATUS_MSG);
+      }
     }
   }
 

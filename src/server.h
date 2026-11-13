@@ -102,6 +102,7 @@ struct ChannelState {
   uint8_t percent = 0;  // blind: position (0 % = top)
   uint8_t slat = 0;     // blind: slat
   uint8_t move = 0xFF;  // blind: movement info GO10 (0xFF unknown)
+  int16_t posRaw = -1, slatRaw = -1;  // blind: last raw value 0…255 of GO12/13 (-1 unknown) – finer than percent
   bool pollPending = false;
   uint32_t pollAt = 0, cmdAt = 0;
   uint8_t pollStage = 0;  // blind: next poll from kBlindPollMs

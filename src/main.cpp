@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.26";
+static const char* kFwVersion = "0.8.27";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -256,6 +256,8 @@ class BridgeIo : public enet::Io {
     if (ch.blind) {
       d["kind"] = "blind";
       d["slat"] = st.slat;
+      if (st.posRaw >= 0) d["pos_raw"] = st.posRaw;  // 0…255, finer than percent (since 0.8.27)
+      if (st.slatRaw >= 0) d["slat_raw"] = st.slatRaw;
       if (st.move != 0xFF) d["move"] = st.move;
     }
     d["source"] = kSrc[(int)src];
@@ -740,7 +742,7 @@ static void handleJson(const char* line) {
     val[0] = (uint8_t)(p * 255 / 100);  // like the server: floor
     queued(id, server.queueSet(ia, ch.offset + enet::goOf(ch, enet::kSlotValue), val, 1, enet::Origin::HOST, id));
   } else if (!strcmp(cmd, "cover")) {
-    // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = top)]}
+    // {"ia","ch","action": up|down|stop|step_up|step_down|position|slat [, "percent" 0..100 (0 = top) | "raw" 0..255]}
     if (!radioReady(id) || !channelArg(in, id, ia, ci)) return;
     const enet::Channel& ch = server.config().channels[ci];
     if (!ch.blind) return replyErr(id, "bad_args", "kein Jalousiekanal");
@@ -756,10 +758,12 @@ static void handleJson(const char* line) {
       go = enet::goOf(ch, enet::kSlotStop);
       val[0] = 1;  // DPT 1.017 trigger
     } else if (!strcmp(a, "position") || !strcmp(a, "slat")) {
+      int raw = in["raw"] | -1;  // 0…255 directly (finer than percent, since 0.8.27)
       int p = in["percent"] | -1;
-      if (p < 0 || p > 100) return replyErr(id, "bad_args", "percent 0..100");
+      if (raw < 0 && (p < 0 || p > 100)) return replyErr(id, "bad_args", "percent 0..100 or raw 0..255");
+      if (raw > 255) return replyErr(id, "bad_args", "raw 0..255");
       go = enet::goOf(ch, !strcmp(a, "slat") ? enet::kSlotSlat : enet::kSlotPos);
-      val[0] = (uint8_t)((p * 255 + 50) / 100);  // DPT 5.001
+      val[0] = raw >= 0 ? (uint8_t)raw : (uint8_t)((p * 255 + 50) / 100);  // DPT 5.001
     } else {
       return replyErr(id, "bad_args", "action up|down|stop|step_up|step_down|position|slat");
     }
