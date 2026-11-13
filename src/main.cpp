@@ -27,7 +27,7 @@
 #include "knxrf.h"
 #include "server.h"
 
-static const char* kFwVersion = "0.8.23";
+static const char* kFwVersion = "0.8.25";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -137,18 +137,23 @@ static bool setClock(const char* iso) {
 
 // ---------------------------------------------------------------------------
 // Transmit
-// Radio LED (PIN_LED, active low): briefly on for every transmitted and every valid received telegram
+// Radio LEDs (XIAO PIN_LED active low, CUL32 PIN_LED2): briefly on for every transmitted and every valid received
+// telegram. Both are driven on every C6 board – the pin of the other board is unused there.
 static uint32_t ledOffAt = 0;
 static bool ledOn = false;
+static void ledSet(bool on) {
+  if (PIN_LED >= 0) digitalWrite(PIN_LED, on ? LOW : HIGH);
+  if (PIN_LED2 >= 0) digitalWrite(PIN_LED2, on ? LED2_ON : !LED2_ON);
+}
 static void ledFlash() {
-  if (PIN_LED < 0) return;
-  digitalWrite(PIN_LED, LOW);
+  if (PIN_LED < 0 && PIN_LED2 < 0) return;
+  ledSet(true);
   ledOn = true;
   ledOffAt = millis() + 40;
 }
 static void ledCheck(uint32_t now) {
-  if (PIN_LED >= 0 && ledOn && (int32_t)(now - ledOffAt) >= 0) {
-    digitalWrite(PIN_LED, HIGH);
+  if (ledOn && (int32_t)(now - ledOffAt) >= 0) {
+    ledSet(false);
     ledOn = false;
   }
 }
@@ -966,10 +971,9 @@ void setup() {
 #endif
   Serial.begin(SERIAL_BAUD);
   delay(300);
-  if (PIN_LED >= 0) {
-    pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);  // off
-  }
+  if (PIN_LED >= 0) pinMode(PIN_LED, OUTPUT);
+  if (PIN_LED2 >= 0) pinMode(PIN_LED2, OUTPUT);
+  ledSet(false);
   bridgeIo.server = &server;
   prefs.begin("enet", false);
   freqOffset = prefs.getChar("foff", CC1101_FREQ_OFFSET);
