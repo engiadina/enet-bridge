@@ -102,7 +102,7 @@ im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten
 
 | Art | Geräte | In Home Assistant |
 |---|---|---|
-| Jalousieaktoren | REG 1fach (5437 00) und 4fach (5435 00), System-2000-Aufsatz (5491) | Rollladen: Auf/Ab/Stopp, Position, Lamelle |
+| Weitere Jalousieaktoren (gleicher Kanaltyp wie der getestete Mini 5427 00) | REG 1fach (5437 00) und 4fach (5435 00), System-2000-Aufsatz (5491) | Rollladen: Auf/Ab/Stopp, Position, Lamelle |
 | Energiesensoren | Mini (5471 00), Zwischenstecker (5472 02), REG 4fach (5473 00) | Spannung, Strom, Wirk-/Blind-/Scheinleistung, Energie (Energie-Dashboard) |
 | Bewegungsmelder | Jung FMDW360WW | Bewegung, Helligkeit |
 | Repeater | Zwischenstecker (5321 02) | Signal, letzte Meldung |
