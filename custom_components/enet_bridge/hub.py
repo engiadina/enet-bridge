@@ -152,6 +152,9 @@ class ChannelState:
     slat: int | None = None  # blind only
     pos_raw: int | None = None  # blind: position 0…255 as reported (finer than percent; firmware 0.8.27+)
     slat_raw: int | None = None  # blind: slats 0…255
+    t: float | None = None  # blind model: motor position of the actuator in % (includes slat turning)
+    s: float | None = None  # blind model: slat position in % (followed from motor movement, corrected by queries)
+    h: float | None = None  # blind model: position of the hanging in % (0 = top) – what the cover shows
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
@@ -407,6 +410,51 @@ class Hub:
         z = self.state_[k.key]
         z.motion, z.moved_at, z.tracking, z.target, z.quiet = motion, time.monotonic(), False, target, 0
         self._watch_blind(k.key)
+
+    def blind_times(self, key: str) -> tuple[float, float] | None:
+        """Venetian blind: (travel time, slat time) in seconds, if known and plausible – otherwise None."""
+        k = next((k for k in self.blinds if k.key == key), None)
+        if k is None:
+            return None
+        values: dict[str, Any] = {}
+        for g in self.device_params(k.enet_device):
+            if g.channel == k.nr:
+                for p in g.params:
+                    if p.id in ("OPMODE", "MUDT", "MSMT"):
+                        values[p.id] = self.params.value(k.enet_device["sn"], p)
+        travel, slats = values.get("MUDT"), values.get("MSMT")
+        if values.get("OPMODE") != "BLINDS" or not isinstance(travel, (int, float)) \
+                or not isinstance(slats, (int, float)):
+            return None
+        travel, slats = float(travel), float(slats) / 1000
+        return (travel, slats) if 0 < slats < travel else None
+
+    def _blind_model(self, key: str, z: ChannelState, old_slat_raw: int | None) -> float:
+        """Follow motor position, slats and hanging of a blind; returns the change of the hanging in %.
+
+        The actuator counts its position as motor time T and includes the time in which only the slats turn: moving
+        down, the slats turn first (0 → 100 % within the slat time M), then the hanging moves; moving up the other
+        way round – like play in a gear. So every motor movement turns the slats first, the rest moves the hanging:
+        hanging H = T − slats · M over the range travel time − M. The actuator reports the slats only on request;
+        a queried value replaces the followed one (office test 2026-11-13, 21 s / 4.9 s)."""
+        t_new = z.pos_raw / 2.55 if z.pos_raw is not None else float(z.percent)
+        slat_now = z.slat_raw / 2.55 if z.slat_raw is not None else float(z.slat or 0)
+        times = self.blind_times(key)
+        old_h = z.h
+        if times is None:
+            z.t, z.s, z.h = t_new, slat_now, t_new
+            return 0.0 if old_h is None else t_new - old_h
+        travel, m = times
+        fresh = z.s is None or z.t is None or (z.slat_raw is not None and z.slat_raw != old_slat_raw)
+        if fresh:
+            z.s = slat_now
+        else:
+            ds = (t_new - z.t) / 100 * travel / m * 100  # motor movement in % of the slat range
+            z.s = max(0.0, min(100.0, z.s + ds))
+        z.t = t_new
+        h_s = t_new / 100 * travel - z.s / 100 * m
+        z.h = max(0.0, min(100.0, h_s / (travel - m) * 100))
+        return 0.0 if old_h is None else z.h - old_h
 
     def _travel_time(self, key: str) -> float:
         k = next((k for k in self.blinds if k.key == key), None)
@@ -1028,18 +1076,23 @@ class Hub:
                 old_known, old_percent = z.known, z.percent
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
                 if msg.get("kind") == "blind":
+                    old_slat_raw = z.slat_raw
                     z.slat = msg.get("slat")
                     z.pos_raw, z.slat_raw = msg.get("pos_raw"), msg.get("slat_raw")
+                    dh = self._blind_model(key, z, old_slat_raw)
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
                     elif old_known and z.percent != old_percent and (
                             msg.get("source") == "status" or z.motion in (MOVING_UP, MOVING_DOWN)):
                         # direction only from the actuator's own reports (or confirming a command), not from a
-                        # first query after the start
-                        z.motion = MOVING_DOWN if z.percent > old_percent else MOVING_UP
+                        # first query after the start; only when the hanging moves – turning the slats is no travel
                         z.moved_at, z.tracking = time.monotonic(), True
-                        if z.target is not None and z.percent == z.target:
-                            z.motion = None  # target position reached
+                        if abs(dh) > 0.01:
+                            z.motion = MOVING_DOWN if dh > 0 else MOVING_UP
+                        if (z.target is not None and z.percent == z.target) or (
+                                z.motion == MOVING_DOWN and (z.h or 0) >= 99.95) or (
+                                z.motion == MOVING_UP and (z.h or 0) <= 0.05):
+                            z.motion = None  # target or end position reached (slats may still turn)
                         self._watch_blind(key)
                     elif msg.get("source") == "status" and z.motion in (MOVING_UP, MOVING_DOWN):
                         # unchanged status message: the first one after a command marks the start, one after
