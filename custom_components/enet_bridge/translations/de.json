@@ -151,6 +151,15 @@
       },
       "sender_programmieren": {
         "name": "Sender programmieren"
+      },
+      "fahrzeit_einmessen": {
+        "name": "Fahrzeit einmessen"
+      },
+      "endlage_erreicht": {
+        "name": "Endlage erreicht"
+      },
+      "einmessen_abbrechen": {
+        "name": "Einmessen abbrechen"
       }
     },
     "sensor": {
@@ -199,6 +208,9 @@
       },
       "energie": {
         "name": "Energie"
+      },
+      "einmessen": {
+        "name": "Einmessen"
       }
     },
     "update": {

@@ -9,7 +9,8 @@ from homeassistant.const import (LIGHT_LUX, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import EnetConfigEntry, _part_info, bridge_info, device_info_for
+from . import EnetConfigEntry, _part_info, bridge_info, channel_info, device_info_for
+from .calibration import calibration
 from .measurements import KIND_MOTION, KIND_ENERGY, VALUES
 from .const import SENSOR_TYPES
 from .entity import EnetEntity, EnetParamEntity, param_entities
@@ -26,8 +27,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     entities += [MeasuredValue(hub, g, k, w.key) for g, k in hub.measurements.channels_(KIND_ENERGY)
                  for w in VALUES[KIND_ENERGY].values()]
     entities += [MeasuredValue(hub, g, k, "helligkeit") for g, k in hub.measurements.channels_(KIND_MOTION)]
+    entities += [Measuring(hub, k) for k in hub.blinds]
     entities += [FrequencyCorrection(hub), Programming(hub)]
     async_add_entities(entities)
+
+
+class Measuring(EnetEntity, SensorEntity):
+    """Step or result of the travel time measurement of a blind channel (calibration.py)."""
+
+    _attr_translation_key = "einmessen"  # no category: HA allows only diagnostic sensors, this is a step display
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(self, hub, channel) -> None:
+        super().__init__(hub)
+        self.channel = channel
+        self._attr_unique_id = f"{channel.enet_device['sn']}_{channel.nr}_einmessen"
+        self._attr_device_info = channel_info(hub, channel)
+
+    @property
+    def native_value(self) -> str:
+        return calibration(self.hub, self.channel).text()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._listen(f"einmessen_{self.channel.key}")
 
 
 class _Diag(EnetEntity, SensorEntity):

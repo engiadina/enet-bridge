@@ -151,6 +151,15 @@
       },
       "sender_programmieren": {
         "name": "Programmer sender"
+      },
+      "fahrzeit_einmessen": {
+        "name": "Mål kjøretid"
+      },
+      "endlage_erreicht": {
+        "name": "Endeposisjon nådd"
+      },
+      "einmessen_abbrechen": {
+        "name": "Avbryt måling"
       }
     },
     "sensor": {
@@ -199,6 +208,9 @@
       },
       "energie": {
         "name": "Energi"
+      },
+      "einmessen": {
+        "name": "Måling"
       }
     },
     "update": {

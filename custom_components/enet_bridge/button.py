@@ -9,8 +9,9 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 
-from . import EnetConfigEntry, device_info_for, sender, scenes_device_info, rocker_info
+from . import EnetConfigEntry, channel_info, device_info_for, sender, scenes_device_info, rocker_info
 from .bridge import BridgeError
+from .calibration import calibration
 from .entity import EnetEntity
 from .texts import tr
 
@@ -23,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
     async_add_entities([ParamRead(hub, g) for g in devices_.values()] +
                        [SceneStore(hub, s) for s in hub.scenes.scenes if s.art != "ha"] +
                        [ProgramSender(hub, g) for g in sender_] +
+                       [cls(hub, k) for k in hub.blinds for cls in (MeasureStart, MeasureEnd, MeasureCancel)] +
                        # on the rocker pages only while something is pending (main page: always, e.g. after a reset)
                        [ProgramSender(hub, g, n) for g in sender_ if (w := sender.rocker_count(hub, g)) > 1
                         and sender.pending(g) for n in range(1, w + 1)])
@@ -103,3 +105,46 @@ class ProgramSender(EnetEntity, ButtonEntity):
             raise HomeAssistantError(f"{self.enet_device['name']}: {err}") from err
         finally:
             self.hub.reload_after_radio()
+
+
+class _Measure(EnetEntity, ButtonEntity):
+    """Travel time measurement of a blind channel (calibration.py)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _suffix = ""
+
+    def __init__(self, hub, channel) -> None:
+        super().__init__(hub)
+        self.channel = channel
+        self._attr_unique_id = f"{channel.enet_device['sn']}_{channel.nr}_{self._suffix}"
+        self._attr_device_info = channel_info(hub, channel)
+
+    async def _run(self, job) -> None:
+        try:
+            await job()
+        except BridgeError as err:
+            raise HomeAssistantError(f"{self.channel.enet_device['name']}: {err}") from err
+
+
+class MeasureStart(_Measure):
+    _attr_translation_key = "fahrzeit_einmessen"
+    _suffix = "einmessen_start"
+
+    async def async_press(self) -> None:
+        await self._run(calibration(self.hub, self.channel).start)
+
+
+class MeasureEnd(_Measure):
+    _attr_translation_key = "endlage_erreicht"
+    _suffix = "einmessen_endlage"
+
+    async def async_press(self) -> None:
+        await self._run(calibration(self.hub, self.channel).end_reached)
+
+
+class MeasureCancel(_Measure):
+    _attr_translation_key = "einmessen_abbrechen"
+    _suffix = "einmessen_abbrechen"
+
+    async def async_press(self) -> None:
+        await self._run(calibration(self.hub, self.channel).cancel)

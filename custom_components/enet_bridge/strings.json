@@ -151,6 +151,15 @@
       },
       "sender_programmieren": {
         "name": "Program sender"
+      },
+      "fahrzeit_einmessen": {
+        "name": "Measure travel time"
+      },
+      "endlage_erreicht": {
+        "name": "End position reached"
+      },
+      "einmessen_abbrechen": {
+        "name": "Cancel measuring"
       }
     },
     "sensor": {
@@ -199,6 +208,9 @@
       },
       "energie": {
         "name": "Energy"
+      },
+      "einmessen": {
+        "name": "Measuring"
       }
     },
     "update": {

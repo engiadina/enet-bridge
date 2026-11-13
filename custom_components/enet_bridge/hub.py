@@ -182,6 +182,7 @@ class Hub:
     _sync_task: asyncio.Task | None = None
     _cal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _tracking_task: asyncio.Task | None = None
+    calibrations: dict[str, Any] = field(default_factory=dict)  # blind key → calibration.Calibration
     _tracked_at: float = 0.0  # time.monotonic() of the last tracking adjustment
     _unsub: Any = None
 
@@ -342,6 +343,11 @@ class Hub:
                                       translation_placeholders=placeholder)
 
     @callback
+    def device_activity(self, enet_device: dict[str, Any], text: str) -> None:
+        """Entry in a device's activity (logbook on its "Read parameters" button)."""
+        entity_id = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{enet_device['sn']}_parameter_lesen")
+        async_log_entry(self.hass, enet_device["name"], text, DOMAIN, entity_id)
+
     def activity(self, text: str) -> None:
         """Entry in the bridge's activity (on the "Programming" sensor) – for operations that belong to no
         existing device (pairing, removal, scene sync)."""
