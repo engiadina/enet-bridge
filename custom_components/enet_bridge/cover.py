@@ -84,9 +84,53 @@ class EnetBlind(EnetEntity, CoverEntity):
     def supported_features(self) -> CoverEntityFeature:
         return BASIC | TILT if self._has_slats else BASIC
 
+    def _param_value(self, ident: str):
+        sn = self.channel.enet_device["sn"]
+        for g in self.hub.device_params(self.channel.enet_device):
+            if g.channel == self.channel.nr:
+                for p in g.params:
+                    if p.id == ident:
+                        return self.hub.params.value(sn, p)
+        return None
+
+    def _times(self) -> tuple[float, float] | None:
+        """Venetian blind: (travel time, slat time) in seconds, if both are known and plausible."""
+        if self._mode != "BLINDS":
+            return None
+        travel, slats = self._param_value("MUDT"), self._param_value("MSMT")
+        if not isinstance(travel, (int, float)) or not isinstance(slats, (int, float)):
+            return None
+        travel, slats = float(travel), float(slats) / 1000
+        return (travel, slats) if 0 < slats < travel else None
+
+    def _real_position(self) -> float:
+        """Position of the hanging (as in the actuator, 0 % = top) without the slat reversal.
+
+        The actuator counts its position as motor time T from the top (0 … travel time) and includes the time in which
+        only the slats turn: moving down, the slats turn first (slat 0 → 100 % in the slat time M), then the hanging
+        moves; moving up the other way round. Hanging position H = T − slat · M, range 0 … travel time − M (office
+        test 2026-11-13: actuator 5 % + slats 24 % with 21 s / 4.9 s = hanging at the top)."""
+        t = self._times()
+        if t is None or self._z.slat is None:
+            return float(self._z.percent)
+        travel, m = t
+        h = self._z.percent / 100 * travel - self._z.slat / 100 * m
+        return max(0.0, min(100.0, h / (travel - m) * 100))
+
+    def _actuator_target(self, real: float) -> int:
+        """Actuator position for a hanging position: moving down it turns the slats on arrival back by the slat time,
+        moving up it ends with the slats turned up – so the target differs by M depending on the direction."""
+        t = self._times()
+        if t is None or self._z.slat is None:
+            return round(real)
+        travel, m = t
+        h = real / 100 * (travel - m)
+        target_t = h + m if real > self._real_position() else h
+        return max(0, min(100, round(target_t / travel * 100)))
+
     @property
     def current_cover_position(self) -> int | None:
-        return 100 - self._z.percent if self._z.known else None
+        return 100 - round(self._real_position()) if self._z.known else None
 
     @property
     def current_cover_tilt_position(self) -> int | None:
@@ -94,7 +138,7 @@ class EnetBlind(EnetEntity, CoverEntity):
 
     @property
     def is_closed(self) -> bool | None:
-        return self._z.percent >= 100 if self._z.known else None
+        return round(self._real_position()) >= 100 if self._z.known else None
 
     @property
     def is_opening(self) -> bool:
@@ -147,10 +191,13 @@ class EnetBlind(EnetEntity, CoverEntity):
         self._moving(None)
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
-        target = 100 - int(kwargs[ATTR_POSITION])  # actuator: 0 % = top
+        real = 100 - int(kwargs[ATTR_POSITION])  # actuator: 0 % = top
+        target = self._actuator_target(real)
         await self._send("position", target)
-        if self._z.known and target != self._z.percent:
-            self._moving(MOVING_DOWN if target > self._z.percent else MOVING_UP, target)
+        now = self._real_position()
+        if self._z.known and round(now) != real:
+            # without slats the target position ends the movement; with slats the actuator turns them afterwards
+            self._moving(MOVING_DOWN if real > now else MOVING_UP, None if self._times() else target)
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         await self._send("slat", 0)

@@ -417,6 +417,14 @@ class Hub:
                             return float(v)
         return BLIND_TRAVEL_S
 
+    def _poll_after_move(self, msg: dict[str, Any]) -> None:
+        """End of a movement: query position and slats right away (the actuator reports the slats only on request)."""
+        async def poll() -> None:
+            with contextlib.suppress(BridgeError):
+                await self.bridge.request("poll", ia=msg["ia"], ch=int(msg["ch"]))
+
+        self.hass.async_create_background_task(poll(), f"{DOMAIN} poll blind")
+
     def _watch_blind(self, key: str) -> None:
         """End the motion when the position no longer changes (or after the travel time without any report)."""
         z = self.state_[key]
@@ -1033,6 +1041,7 @@ class Hub:
                         if z.tracking or z.quiet >= 1:
                             z.motion = None
                             self._watch_blind(key)
+                            self._poll_after_move(msg)
                         else:
                             z.quiet += 1
                 if msg.get("source") != "poll":
