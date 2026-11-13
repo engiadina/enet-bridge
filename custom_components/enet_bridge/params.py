@@ -10,7 +10,8 @@ import contextlib
 import json
 import logging
 import math
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -55,6 +56,17 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "BBE": ("Grundhelligkeit", "Base brightness", False),
     "PWE": ("Abschaltvorwarnung", "Switch-off warning", False),
     "SRT": ("Blinkzeit", "Flash time", False),
+    # blind actuators (CT_1F03 and variants)
+    "MUDT": ("Fahrzeit", "Travel time", True),
+    "RPT": ("Umschaltpause", "Reversal pause", True),
+    "OPMODE": ("Betriebsart", "Operating mode", True),
+    "BPMPU": ("Position bei Netzwiederkehr", "Position on power return", True),
+    "EIM": ("Fahrrichtung umkehren", "Invert direction", True),
+    "MSMT": ("Lamellenumsteuerzeit", "Slat reversing time", True),  # awning: fabric tensioning time (entity.py)
+    "SPMPU": ("Lamellenposition bei Netzwiederkehr", "Slat position on power return", True),
+    "CAPS": ("Position senden", "Send position", False),
+    "BNRT": ("Umkehrsperrzeit", "No-reversal time", False),
+    "SST": ("Lamellen-Schrittzeit", "Slat step time", True),
     "REPEATER_MODE_ENABLE": ("Repeater", "Repeater", False),
     "LEARN_MODE_ENABLE": ("Lernmodus", "Learn mode", False),
     "SUMSTATE_MAX_TIMEOUT": ("Statusmeldung Wartezeit", "Status message timeout", False),
@@ -79,7 +91,9 @@ CHOICE: dict[str, tuple[str, str]] = {
     "OFF": ("Aus", "Off"), "ON": ("Ein", "On"), "NO_CHANGE": ("Keine Änderung", "No change"),
     "VALUE_BEFORE_LOCKING": ("Wert vor Sperre", "Value before lock"),
     "LAST_VALUE_BEFORE_POWER_DOWN": ("Wert vor Netzausfall", "Value before power failure"),
-    "VALUE_ACCORDING_TO_ADDITIONAL_PARAMETER": ("Helligkeit laut Parameter", "Brightness per parameter"),
+    "VALUE_ACCORDING_TO_ADDITIONAL_PARAMETER": ("Wert laut Parameter", "Value per parameter"),
+    "BLINDS": ("Jalousie", "Venetian blind"), "SHUTTER": ("Rollladen", "Roller shutter"),
+    "MARQUEE": ("Markise", "Awning"),
     "NORMAL_OPERATION": ("Normalbetrieb", "Normal operation"), "NON_LATCHING": ("Tastbetrieb", "Momentary"),
     "BLINKING": ("Blinken", "Flashing"), "PERMANENT_ON": ("Dauer-Ein", "Permanently on"),
     "PERMANENT_OFF": ("Dauer-Aus", "Permanently off"),
@@ -110,8 +124,30 @@ def channel_name(typ: str, channel: int | None) -> str | None:
     return _language(paar) if paar else None
 
 
-# scene memory and special functions belong to scene handling, not to the settings
-EXCLUDED = ("SCV1[", "SNA[", "PSN[", "CHANNEL_CONFIG")
+# scene memory belongs to scene handling, not to the settings – except the special functions 42–51 (lock-out
+# protection, forced operation, wind alarm, sun protection, twilight: priority and value on call/cancel, as in the
+# manuals' parameter lists)
+EXCLUDED = ("SCV1[", "SCV2[", "SNA[", "PSN[", "CHANNEL_CONFIG")
+SPECIAL = re.compile(r"^(SCV1|SCV2)\[(4[2-9]|5[01])\]$|^PSN\[(42|44|46|48|50)\]$")
+SPECIAL_FUNCTIONS = {42: ("Aussperrschutz", "lock-out protection"), 44: ("Zwangsführung", "forced operation"),
+                     46: ("Windalarm", "wind alarm"), 48: ("Sonnenschutz", "sun protection"),
+                     50: ("Dämmerung", "twilight")}
+SPECIAL_VALUE = {"jalousie": ("Position", "Position"), "dimmen": ("Helligkeit", "Brightness")}
+
+
+def special_name(ident: str, kind: str | None) -> str | None:
+    """Name of a special function parameter (SCV1/SCV2/PSN 42–51), e.g. "Windalarm aufheben: Position"."""
+    m = SPECIAL.match(ident)
+    if not m:
+        return None
+    idx = int(m.group(2) or m.group(3))
+    func = _language(SPECIAL_FUNCTIONS[idx - idx % 2])
+    if ident.startswith("PSN"):
+        return f"{func}: " + ("Priorität" if german() else "priority")
+    call = ("aufrufen" if german() else "call") if idx % 2 == 0 else ("aufheben" if german() else "cancel")
+    value = _language(SPECIAL_VALUE.get(kind or "", ("Wert", "Value"))) if ident.startswith("SCV1") \
+        else ("Lamellenstellung" if german() else "Slat position")
+    return f"{func} {call}: {value}"
 
 
 @dataclass
@@ -119,6 +155,8 @@ class Param:
     """A parameter of a device/channel with radio address and value description."""
 
     d: dict[str, Any]
+    current: dict[str, Any] | None = field(default=None, compare=False)  # value type by dependency (Hub.param_active)
+    kind: str | None = field(default=None, compare=False)  # channel kind (jalousie, dimmen, …) for special names
 
     @property
     def id(self) -> str:
@@ -130,7 +168,7 @@ class Param:
 
     @property
     def typ(self) -> dict[str, Any]:
-        return self.d["typ"]
+        return self.current or self.d["typ"]
 
     @property
     def art(self) -> str:
@@ -148,11 +186,13 @@ class Param:
         if self.id in NAMES:
             de, en, _ = NAMES[self.id]
             return de if german() else en
+        if special := special_name(self.id, self.kind):
+            return special
         return self.d.get("name") or self.id
 
     @property
     def default_active(self) -> bool:
-        return NAMES.get(self.id, ("", "", False))[2]
+        return bool(SPECIAL.match(self.id)) or NAMES.get(self.id, ("", "", False))[2]
 
     @property
     def length(self) -> int:
@@ -163,8 +203,10 @@ class Param:
 
     @property
     def usable(self) -> bool:
-        return (self.d.get("aktiv", True) and self.typ.get("kodierung") not in (None, "unbekannt")
-                and not self.id.startswith(EXCLUDED))
+        # inactive by default but switched on by another parameter (e.g. slat time with operating mode BLINDS)
+        return ((self.d.get("aktiv", True) or "abhaengig" in self.d)
+                and self.typ.get("kodierung") not in (None, "unbekannt")
+                and (not self.id.startswith(EXCLUDED) or bool(SPECIAL.match(self.id))))
 
     # --- Conversion ------------------------------------------------------
     def decode(self, raw: bytes) -> Any:

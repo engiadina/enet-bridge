@@ -6,7 +6,7 @@
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
 // ESP32-C6: pinout of the busware CUL32 – one firmware for CUL32 and Seeed XIAO ESP32-C6 (XIAO pin in brackets).
 // GDO2 is not needed (carrier sense via PKTSTATUS): on the CUL32 GPIO 3, on the XIAO not broken out
-// (antenna switch 2.4 GHz there). Leave free: strapping 8/9/15.
+// (antenna switch 2.4 GHz there). Strapping 8/9/15: only outputs after boot (the LEDs), no other use.
 #define PIN_SCK   19   // (D8)
 #define PIN_MISO  20   // (D9)
 #define PIN_MOSI  21   // (D3)
@@ -14,6 +14,8 @@
 #define PIN_GDO0   2   // (D2)
 #define PIN_GDO2  -1   // not connected
 #define PIN_LED   15   // XIAO: yellow user LED, active low – flashes on transmit/receive (CUL32: GPIO 15 free)
+#define PIN_LED2   8   // CUL32: blue status LED, same function (XIAO: GPIO 8 not connected)
+#define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
 #else
 // ESP32-DevKit (VSPI)
 #define PIN_SCK   18
@@ -23,6 +25,8 @@
 #define PIN_GDO0   4   // IOCFG0 = 0x06: high from sync word, low at end of packet
 #define PIN_GDO2  16   // IOCFG2 = 0x0E: carrier sense (diagnostics only)
 #define PIN_LED   -1   // DevKit: no LED for radio traffic
+#define PIN_LED2  -1
+#define LED2_ON  HIGH
 #endif
 
 // ---------------------------------------------------------------------------

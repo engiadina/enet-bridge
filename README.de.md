@@ -93,6 +93,7 @@ Getestet in zwei Anlagen:
 | Schaltaktoren | Mini 1fach (SA1M, SA1MP), Mini 2fach (SA2M), Zwischenstecker (SA1Z) |
 | Dimmaktoren | Mini-Dimmer (DA1M), DALI Mini (SD1M) |
 | Sender | Wandsender 3fach (WS3BG), Handsender 4fach (HS4) |
+| Jalousieaktoren | Mini (5427 00): Auf/Ab/Stopp, Position, Lamelle, Fahrzeit einmessen, Wippe eines Senders |
 | Sensoren | Sonnen-/Dämmerungssensor (SF1S, Jung FM FS 1 S) |
 
 **Aus dem Herstellerkatalog umgesetzt, am Gerät noch nicht getestet** – in Home Assistant mit „(ungetestet)“
@@ -101,7 +102,7 @@ im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten
 
 | Art | Geräte | In Home Assistant |
 |---|---|---|
-| Jalousieaktoren | Mini (5427 00), REG 1fach (5437 00) und 4fach (5435 00), System-2000-Aufsatz (5491) | Rollladen: Auf/Ab/Stopp, Position, Lamelle |
+| Jalousieaktoren | REG 1fach (5437 00) und 4fach (5435 00), System-2000-Aufsatz (5491) | Rollladen: Auf/Ab/Stopp, Position, Lamelle |
 | Energiesensoren | Mini (5471 00), Zwischenstecker (5472 02), REG 4fach (5473 00) | Spannung, Strom, Wirk-/Blind-/Scheinleistung, Energie (Energie-Dashboard) |
 | Bewegungsmelder | Jung FMDW360WW | Bewegung, Helligkeit |
 | Repeater | Zwischenstecker (5321 02) | Signal, letzte Meldung |

@@ -15,10 +15,12 @@ from .bridge import BridgeError
 from .const import KIND_DIMMER
 from .entity import EnetEntity
 from .hub import Hub, Channel
+from .visibility import filtered
 
 _LOGGER = logging.getLogger(__name__)
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data

@@ -57,6 +57,18 @@ PID_LINKS = 63  # link table in the channel object
 
 # GAs per key kind relative to the offset (docs/NOTES.md "Sender-Programmierung")
 GA_SPAN = {KIND_KEY: 6, KIND_ROCKER: 3}
+# Blinds: travel info GO 10 is not sent by every actuator (Gira 5427 00 only reports its position via the sum status
+# GO 11, about every 2 s while moving, and repeats it unchanged when the relay switches off; firmware 0.8.26 passes on
+# unchanged status messages). The motion is derived from position changes and ends with the target position, an
+# unchanged status message after position changes, or – as a fallback – when the reports stop.
+MOVING_UP, MOVING_DOWN = 2, 3
+BLIND_IDLE_S = 8.0     # fallback: no position change for this long while moving: stopped
+BLIND_MARGIN_S = 15.0  # without any position report: stopped after travel time + this
+BLIND_TRAVEL_S = 120.0  # travel time if the parameter has not been read (catalogue default)
+# The sum status during travel has whole percent only: with the slat time taken out, the hanging position jitters by
+# up to ≈ 1.5 % (21 s / 4.9 s). Smaller changes are no travel and are not shown while at rest; the exact query at the
+# end of the movement sets the final value.
+BLIND_JITTER = 2.0
 
 
 def rocker_as_server_key(msg: dict[str, Any]) -> None:
@@ -142,9 +154,26 @@ class ChannelState:
     on: bool = False
     percent: int = 0  # blind: position as in the actuator (0 % = top)
     slat: int | None = None  # blind only
+    pos_raw: int | None = None  # blind: position 0…255 as reported (finer than percent; firmware 0.8.27+)
+    slat_raw: int | None = None  # blind: slats 0…255
+    t: float | None = None  # blind model: motor position of the actuator in % (includes slat turning)
+    s: float | None = None  # blind model: slat position in % (followed from motor movement, corrected by queries)
+    h: float | None = None  # blind model: position of the hanging in % (0 = top) – what the cover shows
+    settle: bool = False  # blind: moved since the last query – query exact values when the movement stops
+    anchor: tuple[float, float] | None = None  # awning: (motor %, awning %) where the current movement started
+    direction: int = 0  # awning: +1 extending, −1 retracting, 0 at rest / tensioning
+    tension_left: float = 0.0  # awning: tensioning time still expected after an extension (s)
+    full: bool = False  # awning: the extension reached the end position (tensioning there does not move it)
+    cmd_up: bool = False  # last command of the integration was up/in (no tensioning then)
+    h_target: float | None = None  # position command running: target of the hanging (%) – no overshoot shown
     motion: int | None = None  # blind only: motion 0 stopped top, 1 stopped bottom, 2 moving up, 3 moving down
     known: bool = False
     reported: float = 0.0  # time.monotonic() of the last report that was not a reply to a status request
+    moved_at: float = 0.0  # blind: time.monotonic() of the last command or position change while moving
+    tracking: bool = False  # blind: position changes were reported since the command
+    target: int | None = None  # blind: target position of a position command (as in the actuator)
+    quiet: int = 0  # blind: unchanged status messages since the command (1st = start of the movement)
+    watch: Any = None  # blind: cancel function of the motion check
 
 
 @dataclass
@@ -169,6 +198,8 @@ class Hub:
     _sync_task: asyncio.Task | None = None
     _cal_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _tracking_task: asyncio.Task | None = None
+    calibrations: dict[str, Any] = field(default_factory=dict)  # blind key → calibration.Calibration (hass.data)
+    added: set[str] = field(default_factory=set)  # unique IDs of the entities created at this setup (visibility.py)
     _tracked_at: float = 0.0  # time.monotonic() of the last tracking adjustment
     _unsub: Any = None
 
@@ -205,7 +236,8 @@ class Hub:
             for k in d.get("kanaele", []):
                 if stored_types.get(k["nr"]) not in (None, k["kanaltyp"]):
                     continue  # channel switched to another type: the catalog parameters belong to the default type
-                kp = [p for p in map(Param, k["parameter"]) if p.usable]
+                kind = next((c["art"] for c in g.get("kanaele", []) if c["nr"] == k["nr"]), None)
+                kp = [p for p in (Param(d, kind=kind) for d in k["parameter"]) if p.usable]
                 if kp and (sensor or any(c.enet_device is g and c.nr == k["nr"] for c in self.all_channels)):
                     self.param_groups.append(ParamGroup(g, k["nr"], kp, d["geraet_obj"]))
         self.params = ParamStore(self.hass, self.entry_id, self.bridge, self.signal("params"))
@@ -329,6 +361,11 @@ class Hub:
                                       translation_placeholders=placeholder)
 
     @callback
+    def device_activity(self, enet_device: dict[str, Any], text: str) -> None:
+        """Entry in a device's activity (logbook on its "Read parameters" button)."""
+        entity_id = er.async_get(self.hass).async_get_entity_id("button", DOMAIN, f"{enet_device['sn']}_parameter_lesen")
+        async_log_entry(self.hass, enet_device["name"], text, DOMAIN, entity_id)
+
     def activity(self, text: str) -> None:
         """Entry in the bridge's activity (on the "Programming" sensor) – for operations that belong to no
         existing device (pairing, removal, scene sync)."""
@@ -378,6 +415,208 @@ class Hub:
         if not german():
             model = self.definitions.get(enet_device.get("typ", ""), {}).get("produktname") or model
         return tr("ungetestet_zusatz", modell=model) if enet_device.get("typ") in UNTESTED else model
+
+    def blind_moving(self, k: Channel, motion: int | None, target: int | None = None,
+                     h_target: float | None = None) -> None:
+        """Provisional motion after a command (cover): until position reports confirm or end it."""
+        z = self.state_[k.key]
+        z.motion, z.moved_at, z.tracking, z.target, z.quiet = motion, time.monotonic(), False, target, 0
+        z.h_target = h_target
+        if motion is not None:
+            z.cmd_up = motion == MOVING_UP
+        self._watch_blind(k.key)
+
+    def blind_times(self, key: str, mode: str = "BLINDS") -> tuple[float, float] | None:
+        """(travel time, slat/fabric time) in seconds for the operating mode (BLINDS: slats, MARQUEE: fabric
+        tensioning), if the actuator runs in it and both are known and plausible – otherwise None."""
+        k = next((k for k in self.blinds if k.key == key), None)
+        if k is None:
+            return None
+        values: dict[str, Any] = {}
+        for g in self.device_params(k.enet_device):
+            if g.channel == k.nr:
+                for p in g.params:
+                    if p.id in ("OPMODE", "MUDT", "MSMT"):
+                        values[p.id] = self.params.value(k.enet_device["sn"], p)
+        travel, slats = values.get("MUDT"), values.get("MSMT")
+        if values.get("OPMODE") != mode or not isinstance(travel, (int, float)) \
+                or not isinstance(slats, (int, float)):
+            return None
+        travel, slats = float(travel), float(slats) / 1000
+        return (travel, slats) if 0 < slats < travel else None
+
+    def _blind_model(self, key: str, z: ChannelState, old_slat_raw: int | None) -> float:
+        """Follow motor position, slats and hanging of a blind; returns the change of the hanging in %.
+
+        The actuator counts its position as motor time T and includes the time in which only the slats turn: moving
+        down, the slats turn first (0 → 100 % within the slat time M), then the hanging moves; moving up the other
+        way round – like play in a gear. So every motor movement turns the slats first, the rest moves the hanging:
+        hanging H = T − slats · M over the range travel time − M. The actuator reports the slats only on request;
+        a queried value replaces the followed one (office test 2026-11-13, 21 s / 4.9 s)."""
+        t_new = z.pos_raw / 2.55 if z.pos_raw is not None else float(z.percent)
+        slat_now = z.slat_raw / 2.55 if z.slat_raw is not None else float(z.slat or 0)
+        times = self.blind_times(key)
+        old_h = z.h
+        if times is None and (awning := self.blind_times(key, "MARQUEE")) is not None:
+            return self._awning_model(z, t_new, slat_now, awning)
+        if times is None:
+            z.t, z.s, z.h = t_new, slat_now, t_new
+            return 0.0 if old_h is None else t_new - old_h
+        travel, m = times
+        fresh = z.s is None or z.t is None or (z.slat_raw is not None and z.slat_raw != old_slat_raw)
+        if fresh:
+            z.s = slat_now
+        else:
+            ds = (t_new - z.t) / 100 * travel / m * 100  # motor movement in % of the slat range
+            z.s = max(0.0, min(100.0, z.s + ds))
+        z.t = t_new
+        h_s = t_new / 100 * travel - z.s / 100 * m
+        z.h = max(0.0, min(100.0, h_s / (travel - m) * 100))
+        return 0.0 if old_h is None else z.h - old_h
+
+    def _awning_model(self, z: ChannelState, t_new: float, slat_now: float, times: tuple[float, float]) -> float:
+        """Awning: the actuator positions outwards by running past the target by the tensioning time M and tensioning
+        back to the target – so its position is the awning's position. Only at full extension the arms stand at the
+        stop: the tensioning run back does not move the awning, but the actuator then reports 100 % − M (76 % with
+        21 s / 4.9 s, office test 2026-11-13) – shown as 100 %. To avoid jumps, every movement is mapped linearly from
+        its starting point (anchor) to the end position it heads for: extending to 100 %, retracting to 0 %. Without
+        a full extension the mapping is the identity. Overshooting a position target is not shown."""
+        travel, m = times
+        old_h = z.h
+        z.s = slat_now
+        if z.t is None or z.h is None:
+            z.t, z.h, z.anchor, z.direction = t_new, t_new, (t_new, t_new), 0
+            return 0.0
+        t0, h0 = z.anchor or (z.t, z.h)
+        dt = (t_new - z.t) / 100 * travel
+        if dt > 0:
+            if z.direction != 1:
+                t0, h0 = z.anchor = (z.t, z.h)
+                z.direction = 1
+            z.tension_left, z.full = m + 0.5, t_new >= 99.6  # tensioning follows when it stops
+            h = h0 + (t_new - t0) * (100 - h0) / (100 - t0) if t0 < 100 else 100.0
+        elif dt < 0 and z.tension_left > 0 and not z.cmd_up:
+            z.tension_left += dt  # tensioning after extending (no command to move in)
+            if z.full:  # at the end stop the awning stays out
+                z.anchor, z.direction, h = (t_new, 100.0), 0, 100.0
+            else:  # elsewhere it follows the actuator back to the target: same mapping as extending
+                h = h0 + (t_new - t0) * (100 - h0) / (100 - t0) if t0 < 100 else 100.0
+        elif dt < 0:
+            z.tension_left = 0.0
+            if z.direction != -1:
+                t0, h0 = z.anchor = (z.t, z.h)
+                z.direction = -1
+            h = h0 * t_new / t0 if t0 > 0 else 0.0
+        else:
+            h = z.h
+        if t_new <= 0.05:
+            h, z.anchor, z.tension_left = 0.0, (0.0, 0.0), 0.0
+        z.t = t_new
+        if z.h_target is not None:  # no overshoot while positioning
+            h = min(h, z.h_target) if z.h_target >= old_h else max(h, z.h_target)
+        z.h = max(0.0, min(100.0, h))
+        return z.h - old_h
+
+    def _travel_time(self, key: str) -> float:
+        k = next((k for k in self.blinds if k.key == key), None)
+        if k is not None:
+            for g in self.device_params(k.enet_device):
+                if g.channel == k.nr:
+                    for p in g.params:
+                        if p.id == "MUDT" and isinstance(v := self.params.value(k.enet_device["sn"], p), (int, float)) \
+                                and v > 0:
+                            return float(v)
+        return BLIND_TRAVEL_S
+
+    def _poll_after_move(self, msg: dict[str, Any]) -> None:
+        """End of a movement: query position and slats right away (the actuator reports the slats only on request)."""
+        async def poll() -> None:
+            with contextlib.suppress(BridgeError):
+                await self.bridge.request("poll", ia=msg["ia"], ch=int(msg["ch"]))
+
+        self.hass.async_create_background_task(poll(), f"{DOMAIN} poll blind")
+
+    def _watch_blind(self, key: str) -> None:
+        """End the motion when the position no longer changes (or after the travel time without any report)."""
+        z = self.state_[key]
+        if z.watch is not None:
+            z.watch()
+            z.watch = None
+        if z.motion not in (MOVING_UP, MOVING_DOWN):
+            z.tracking, z.target, z.h_target, z.direction = False, None, None, 0
+            return
+        limit = self._travel_time(key) + BLIND_MARGIN_S
+
+        @callback
+        def check(_now: Any) -> None:
+            z.watch = None
+            if z.motion not in (MOVING_UP, MOVING_DOWN):
+                return
+            idle = time.monotonic() - z.moved_at
+            if (z.tracking and idle >= BLIND_IDLE_S) or idle >= limit:
+                z.motion = None
+                async_dispatcher_send(self.hass, self.signal(f"state_{key}"))
+            else:
+                z.watch = async_call_later(self.hass, 1.0, check)
+
+        z.watch = async_call_later(self.hass, 1.0, check)
+
+    def measuring_sns(self) -> set[str]:
+        """Devices whose travel time is being measured (their page shows only the measuring buttons)."""
+        return {c.channel.enet_device["sn"] for c in self.calibrations.values() if c.running}
+
+    def controls_others(self, group: ParamGroup, p: Param) -> bool:
+        """Does another parameter of the device depend on this one (then its entities change with the value)?"""
+        return any(c["parameter"] == p.id for g in self.device_params(group.enet_device) for q in g.params
+                   for c in (q.d.get("abhaengig") or {}).get("bedingungen", []))
+
+    def dependent_constants(self, group: ParamGroup) -> list[tuple[ParamGroup, Param, Any]]:
+        """Parameters whose value type is a constant with the current values of the parameters they depend on (e.g.
+        the slat/fabric time is fixed 0 for the operating mode SHUTTER) but which hold a different value – the eNet
+        Server writes the constant when the controlling parameter changes; the actuator would otherwise keep using
+        the old value (roller shutter ran back by the old fabric tensioning time, office test 2026-11-13)."""
+        out = []
+        sn = group.enet_device["sn"]
+        for g in self.device_params(group.enet_device):
+            for p in g.params:
+                if "abhaengig" not in p.d:
+                    continue
+                self.param_active(g, p)  # sets p.current for the current controlling values
+                t = p.typ
+                if p.current is None or t.get("min") is None or t.get("min") != t.get("max"):
+                    continue
+                const = t["min"]
+                if (v := self.params.value(sn, p)) is not None and v != const:
+                    out.append((g, p, const))
+        return out
+
+    def param_active(self, group: ParamGroup, p: Param) -> bool:
+        """Is the parameter active with the current values of the parameters it depends on (catalogue
+        DeviceMemberTypeDependency, e.g. slat time only for BLINDS)? Also sets its value type for that case."""
+        dep = p.d.get("abhaengig")
+        if not dep:
+            return p.d.get("aktiv", True)
+        sn, results, typ = group.enet_device["sn"], [], None
+        for c in dep["bedingungen"]:
+            ctrl = self._param_by_id(group, c["parameter"]) if c["parameter"] else None
+            v = self.params.value(sn, ctrl) if ctrl is not None else None
+            key = str(v).lower() if isinstance(v, bool) else str(v)
+            # "" = setting for all values not listed (e.g. "cancel" values only with priority 0)
+            s = c["werte"].get(key, c["werte"].get("")) if v is not None else None
+            if s is None:
+                continue  # unknown (not read yet): does not decide
+            results.append(s.get("aktiv", True))
+            typ = typ or s.get("typ")
+        p.current = typ
+        if not results:
+            return p.d.get("aktiv", True)
+        return any(results) if dep.get("verknuepfung") == "OR" else all(results)
+
+    def _param_by_id(self, group: ParamGroup, ident: str) -> Param | None:
+        """Parameter by short ID: in the same channel first, then device parameters."""
+        same = [g for g in self.device_params(group.enet_device) if g.channel == group.channel]
+        others = [g for g in self.device_params(group.enet_device) if g.channel != group.channel]
+        return next((p for g in same + others for p in g.params if p.id == ident), None)
 
     def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
         return [g for g in self.param_groups if g.enet_device is enet_device]
@@ -589,7 +828,6 @@ class Hub:
     # --- Lifecycle ----------------------------------------------------------
     async def async_start(self) -> None:
         self.fw_bundle = await self.hass.async_add_executor_job(firmware.bundled)
-        await self.params.laden()
         self._unsub = self.bridge.add_listener(self._on_message)
         self.bridge.start()
         self.ha_scenes.start()
@@ -916,11 +1154,48 @@ class Hub:
             if (z := self.state_.get(key)) is not None:
                 _LOGGER.debug("State %s: %s", key, msg)
                 self.check.answers(msg.get("ia"))
+                old_known, old_percent = z.known, z.percent
                 z.on, z.percent, z.known = bool(msg.get("on")), int(msg.get("percent", 0)), True
                 if msg.get("kind") == "blind":
+                    old_slat_raw = z.slat_raw
                     z.slat = msg.get("slat")
+                    z.pos_raw, z.slat_raw = msg.get("pos_raw"), msg.get("slat_raw")
+                    old_h = z.h
+                    dh = self._blind_model(key, z, old_slat_raw)
+                    if abs(dh) < BLIND_JITTER and msg.get("source") != "poll" and old_h is not None:
+                        z.h, dh = old_h, 0.0  # rounding noise of whole-percent reports
+                    if msg.get("source") == "poll":
+                        z.settle = False
+                    elif z.percent != old_percent:
+                        z.settle = True
+                    elif z.settle:
+                        # unchanged status message after moving = the relay switched off: the sum status has whole
+                        # percent only – query the exact raw position and the slats now (not only at the next
+                        # staged poll ~20 s later)
+                        z.settle = False
+                        self._poll_after_move(msg)
                     if msg.get("move") is not None:
                         z.motion = int(msg["move"])
+                    elif old_known and z.percent != old_percent and (
+                            msg.get("source") == "status" or z.motion in (MOVING_UP, MOVING_DOWN)):
+                        # direction only from the actuator's own reports (or confirming a command), not from a
+                        # first query after the start; only when the hanging moves – turning the slats is no travel
+                        z.moved_at, z.tracking = time.monotonic(), True
+                        if abs(dh) >= BLIND_JITTER:
+                            z.motion = MOVING_DOWN if dh > 0 else MOVING_UP
+                        if (z.target is not None and z.percent == z.target) or (
+                                z.motion == MOVING_DOWN and (z.h or 0) >= 99.95) or (
+                                z.motion == MOVING_UP and (z.h or 0) <= 0.05):
+                            z.motion = None  # target or end position reached (slats may still turn)
+                        self._watch_blind(key)
+                    elif msg.get("source") == "status" and z.motion in (MOVING_UP, MOVING_DOWN):
+                        # unchanged status message: the first one after a command marks the start, one after
+                        # position changes (or a second one, already in the end position) the end of the travel
+                        if z.tracking or z.quiet >= 1:
+                            z.motion = None
+                            self._watch_blind(key)
+                        else:
+                            z.quiet += 1
                 if msg.get("source") != "poll":
                     z.reported = time.monotonic()
                 async_dispatcher_send(self.hass, self.signal(f"state_{key}"))

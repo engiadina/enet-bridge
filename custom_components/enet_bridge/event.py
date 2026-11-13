@@ -12,6 +12,7 @@ from . import EnetConfigEntry, device_info_for, rocker_info
 from .const import KIND_ROCKER, SENSOR_TYPES
 from .entity import EnetEntity
 from .hub import Hub, Key
+from .visibility import filtered
 
 TYPES_KEY = ["gedrueckt", "losgelassen"]
 
@@ -22,6 +23,7 @@ TYPES_ROCKER = ["links_gedrueckt", "links_losgelassen", "rechts_gedrueckt", "rec
 BOTH = 0xC000  # both direction bits in the key value: both keys of the rocker (≥ 4 s = store switch-on brightness)
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     hub = entry.runtime_data

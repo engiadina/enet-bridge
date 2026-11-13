@@ -18,6 +18,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from . import pair, ha_rocker, sender
+from . import visibility
 from .bridge import Bridge, BridgeError, foreign_radio
 from .installation import InstallationStore
 from .const import CONF_INSTALLATION, CONF_PORT, DEFAULT_DEFINITIONS, DOMAIN, MANUFACTURER
@@ -65,6 +66,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     await hass.async_add_executor_job(_install_blueprints, hass.config.path("blueprints", "automation", DOMAIN))
     hub = Hub(hass, entry.entry_id, Bridge(hass.loop, entry.data[CONF_PORT]), installation, definitions=definitions,
               store=store)
+    # a running travel time measurement survives the reloads it triggers (calibration.py)
+    hub.calibrations = hass.data.setdefault(f"{DOMAIN}_einmessen", {}).setdefault(entry.entry_id, {})
     entry.runtime_data = hub
 
     bridge_dev = dr.async_get(hass).async_get_or_create(
@@ -80,8 +83,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
         hub.device_ids[g["sn"]] = dr.async_get(hass).async_get_or_create(
             config_entry_id=entry.entry_id, **device_info_for(hub, g)).id
     await hub.scenes.laden()
+    await hub.params.laden()  # stored parameter values decide which settings exist (visibility.py)
     _remove_orphaned_keys(hass, hub)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await visibility.sync_registry(hass, hub)
     await hub.async_start()
 
     if not hass.services.has_service(DOMAIN, "release"):

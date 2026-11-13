@@ -331,7 +331,7 @@ async def _actuator_links(hub: Hub, enet_device: dict[str, Any], old: dict, new:
     for (ia, ch), setpoint in sorted(wanted.items()):
         if (ia, ch) not in verify or (only_ia is not None and ia != only_ia):
             continue
-        k = next((k for k in hub.channels_ if k.ia == ia and k.nr == ch), None)
+        k = next((k for k in hub.all_channels if k.ia == ia and k.nr == ch), None)  # lamps and blinds
         if k is None:
             _LOGGER.warning("%s: target %s/%s is not part of the installation", enet_device["name"], ia, ch)
             continue

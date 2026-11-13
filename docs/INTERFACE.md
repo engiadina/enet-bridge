@@ -163,7 +163,7 @@ server keys continue to be answered).
 |---|---|---|
 | `switch` | `ia`, `ch`, `on` | GO 2 = 01/00 |
 | `dim` | `ia`, `ch`, `percent` | GO 4 = floor(p·255/100); 0 % switches off |
-| `cover` | `ia`, `ch`, `action` (`up`, `down`, `stop`, `step_up`, `step_down`, `position`, `slat`) [, `percent`] | blind (since 0.8.20, untested): GO 2 up/down, GO 3 step, GO 4 stop, GO 5 position, GO 6 slat (0 % = top or open) |
+| `cover` | `ia`, `ch`, `action` (`up`, `down`, `stop`, `step_up`, `step_down`, `position`, `slat`) [, `percent` \| `raw` 0…255 (since 0.8.27)] | blind (since 0.8.20): GO 2 up/down, GO 3 step, GO 4 stop, GO 5 position, GO 6 slat (0 % = top or open) |
 | `set` | `ia`, `handle`, `value` (hex 1–4 bytes) | any GO handle (FuncPropCmd obj 0 PID 62) |
 | `read` | `ia`, `handle` | FuncPropStateRead; `result.value` = value |
 | `poll` | `ia`, `ch` | read status now (GO 20, GO 21 for dimmers, GO 13 and 12 for blinds) → `state` |
@@ -213,7 +213,7 @@ Timestamps come from the ESP clock; if the clock has not been set, the ESP rejec
 |---|---|---|
 | `start` | `fw`, `proto`, `radio` {`ok`,`version`}, `server` {`on`}, `config` {`crc`}, `reset_reason` | every start; the host resynchronises |
 | `key` | `sn`, `ga`, `kind`, `cmd` (hex), `press`, `code` / `hold_ms` / `richtung`, `seq`, `reply_sn`, `reply_ga`, `answered`, `scene` (no. or −1), `battery` (`ok`/`weak`, since FW 0.8.8), `rssi` | every key press; `kind` `server`/`direkt`/`wert` (2 bytes, also the brightness of the sun sensor) /`wert1` (1 byte under the transmitter SN, e.g. scene telegram of the sun sensor, `cmd` 2 digits, since FW 0.8.9) /`wert4` (4 bytes under the transmitter SN, e.g. power/energy of the energy sensor, `cmd` 8 digits, since FW 0.8.21) |
-| `state` | `ia`, `ch`, `on`, `percent`, `source` [, blind: `kind`:"blind", `slat`, `move`] | change (status message from the actuator), every query (`source:"poll"`, even if unchanged, since 0.7.1) or request (`cache`) |
+| `state` | `ia`, `ch`, `on`, `percent`, `source` [, blind: `kind`:"blind", `slat`, `move`, `pos_raw`, `slat_raw` (0…255 of the last GO 12/13 value, since 0.8.27)] | change (status message from the actuator), every query (`source:"poll"`, even if unchanged, since 0.7.1) or request (`cache`) |
 | `result` | `id`, `ok`, `err`, `msg`, more depending on the command | completion of an F/P command |
 | `scene_done` | `nr`, `failed`, `id` (if triggered by command) | local scene finished |
 | `config` | `ok`, `crc`, `channels`, `scenes`, `keys`, `err` | after `config … last` |

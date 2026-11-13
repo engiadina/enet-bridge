@@ -8,11 +8,13 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EnetConfigEntry
 from .entity import EnetParamEntity, param_entities
+from .visibility import filtered
 
 UNITS = {"%": PERCENTAGE, "s": UnitOfTime.SECONDS, "ms": UnitOfTime.MILLISECONDS, "h": UnitOfTime.HOURS,
              "Lux": LIGHT_LUX, "V": UnitOfElectricPotential.VOLT}
 
 
+@filtered
 async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     async_add_entities(param_entities(entry.runtime_data, EnetParamNumber,
@@ -23,11 +25,22 @@ class EnetParamNumber(EnetParamEntity, NumberEntity):
     def __init__(self, hub, param_group, param) -> None:
         super().__init__(hub, param_group, param)
         t = param.typ
-        self._attr_native_min_value = t.get("min", 0)
-        self._attr_native_max_value = t.get("max", 255)
-        self._attr_native_step = t.get("schritt") or (0.1 if t.get("kodierung") == "dpt9" else 1)
         self._attr_native_unit_of_measurement = UNITS.get(t.get("einheit", ""), t.get("einheit") or None)
         self._attr_mode = NumberMode.SLIDER if t.get("einheit") == "%" else NumberMode.BOX
+
+    # range from the current value type: it can depend on another parameter (slat time: 0 for SHUTTER)
+    @property
+    def native_min_value(self) -> float:
+        return self.param.typ.get("min", 0)
+
+    @property
+    def native_max_value(self) -> float:
+        return self.param.typ.get("max", 255)
+
+    @property
+    def native_step(self) -> float:
+        t = self.param.typ
+        return t.get("schritt") or (0.1 if t.get("kodierung") == "dpt9" else 1)
 
     @property
     def native_value(self):
