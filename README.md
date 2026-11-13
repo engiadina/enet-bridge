@@ -102,7 +102,7 @@ Tested in two installations:
 
 | Type | Devices | In Home Assistant |
 |---|---|---|
-| Blind/shutter actuators | DIN-rail 1-gang (5437 00) and 4-gang (5435 00), System 2000 insert (5491) | cover: up/down/stop, position, slats |
+| Other blind/shutter actuators (same channel type as the tested Mini 5427 00) | DIN-rail 1-gang (5437 00) and 4-gang (5435 00), System 2000 insert (5491) | cover: up/down/stop, position, slats |
 | Energy sensors | Mini (5471 00), intermediate plug (5472 02), DIN-rail 4-gang (5473 00) | voltage, current, active/reactive/apparent power, energy (energy dashboard) |
 | Motion detector | Jung FMDW360WW | motion, illuminance |
 | Repeater | intermediate plug (5321 02) | signal, last message |
