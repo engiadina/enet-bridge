@@ -90,8 +90,11 @@ class EnetBlind(EnetEntity, CoverEntity, RestoreEntity):
         back by the slat time after arriving, moving up it ends with the slats turned up – so the target differs by
         the slat time depending on the direction."""
         if self._z.h is not None and (aw := self.hub.blind_times(self.channel.key, "MARQUEE")) is not None:
-            travel, _m = aw  # awning: motor position = position − tensioning offset (hub._awning_model)
-            return max(0, min(255, round((real / 100 * travel - self._z.c) / travel * 255)))
+            # awning: motor position = position − tensioning offset (hub._awning_model); extending, the actuator
+            # runs on by the tensioning time and tensions back to the target – one more tensioning time to subtract
+            travel, m = aw
+            target_s = real / 100 * travel - self._z.c - (m if real > self._z.h else 0.0)
+            return max(0, min(255, round(target_s / travel * 255)))
         t = self.hub.blind_times(self.channel.key)
         if t is None or self._z.h is None:
             return round(real * 2.55)

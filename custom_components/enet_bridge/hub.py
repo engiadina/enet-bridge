@@ -474,7 +474,8 @@ class Hub:
         the awning moving – and counts that into its position (fully extended: 76 % with 21 s / 4.9 s, office test
         2026-11-13). Retracting has no tensioning. So: a movement in right after an extension, without a command to
         move in, is tensioning (up to M) and collects in the offset c; position = motor position + c. Fully
-        retracted (motor position 0) resets c."""
+        retracted (motor position 0) resets c. When positioning outwards the actuator extends to target + M and
+        tensions back to the target (25 % → motor up to ≈ 98 %, then 75 %, office test 2026-11-13)."""
         travel, m = times
         old_h = z.h
         z.s = slat_now
@@ -483,9 +484,10 @@ class Hub:
             if dt > 0:
                 z.armed = m  # extending: tensioning follows when it stops
             elif dt < 0 and z.armed > 0 and not z.cmd_up:
-                take = min(-dt, z.armed)
-                z.c += take
-                z.armed -= take
+                # tensioning started: it always runs the full tensioning time (the status comes only every ~2 s,
+                # the turning point itself is not reported)
+                z.c += z.armed
+                z.armed = 0.0
             elif dt < 0:
                 z.armed = 0.0
         if t_new <= 0.05:
