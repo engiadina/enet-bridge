@@ -153,7 +153,7 @@
         "name": "Program sender"
       },
       "fahrzeit_einmessen": {
-        "name": "Measure travel time"
+        "name": "* Measure travel time *"
       },
       "einmessen_abbrechen": {
         "name": "Cancel measuring"
