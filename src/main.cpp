@@ -32,7 +32,7 @@
 #include "esp_efuse.h"
 #endif
 
-static const char* kFwVersion = "0.8.31";
+static const char* kFwVersion = "0.8.32";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -40,6 +40,7 @@ static bool radioOk = false;
 static uint8_t radioVersion = 0;               // chip version at startup (monitoring compares against it)
 static int8_t freqOffset = CC1101_FREQ_OFFSET;  // FSCTRL0; per board in NVS ("foff"), command "radio"
 static bool cul32 = false;                      // busware CUL32 (factory data in eFuse, see readBoardData)
+static int8_t pinLed3 = PIN_LED3;               // external LED: GPIO 0, on the CUL32 GPIO 6
 static bool factoryFoffValid = false;           // FSCTRL0 measured in production (CUL32 from layout version 2)
 static int8_t factoryFoff = 0;
 static int32_t estSum = 0;                      // FREQEST of valid telegrams since the last offset change
@@ -152,10 +153,10 @@ static uint32_t ledOffAt = 0;
 static bool ledOn = false;
 static void ledSet(bool on) {
   if (PIN_LED2 >= 0) digitalWrite(PIN_LED2, on ? LED2_ON : !LED2_ON);
-  if (PIN_LED3 >= 0) digitalWrite(PIN_LED3, on ? LED3_ON : !LED3_ON);
+  if (pinLed3 >= 0) digitalWrite(pinLed3, on ? LED3_ON : !LED3_ON);
 }
 static void ledFlash() {
-  if (PIN_LED2 < 0 && PIN_LED3 < 0) return;
+  if (PIN_LED2 < 0 && pinLed3 < 0) return;
   ledSet(true);
   ledOn = true;
   ledOffAt = millis() + 40;
@@ -555,15 +556,16 @@ static const char* bridgeId() {
   return id;
 }
 
-// busware CUL32: factory data in eFuse block 3 (user data), layout as described by busware: bytes 0/1 = 'B' 'W',
-// byte 2 = layout version; from version 2 byte 12 = 'F' and byte 13 = FSCTRL0 correction measured in production
-// (int8). An empty block reads as zeros (other boards).
+// busware sticks: factory data in eFuse block 3 (user data), layout as described by busware: bytes 0/1 = 'B' 'W' (all
+// sticks provisioned by busware), byte 2 = layout version, bytes 3-6 = 'C' 'U' 'L' '2' on the CUL32; from version 2
+// byte 12 = 'F' and byte 13 = FSCTRL0 correction measured in production (int8). An empty block reads as zeros.
 static void readBoardData() {
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
   uint8_t blk[32] = {};
   if (esp_efuse_read_block(EFUSE_BLK_USER_DATA, blk, 0, sizeof(blk) * 8) != ESP_OK) return;
   if (blk[0] != 'B' || blk[1] != 'W') return;
-  cul32 = true;
+  cul32 = memcmp(blk + 3, "CUL2", 4) == 0;
+  if (cul32) pinLed3 = PIN_LED3_CUL32;
   if (blk[2] >= 2 && blk[12] == 'F') {
     factoryFoff = (int8_t)blk[13];
     factoryFoffValid = true;
@@ -1010,7 +1012,7 @@ void setup() {
     digitalWrite(PIN_HIGH, HIGH);
   }
   if (PIN_LED2 >= 0) pinMode(PIN_LED2, OUTPUT);
-  if (PIN_LED3 >= 0) pinMode(PIN_LED3, OUTPUT);
+  if (pinLed3 >= 0) pinMode(pinLed3, OUTPUT);
   ledSet(false);
   bridgeIo.server = &server;
   prefs.begin("enet", false);

@@ -16,7 +16,8 @@
 #define PIN_HIGH  15   // kept high: XIAO yellow user LED off (active low, not used); CUL32 EEPROM write protection WC
 #define PIN_LED2   8   // CUL32: blue status LED, flashes on transmit/receive (XIAO: GPIO 8 not connected)
 #define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
-#define PIN_LED3   0   // (D0) optional external LED, same function: D0 -> 330 ohm -> LED -> GND (CUL32: J1 pin 4)
+#define PIN_LED3   0   // (D0) optional external LED, same function: D0 -> 330 ohm -> LED -> GND
+#define PIN_LED3_CUL32 6  // on the CUL32: GPIO 6 = J1 pin 10 (GPIO 0 is INTn of the W5500 on busware's NET4CUL)
 #define LED3_ON  HIGH  // same function as the on-board LEDs
 #else
 // ESP32-DevKit (VSPI)
@@ -30,6 +31,7 @@
 #define PIN_LED2  -1
 #define LED2_ON  HIGH
 #define PIN_LED3  -1
+#define PIN_LED3_CUL32 -1
 #define LED3_ON  HIGH
 #endif
 
