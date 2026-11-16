@@ -32,7 +32,7 @@
 #include "esp_efuse.h"
 #endif
 
-static const char* kFwVersion = "0.8.29";
+static const char* kFwVersion = "0.8.31";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -545,12 +545,12 @@ static void printStats(uint32_t id) {
   emit(d);
 }
 
-// Board identifier (48-bit base MAC), e.g. "a0b1c2d3e4f5". Not ESP.getEfuseMac(): on the C6 that is the EUI-64, whose
-// first six bytes miss the last two MAC bytes.
+// Board identifier (48-bit MAC), e.g. "a0b1c2d3e4f5". Not ESP.getEfuseMac() or esp_efuse_mac_get_default(): on the
+// C6 both give the EUI-64 (the latter writes 8 bytes), whose first six bytes miss the last two MAC bytes.
 static const char* bridgeId() {
   static char id[13];
-  uint8_t mac[6] = {};
-  esp_efuse_mac_get_default(mac);
+  uint8_t mac[8] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);  // = base MAC, the same on ESP32 and C6
   for (int i = 0; i < 6; ++i) sprintf(id + 2 * i, "%02x", mac[i]);
   return id;
 }
