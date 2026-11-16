@@ -17,7 +17,8 @@
 #define PIN_LED2   8   // CUL32: blue status LED, flashes on transmit/receive (XIAO: GPIO 8 not connected)
 #define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
 #define PIN_LED3   0   // (D0) optional external LED, same function: D0 -> 330 ohm -> LED -> GND
-#define PIN_LED3_CUL32 6  // on the CUL32: GPIO 6 = J1 pin 10 (GPIO 0 is INTn of the W5500 on busware's NET4CUL)
+#define PIN_LED3_CUL32 -1 // none on the CUL32: GPIO 0 is INTn of the W5500 on busware's NET4CUL, GPIO 6/7 are kept
+                          // free for the REG bus; the blue LED shows radio traffic
 #define LED3_ON  HIGH  // same function as the on-board LEDs
 #else
 // ESP32-DevKit (VSPI)

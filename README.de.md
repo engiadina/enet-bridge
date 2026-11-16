@@ -126,7 +126,7 @@ Zwei Wege, beide per USB am Home-Assistant-Rechner und mit derselben Firmware:
 - **Selbst bauen:** Seeed **XIAO ESP32-C6** + CC1101-Modul für 868 MHz (7 Drähte) + 868-MHz-Antenne, Teile
   ≈ 20–30 €.
 
-Eine externe LED (XIAO: Pin D0, CUL32: GPIO 6 an J1 Pin 10) blinkt bei Funkverkehr – die eigene LED des XIAO wird nicht genutzt.
+Am XIAO blinkt eine externe LED an Pin D0 bei Funkverkehr – die eigene LED des XIAO wird nicht genutzt. Der CUL32 zeigt den Funkverkehr mit seiner blauen LED.
 
 Teileliste, Verdrahtung, Antenne und Messwerte: **[docs/HARDWARE.md](docs/HARDWARE.md)** (Englisch).
 

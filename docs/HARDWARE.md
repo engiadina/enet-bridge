@@ -69,8 +69,8 @@ radio module differs.
 | Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
 
 Optional **external LED** that flashes on radio traffic (the XIAO's own yellow LED stays off): D0 (GPIO 0)
-→ 330 Ω → LED anode, LED cathode → GND. On the CUL32 the external LED is at GPIO 6 instead: pin 10 of its 14-pin FPC
-connector J1 (0.5 mm pitch) – GPIO 0 is used by busware's Ethernet add-on board NET4CUL there.
+→ 330 Ω → LED anode, LED cathode → GND. The CUL32 has no external LED: its blue LED shows radio traffic, GPIO 0 is
+used by busware's Ethernet add-on board NET4CUL, and GPIO 6/7 are kept free for a future use.
 
 XIAO pins D1 and D4–D7 stay free. Its only USB-C socket is the chip’s native USB, which shows up as
 `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…`. The XIAO’s own antenna (or u.FL socket) is for
@@ -146,7 +146,7 @@ larger board – with the XIAO a much more compact one is possible. The CUL32 is
 The firmware uses exactly the CUL32’s CC1101 pin assignment, so no wiring is needed. Screw on an 868 MHz antenna,
 plug the stick in by USB-C and set up the integration – it recognises that busware’s own firmware (culfw32) does not
 answer the bridge protocol and replaces it with the bridge firmware (about 15 s). Its blue LED flashes on radio
-traffic; an external LED can be added at GPIO 6 (pin 10 of J1, see wiring).
+traffic.
 
 The CUL32 carries a frequency correction measured in production (eFuse); the bridge firmware starts with it, so the
 stick is on frequency right away (otherwise the integration's search finds the value). The firmware recognises the

@@ -32,7 +32,7 @@
 #include "esp_efuse.h"
 #endif
 
-static const char* kFwVersion = "0.8.32";
+static const char* kFwVersion = "0.8.33";
 static const int kProtoVersion = 1;
 
 static CC1101 radio(PIN_CS, PIN_GDO0, PIN_GDO2);
@@ -40,7 +40,7 @@ static bool radioOk = false;
 static uint8_t radioVersion = 0;               // chip version at startup (monitoring compares against it)
 static int8_t freqOffset = CC1101_FREQ_OFFSET;  // FSCTRL0; per board in NVS ("foff"), command "radio"
 static bool cul32 = false;                      // busware CUL32 (factory data in eFuse, see readBoardData)
-static int8_t pinLed3 = PIN_LED3;               // external LED: GPIO 0, on the CUL32 GPIO 6
+static int8_t pinLed3 = PIN_LED3;               // external LED: GPIO 0 (XIAO D0), none on the CUL32
 static bool factoryFoffValid = false;           // FSCTRL0 measured in production (CUL32 from layout version 2)
 static int8_t factoryFoff = 0;
 static int32_t estSum = 0;                      // FREQEST of valid telegrams since the last offset change
