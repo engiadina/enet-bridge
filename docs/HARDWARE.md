@@ -27,7 +27,7 @@ programming transmitters, firmware updates from Home Assistant.
 
 | Part | Recommendation | Notes |
 |---|---|---|
-| Microcontroller | **Seeed XIAO ESP32-C6** | USB-C (native USB of the chip), 3.3 V output for the radio, yellow LED flashes on radio traffic. Other ESP32-C6 boards work if the same GPIOs are free (see wiring). Not ESP32-S2/S3/C3. |
+| Microcontroller | **Seeed XIAO ESP32-C6** | USB-C (native USB of the chip), 3.3 V output for the radio. Its yellow LED is not used – connect an external LED for radio traffic (see wiring). Other ESP32-C6 boards work if the same GPIOs are free (see wiring). Not ESP32-S2/S3/C3. |
 | Radio module | **Radiocontrolli RC-CC1101-SPI-868** (through-hole) | Genuine TI CC1101, matched for 868 MHz, accurate crystal (measured −7 ppm), 2.54 mm pins. Available from TME. |
 | Antenna connector | SMA female, panel or PCB mount | Soldered directly to the module’s antenna pin. |
 | Antenna | 868 MHz rubber antenna with SMA, ≈ 2–3 dBi | Alternative: straight wire of 8.6 cm (λ/4) on the antenna pin. |
@@ -68,8 +68,8 @@ radio module differs.
 | GDO2 | not needed | 4 (leave open) | 6 (leave open) |
 | Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
 
-Optional **external LED** for a bridge in a closed case (the yellow on-board LED is not visible then): D0 (GPIO 0)
-→ 330 Ω → LED anode, LED cathode → GND. It flashes on radio traffic like the on-board LED. On the CUL32 the same
+Optional **external LED** that flashes on radio traffic (the XIAO's own yellow LED stays off): D0 (GPIO 0)
+→ 330 Ω → LED anode, LED cathode → GND. On the CUL32 the same
 GPIO 0 is pin 4 of its 14-pin FPC connector J1 (0.5 mm pitch).
 
 XIAO pins D1 and D4–D7 stay free. Its only USB-C socket is the chip’s native USB, which shows up as
@@ -146,7 +146,17 @@ larger board – with the XIAO a much more compact one is possible. The CUL32 is
 The firmware uses exactly the CUL32’s CC1101 pin assignment, so no wiring is needed. Screw on an 868 MHz antenna,
 plug the stick in by USB-C and set up the integration – it recognises that busware’s own firmware (culfw32) does not
 answer the bridge protocol and replaces it with the bridge firmware (about 15 s). Its blue LED flashes on radio
-traffic, like the yellow LED of the XIAO.
+traffic; an external LED can be added at GPIO 0 (pin 4 of J1, see wiring).
+
+The CUL32 carries a frequency correction measured in production (eFuse); the bridge firmware starts with it, so the
+stick is on frequency right away (otherwise the integration's search finds the value). The firmware recognises the
+CUL32 by this factory data. GPIO 15 is kept high – on the CUL32 it is the write protection of the EEPROM that holds
+culfw32's settings and factory data.
+
+**Back to culfw32:** write busware's factory image (from [install.busware.de](https://install.busware.de)) with
+esptool at address 0x0 – with or without erasing first. culfw32 starts again, its settings and the frequency
+calibration in the EEPROM are kept. Only the NVS area with counters and the Wi-Fi access is lost, so Wi-Fi has to be
+set up again. Thanks to Dirk Tostmann (busware) for testing this and for the notes on the CUL32.
 
 ## Placement
 

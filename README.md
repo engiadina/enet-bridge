@@ -125,7 +125,7 @@ Two ways, both connected by USB to the Home Assistant host and running the same 
 - **Build it yourself:** Seeed **XIAO ESP32-C6** + CC1101 868 MHz module (7 wires) + 868 MHz antenna, parts
   ≈ 20–30 €.
 
-For a bridge in a closed case an external LED can be connected (GPIO 0), it flashes on radio traffic.
+An external LED (GPIO 0, on the XIAO pin D0) flashes on radio traffic – the XIAO's own LED is not used.
 
 Parts list, wiring, antenna and measurements: **[docs/HARDWARE.md](docs/HARDWARE.md)**.
 

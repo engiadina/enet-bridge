@@ -147,12 +147,12 @@ server keys continue to be answered).
 
 | `cmd` | Fields | Response / result |
 |---|---|---|
-| `hello` | `time` (optional, sets the clock) | `product` (`"enet-bridge"`, since 0.8.1), `fw`, `proto`, `chip` (`esp32`/`esp32c6`, since 0.8.14; missing = `esp32`), `id` (MAC of the board, since 0.8), `radio` {`ok`,`version`,`freq_offset`,`calibrated`,`freqest`,`freqest_n`}, `server` {`on`}, `config` {`crc`,`channels`,`scenes`,`keys`}, `queue` {`len`,`max`}, `uptime_s`, `procedure` (running procedure or `null`) |
+| `hello` | `time` (optional, sets the clock) | `product` (`"enet-bridge"`, since 0.8.1), `fw`, `proto`, `chip` (`esp32`/`esp32c6`, since 0.8.14; missing = `esp32`), `board` (`"cul32"` on a busware CUL32, since 0.8.29; missing otherwise), `id` (MAC of the board, since 0.8; on the C6 the full 48-bit MAC since 0.8.29), `radio` {`ok`,`version`,`freq_offset`,`calibrated`,`freq_factory`,`freqest`,`freqest_n`}, `server` {`on`}, `config` {`crc`,`channels`,`scenes`,`keys`}, `queue` {`len`,`max`}, `uptime_s`, `procedure` (running procedure or `null`) |
 | `time` | `time` | sets the clock (for timestamps when programming) |
 | `stats` | – | counters: `rx_ok`, `crc_error`, `corrected` (telegrams with 1–3 corrected chip pairs, since 0.5.5), `invalid`, `overflow`, `tx`, `tx_busy` |
 | `server` | `on` (optional) | sets or returns `on` (persisted) |
 | `config` | `part` (0…n), `last` (bool), `data` (hex, ≤ 400 characters), `crc` with the last part | `ok` for each part; after `last` the ESP verifies and stores and sends `ev:"config"` |
-| `radio` | `freq_offset` (−128…127, optional), `save` (bool, optional) | set frequency correction FSCTRL0 immediately (resets the FREQEST average) or store it in NVS; returns `radio` {`ok`,`version`,`freq_offset`,`calibrated` (stored), `freqest` (mean deviation of valid telegrams in FSCTRL0 steps, correct as: FSCTRL0 += freqest), `freqest_n`} – since 0.8 |
+| `radio` | `freq_offset` (−128…127, optional), `save` (bool, optional) | set frequency correction FSCTRL0 immediately (resets the FREQEST average) or store it in NVS; returns `radio` {`ok`,`version`,`freq_offset`,`calibrated` (stored), `freq_factory` (CUL32: correction measured in production, the start value while not calibrated; since 0.8.29), `freqest` (mean deviation of valid telegrams in FSCTRL0 steps, correct as: FSCTRL0 += freqest), `freqest_n`} – since 0.8 |
 | `monitor` | `on` | switches `telegram` events for all telegrams (RX and own TX) |
 | `cancel` | – | aborts the running procedure (`result` with `aborted`) |
 | `reboot` | – | restart; followed by `start` |
@@ -308,7 +308,7 @@ Configuration, frequency correction and the `server` switch are retained in flas
 ```
 Flash the firmware (10.5, the first time with bootloader/partitions), plug in
 Host: hello → config.valid = false   → transfer the configuration from anlage.json
-Host: radio.calibrated = false       → coarse search: radio freq_offset = 60, 0, ±30, 90, −60, 120, −90, −120,
+Host: radio.calibrated = false       → coarse search: current freq_offset first (CUL32: factory value), then 60, 0, ±30, 90, −60, 120, −90, −120,
                                        for each candidate poll up to 2 actuators until one responds
                                      → fine adjustment: poll all channels 2×, freq_offset += round(freqest), save
 Host: normal synchronisation (state, poll)
