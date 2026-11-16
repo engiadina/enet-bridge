@@ -69,8 +69,8 @@ radio module differs.
 | Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
 
 Optional **external LED** that flashes on radio traffic (the XIAO's own yellow LED stays off): D0 (GPIO 0)
-→ 330 Ω → LED anode, LED cathode → GND. On the CUL32 the same
-GPIO 0 is pin 4 of its 14-pin FPC connector J1 (0.5 mm pitch).
+→ 330 Ω → LED anode, LED cathode → GND. On the CUL32 the external LED is at GPIO 6 instead: pin 10 of its 14-pin FPC
+connector J1 (0.5 mm pitch) – GPIO 0 is used by busware's Ethernet add-on board NET4CUL there.
 
 XIAO pins D1 and D4–D7 stay free. Its only USB-C socket is the chip’s native USB, which shows up as
 `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…`. The XIAO’s own antenna (or u.FL socket) is for
@@ -146,11 +146,11 @@ larger board – with the XIAO a much more compact one is possible. The CUL32 is
 The firmware uses exactly the CUL32’s CC1101 pin assignment, so no wiring is needed. Screw on an 868 MHz antenna,
 plug the stick in by USB-C and set up the integration – it recognises that busware’s own firmware (culfw32) does not
 answer the bridge protocol and replaces it with the bridge firmware (about 15 s). Its blue LED flashes on radio
-traffic; an external LED can be added at GPIO 0 (pin 4 of J1, see wiring).
+traffic; an external LED can be added at GPIO 6 (pin 10 of J1, see wiring).
 
 The CUL32 carries a frequency correction measured in production (eFuse); the bridge firmware starts with it, so the
 stick is on frequency right away (otherwise the integration's search finds the value). The firmware recognises the
-CUL32 by this factory data. GPIO 15 is kept high – on the CUL32 it is the write protection of the EEPROM that holds
+CUL32 by this factory data (the frequency correction is used on every stick provisioned by busware). GPIO 15 is kept high – on the CUL32 it is the write protection of the EEPROM that holds
 culfw32's settings and factory data.
 
 **Back to culfw32:** write busware's factory image (from [install.busware.de](https://install.busware.de)) with
