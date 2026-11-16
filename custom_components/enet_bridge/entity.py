@@ -45,7 +45,7 @@ class EnetParamEntity(EnetEntity):
         channel = hub.channel(g, param_group.channel) if param_group.channel is not None else None
         self._attr_device_info = channel_info(hub, channel) if channel else device_info_for(hub, g)
         self._attr_unique_id = f"{g['sn']}_p_{param.key}"
-        prefix_ = channel_name(g.get("typ", ""), param_group.channel)
+        prefix_ = channel_name(g.get("typ", ""), param_group.channel) or self._sender_channel(hub, g, param_group.channel)
         name = param.name
         if param.id == "MSMT":  # one parameter: slat reversing time (venetian blind) or fabric tensioning (awning)
             mode = hub._param_by_id(param_group, "OPMODE")
@@ -55,6 +55,25 @@ class EnetParamEntity(EnetEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC if param.read_only else EntityCategory.CONFIG
         self._attr_entity_registry_enabled_default = param.default_active
         self._attr_extra_state_attributes = {"parameter": param.id, "adresse": param.key}
+
+    @staticmethod
+    def _sender_channel(hub: Hub, g: dict, nr: int | None) -> str | None:
+        """Transmitters: settings per channel are prefixed with "Rocker n" or "Central" (several channels on one
+        device page)."""
+        if g.get("rolle") != "sender" or nr is None:
+            return None
+        from .sender import CT_CENTRAL, CT_ROCKER
+
+        channels_ = sorted(hub.definitions.get(g.get("typ", ""), {}).get("kanaele", []), key=lambda k: k["nr"])
+        k = next((k for k in channels_ if k["nr"] == nr), None)
+        if k is None:
+            return None
+        if k["kanaltyp"] == CT_CENTRAL:
+            return tr("kanal_zentral")
+        if k["kanaltyp"] == CT_ROCKER:
+            rockers = [c["nr"] for c in channels_ if c["kanaltyp"] == CT_ROCKER]
+            return tr("kanal_wippe", n=rockers.index(nr) + 1)
+        return tr("kanal_nr", n=nr)
 
     @property
     def value(self):

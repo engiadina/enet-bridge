@@ -339,7 +339,7 @@ async def remove(hub: Hub, enet_device: dict[str, Any]) -> dict[str, Any]:
     dom, ia = hub.installation["server"]["domain"], ia_int(enet_device["ia"])
     open_items: list[str] = []
     async with RadioSession(hub) as radio_session:
-        if enet_device.get("rolle") == "sender":  # transmitters sleep: wake first (press a key)
+        if hub.sleeps(enet_device):  # transmitters, sun sensor …: wake first (press a key)
             hub.activity(tr("akt_entfernen_wecken", name=enet_device["name"]))
             await Sender(hub, enet_device, radio_session).wake()
         r = await radio_session.request(frame(dom, True, False, SRV_IA, ia, 0x381, b"\x02\x00"),

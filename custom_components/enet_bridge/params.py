@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import re
+import struct
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections.abc import Awaitable, Callable
@@ -41,21 +42,40 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "DTD": ("Abdimmrampe", "Dim-down ramp", True),
     "RDT": ("Dimm-Verstellzeit", "Dimming time", True),
     "ITOD": ("Nachlaufzeit", "Run-on time", True),
-    "BMPU": ("Verhalten bei Netzwiederkehr", "Behaviour on power return", True),
-    "MPUSV": ("Helligkeit bei Netzwiederkehr", "Brightness on power return", True),
+    "BMPU": ("Verhalten Spannungswiederkehr", "Behaviour on power return", True),
+    "MPUSV": ("Helligkeit Spannungswiederkehr", "Brightness on power return", True),
     "BTMPU": ("Zeitfunktion bei Netzwiederkehr", "Time function on power return", False),
     "LAM": ("Betriebsart", "Operating mode", True),
     "DALT": ("Lastart", "Load type", True),
     "IOS": ("Ausgang invertieren", "Invert output", True),
-    "MCE": ("Bedienung am Gerät", "Operation on the device", False),
-    "LME": ("Lernmodus am Gerät", "Learn mode on the device", False),
-    "BUL": ("Verhalten nach Sperre", "Behaviour after lock", False),
-    "SLME": ("Szenenwerte am Gerät speichern", "Store scene values on the device", False),
-    "BOOE": ("Aus bei Helligkeitsüberschreitung", "Off when brightness is exceeded", False),
-    "BUOE": ("Ein bei Helligkeitsunterschreitung", "On when brightness falls below", False),
-    "BBE": ("Grundhelligkeit", "Base brightness", False),
+    "MCE": ("Lokale Bedienung", "Local operation", False),
+    "LME": ("Manuelle Inbetriebnahme", "Manual commissioning", False),
+    "BUL": ("Verhalten nach Ende Sperrfunktion", "Behaviour after lock", False),
+    "SLME": ("Manuelles Speichern der Szenenwerte", "Store scene values manually", False),
+    "BOOE": ("Ausschalten Helligkeitsüberschreitung", "Off when brightness is exceeded", False),
+    "BUOE": ("Einschalten Helligkeitsunterschreitung", "On when brightness falls below", False),
+    "BBE": ("Hotelfunktion", "Hotel function", False),
     "PWE": ("Abschaltvorwarnung", "Switch-off warning", False),
     "SRT": ("Blinkzeit", "Flash time", False),
+    "MOE": ("Manuelles Abschalten der Nachlaufzeit", "Manual switch-off during run-on time", True),
+    # energy sensor (CT_1F19; Gira 5471/5473 manuals)
+    "TRANSMISSION_MODE": ("Übertragungsmodus", "Transmission mode", False),
+    "EN_VOLT": ("Spannung senden", "Send voltage", False),
+    "EN_CURR": ("Strom senden", "Send current", False),
+    "EN_ACPW": ("Wirkleistung senden", "Send active power", False),
+    "EN_REPW": ("Blindleistung senden", "Send reactive power", False),
+    "EN_APPW": ("Scheinleistung senden", "Send apparent power", False),
+    "EN_ABAE": ("Abs. Wirkenergie senden", "Send absolute active energy", False),
+    "TM_CYCL": ("Sendeintervall", "Transmission interval", True),
+    "TH_ACPW": ("Rel. Schwellwert Wirkleistung", "Relative threshold active power", True),
+    "TH_ACPW_MIN": ("Abs. Schwellwert Wirkleistung", "Absolute threshold active power", True),
+    "TM_SUPP": ("Unterdrückungsdauer Wirkleistung", "Suppression time active power", True),
+    "TM_MEAN": ("Zeitdauer der Mittelwertbildung", "Averaging time", True),
+    "INFO_ACTIVE_ENERGY_RESETABLE": ("Wirkenergie", "Active energy", True),
+    # universal transmitter (5453) and operating top unit (5492/5493)
+    "BINARY_INPUT_RISING_FALLING_EDGE_1": ("Schaltflanke E1 fallend (Öffner)", "Input E1 falling edge (NC)", True),
+    "BINARY_INPUT_RISING_FALLING_EDGE_2": ("Schaltflanke E2 fallend (Öffner)", "Input E2 falling edge (NC)", True),
+    "ENABLE_EXTENSION": ("Nebenstellenbedienung zulassen", "Allow extension operation", True),
     # blind actuators (CT_1F03 and variants)
     "MUDT": ("Fahrzeit", "Travel time", True),
     "RPT": ("Umschaltpause", "Reversal pause", True),
@@ -67,8 +87,8 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "CAPS": ("Position senden", "Send position", False),
     "BNRT": ("Umkehrsperrzeit", "No-reversal time", False),
     "SST": ("Lamellen-Schrittzeit", "Slat step time", True),
-    "REPEATER_MODE_ENABLE": ("Repeater", "Repeater", False),
-    "LEARN_MODE_ENABLE": ("Lernmodus", "Learn mode", False),
+    "REPEATER_MODE_ENABLE": ("Repeatermodus", "Repeater mode", False),
+    "LEARN_MODE_ENABLE": ("Manuelle Inbetriebnahme (Gerät)", "Manual commissioning (device)", False),
     "SUMSTATE_MAX_TIMEOUT": ("Statusmeldung Wartezeit", "Status message timeout", False),
     # sun sensor (DVT_SF1S, channel type CT_1F18); channel prefix "sun protection"/"twilight" from CHANNEL_NAMES
     "PT_INThScS.THV1": ("Schwelle", "Threshold", True),
@@ -89,9 +109,12 @@ CHANNEL_NAMES: dict[str, dict[int, tuple[str, str]]] = {
     "DVT_SF1S": {1: ("Sonnenschutz", "Sun protection"), 2: ("Dämmerung", "Twilight")}}
 CHOICE: dict[str, tuple[str, str]] = {
     "OFF": ("Aus", "Off"), "ON": ("Ein", "On"), "NO_CHANGE": ("Keine Änderung", "No change"),
-    "VALUE_BEFORE_LOCKING": ("Wert vor Sperre", "Value before lock"),
-    "LAST_VALUE_BEFORE_POWER_DOWN": ("Wert vor Netzausfall", "Value before power failure"),
-    "VALUE_ACCORDING_TO_ADDITIONAL_PARAMETER": ("Wert laut Parameter", "Value per parameter"),
+    "VALUE_BEFORE_LOCKING": ("Letzter Wert", "Last value"),
+    "LAST_VALUE_BEFORE_POWER_DOWN": ("Letzter Wert", "Last value"),
+    "VALUE_ACCORDING_TO_ADDITIONAL_PARAMETER": ("Parametrierter Wert", "Value per parameter"),
+    "SINGLE": ("Einfach", "Single"), "DOUBLE": ("Doppelt", "Double"),
+    "T_1M": ("1 min", "1 min"), "T_3M": ("3 min", "3 min"), "T_5M": ("5 min", "5 min"), "T_10M": ("10 min", "10 min"),
+    "T_15M": ("15 min", "15 min"), "T_30M": ("30 min", "30 min"), "T_60M": ("60 min", "60 min"),
     "BLINDS": ("Jalousie", "Venetian blind"), "SHUTTER": ("Rollladen", "Roller shutter"),
     "MARQUEE": ("Markise", "Awning"),
     "NORMAL_OPERATION": ("Normalbetrieb", "Normal operation"), "NON_LATCHING": ("Tastbetrieb", "Momentary"),
@@ -115,7 +138,12 @@ def _language(paar: tuple[str, str]) -> str:
 
 def choice(value: str) -> str:
     """Display of a choice value (catalog identifier) in the configured language."""
-    return _language(CHOICE[value]) if value in CHOICE else value
+    if value in CHOICE:
+        return _language(CHOICE[value])
+    if m := re.fullmatch(r"OFF_(\d+)_REPETITIONS?", value):  # status message mode of transmitters
+        n = int(m.group(1))
+        return f"Aus ({n} Wiederholung{'en' if n > 1 else ''})" if german() else f"Off ({n} repetition{'s' if n > 1 else ''})"
+    return value
 
 
 def channel_name(typ: str, channel: int | None) -> str | None:
@@ -128,6 +156,9 @@ def channel_name(typ: str, channel: int | None) -> str | None:
 # protection, forced operation, wind alarm, sun protection, twilight: priority and value on call/cancel, as in the
 # manuals' parameter lists)
 EXCLUDED = ("SCV1[", "SCV2[", "SNA[", "PSN[", "CHANNEL_CONFIG")
+CHANNEL_SETTING = re.compile(r"^CHANNEL_(\d+)_(SUMSTATE_MODE|ACTUAL_SCENE_NUMBER|SCENE_SENSOR_MODE)$")
+# settings that the catalogue offers for a type but which do not apply to it (manual), e.g. no load type at 1–10 V
+NOT_FOR_TYPE: dict[str, set[str]] = {"DVT_SV1M": {"DALT"}, "DVT_SD1M": {"DALT"}}  # 1–10 V, DALI
 SPECIAL = re.compile(r"^(SCV1|SCV2)\[(4[2-9]|5[01])\]$|^PSN\[(42|44|46|48|50)\]$")
 SPECIAL_FUNCTIONS = {42: ("Aussperrschutz", "lock-out protection"), 44: ("Zwangsführung", "forced operation"),
                      46: ("Windalarm", "wind alarm"), 48: ("Sonnenschutz", "sun protection"),
@@ -188,10 +219,15 @@ class Param:
             return de if german() else en
         if special := special_name(self.id, self.kind):
             return special
+        if m := CHANNEL_SETTING.match(self.id):  # per channel of transmitters: same name as for channel 1
+            if (base := f"CHANNEL_1_{m.group(2)}") in NAMES:
+                return _language(NAMES[base][:2])
         return self.d.get("name") or self.id
 
     @property
     def default_active(self) -> bool:
+        if self.kind == "sender" and CHANNEL_SETTING.match(self.id):
+            return False  # status message mode / scene number of transmitter channels: not in the manuals
         return bool(SPECIAL.match(self.id)) or NAMES.get(self.id, ("", "", False))[2]
 
     @property
@@ -213,6 +249,12 @@ class Param:
         enc = self.typ.get("kodierung")
         if enc == "dpt9":
             v = dpt9_decode(raw[:2])
+        elif enc == "f32":
+            v = round(struct.unpack(">f", raw[:4])[0], 3)
+        elif enc == "s32":
+            v = int.from_bytes(raw[:4], "big", signed=True)
+        elif enc == "u16_x100":
+            v = int.from_bytes(raw[:2], "big") * 100  # raw in steps of 100 ms
         elif enc == "prozent255":
             v = round(raw[0] * 100 / 255)
         else:
@@ -234,6 +276,12 @@ class Param:
             n = self.typ["werte"][value]
         elif enc == "dpt9":
             return dpt9_encode(float(value))
+        elif enc == "f32":
+            return struct.pack(">f", float(value))
+        elif enc == "s32":
+            return int(round(float(value))).to_bytes(4, "big", signed=True)
+        elif enc == "u16_x100":
+            return int(round(float(value) / 100)).to_bytes(2, "big")
         elif enc == "prozent255":
             return bytes([min(255, math.floor(float(value) * 255 / 100))])
         else:
