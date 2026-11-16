@@ -13,7 +13,8 @@
 #define PIN_CS    18   // (D10)
 #define PIN_GDO0   2   // (D2)
 #define PIN_GDO2  -1   // not connected
-#define PIN_LED   15   // XIAO: yellow user LED, active low – flashes on transmit/receive (CUL32: GPIO 15 free)
+#define PIN_LED   15   // XIAO: yellow user LED, active low – flashes on transmit/receive (CUL32: EEPROM write
+                       // protection WC – kept high there, see readBoardData in main.cpp)
 #define PIN_LED2   8   // CUL32: blue status LED, same function (XIAO: GPIO 8 not connected)
 #define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
 #define PIN_LED3   0   // (D0) optional external LED for a bridge in a case: D0 -> 330 ohm -> LED -> GND
