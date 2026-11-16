@@ -379,7 +379,10 @@ def channel_info(hub: Hub, channel) -> dr.DeviceInfo:
     g = channel.enet_device
     if sum(1 for k in hub.all_channels if k.enet_device is g) == 1:
         return device_info_for(hub, g)
-    return _part_info(hub, g, f"{g['sn']}_{channel.nr}", f"Kanal {channel.nr}")
+    from .params import channel_name
+
+    name = channel_name(g.get("typ", ""), channel.nr) or f"Kanal {channel.nr}"  # e.g. XLED PRO: main/base light
+    return _part_info(hub, g, f"{g['sn']}_{channel.nr}", name)
 
 
 def rocker_info(hub: Hub, enet_device: dict, n: int) -> dr.DeviceInfo:

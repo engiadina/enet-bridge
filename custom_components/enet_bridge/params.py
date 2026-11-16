@@ -103,10 +103,16 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "CHANNEL_1_SUMSTATE_MODE": ("Statusmeldung", "Status message", False),
     "CHANNEL_2_SUMSTATE_MODE": ("Statusmeldung", "Status message", False),
     "CHARGE_VOLTAGE": ("Ladespannung", "Charging voltage", True),
+    # motion detector channel (CT_1F1B, e.g. Steinel XLED PRO)
+    "BSPE": ("Helligkeitsschwelle aktiv", "Brightness threshold active", True),
+    "OBSP": ("Helligkeitsschwelle", "Brightness threshold", True),
+    "PIR_SENS[0]": ("Empfindlichkeit", "Sensitivity", True),
 }
 # channel names per device type (prefix of the parameter entities for devices without their own channel devices)
 CHANNEL_NAMES: dict[str, dict[int, tuple[str, str]]] = {
-    "DVT_SF1S": {1: ("Sonnenschutz", "Sun protection"), 2: ("Dämmerung", "Twilight")}}
+    "DVT_SF1S": {1: ("Sonnenschutz", "Sun protection"), 2: ("Dämmerung", "Twilight")},
+    "DVT_XLEDPRO": {1: ("Bewegungsmelder", "Motion detector"), 2: ("Hauptlicht", "Main light"),
+                    3: ("Grundlicht", "Base light")}}
 CHOICE: dict[str, tuple[str, str]] = {
     "OFF": ("Aus", "Off"), "ON": ("Ein", "On"), "NO_CHANGE": ("Keine Änderung", "No change"),
     "VALUE_BEFORE_LOCKING": ("Letzter Wert", "Last value"),
@@ -126,6 +132,7 @@ CHOICE: dict[str, tuple[str, str]] = {
     "RESTART": ("Neu starten", "Restart"), "SP_SUNPROTECTION": ("Sonnenschutz", "Sun protection"),
     "TF_TWILIGHT_FNC": ("Dämmerung", "Twilight"), "NO_OPTIONALS": ("Keine", "None"),
     "OFF_3_REPETITIONS_UNLINKED": ("Aus (3 Wiederholungen, unverknüpft)", "Off (3 repetitions, unlinked)"),
+    "PULSE_MODE": ("Impuls", "Pulse"), "NIGHT_GROUND": ("Nachtbetrieb", "Night operation"),
 }
 COUNTERS = {"SWITCH_COUNTER": ("Schaltspiele", "Switching cycles"),
            "ACTIVE_COUNTER_RESETABLE": ("Betriebsstunden (rücksetzbar)", "Operating hours (resettable)"),
@@ -214,8 +221,8 @@ class Param:
         for ident, paar in COUNTERS.items():
             if ident in self.id:
                 return _language(paar)
-        if self.id in NAMES:
-            de, en, _ = NAMES[self.id]
+        if (own := self._own_name()) is not None:
+            de, en, _ = own
             return de if german() else en
         if special := special_name(self.id, self.kind):
             return special
@@ -228,7 +235,12 @@ class Param:
     def default_active(self) -> bool:
         if self.kind == "sender" and CHANNEL_SETTING.match(self.id):
             return False  # status message mode / scene number of transmitter channels: not in the manuals
-        return bool(SPECIAL.match(self.id)) or NAMES.get(self.id, ("", "", False))[2]
+        return bool(SPECIAL.match(self.id)) or (self._own_name() or ("", "", False))[2]
+
+    def _own_name(self) -> tuple[str, str, bool] | None:
+        """Own name of the parameter: by its ID, else by the part after the channel prefix (device-specific
+        parameters such as CHANNEL_2_INSAv2.ITOD are the channel type's ITOD)."""
+        return NAMES.get(self.id) or NAMES.get(self.id.rsplit(".", 1)[-1]) if "." in self.id else NAMES.get(self.id)
 
     @property
     def length(self) -> int:
