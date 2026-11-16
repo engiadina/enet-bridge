@@ -125,8 +125,7 @@ Zwei Wege, beide per USB am Home-Assistant-Rechner und mit derselben Firmware:
 - **Selbst bauen:** Seeed **XIAO ESP32-C6** + CC1101-Modul für 868 MHz (7 Drähte) + 868-MHz-Antenne, Teile
   ≈ 20–30 €.
 
-Für eine Bridge in einem geschlossenen Gehäuse lässt sich eine externe LED anschließen (GPIO 0); sie blinkt bei
-Funkverkehr.
+Eine externe LED (GPIO 0, am XIAO Pin D0) blinkt bei Funkverkehr – die eigene LED des XIAO wird nicht genutzt.
 
 Teileliste, Verdrahtung, Antenne und Messwerte: **[docs/HARDWARE.md](docs/HARDWARE.md)** (Englisch).
 

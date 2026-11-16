@@ -145,18 +145,17 @@ static bool setClock(const char* iso) {
 
 // ---------------------------------------------------------------------------
 // Transmit
-// Radio LEDs (XIAO PIN_LED active low, CUL32 PIN_LED2, optional external LED PIN_LED3): briefly on for every
+// Radio LEDs (CUL32 PIN_LED2, optional external LED PIN_LED3, e.g. on the XIAO): briefly on for every
 // transmitted and every valid received telegram. All are driven on every C6 board – the pin of the other board is
 // unused there.
 static uint32_t ledOffAt = 0;
 static bool ledOn = false;
 static void ledSet(bool on) {
-  if (PIN_LED >= 0 && !cul32) digitalWrite(PIN_LED, on ? LOW : HIGH);  // CUL32: GPIO 15 = EEPROM WC, stays high
   if (PIN_LED2 >= 0) digitalWrite(PIN_LED2, on ? LED2_ON : !LED2_ON);
   if (PIN_LED3 >= 0) digitalWrite(PIN_LED3, on ? LED3_ON : !LED3_ON);
 }
 static void ledFlash() {
-  if (PIN_LED < 0 && PIN_LED2 < 0 && PIN_LED3 < 0) return;
+  if (PIN_LED2 < 0 && PIN_LED3 < 0) return;
   ledSet(true);
   ledOn = true;
   ledOffAt = millis() + 40;
@@ -1006,8 +1005,10 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   delay(300);
   readBoardData();
-  if (PIN_LED >= 0) pinMode(PIN_LED, OUTPUT);  // CUL32: EEPROM write protection on (high, ledSet leaves it)
-  if (PIN_LED >= 0) digitalWrite(PIN_LED, HIGH);
+  if (PIN_HIGH >= 0) {  // XIAO: yellow LED off; CUL32: EEPROM write protection on
+    pinMode(PIN_HIGH, OUTPUT);
+    digitalWrite(PIN_HIGH, HIGH);
+  }
   if (PIN_LED2 >= 0) pinMode(PIN_LED2, OUTPUT);
   if (PIN_LED3 >= 0) pinMode(PIN_LED3, OUTPUT);
   ledSet(false);

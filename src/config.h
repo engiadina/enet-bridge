@@ -13,11 +13,10 @@
 #define PIN_CS    18   // (D10)
 #define PIN_GDO0   2   // (D2)
 #define PIN_GDO2  -1   // not connected
-#define PIN_LED   15   // XIAO: yellow user LED, active low – flashes on transmit/receive (CUL32: EEPROM write
-                       // protection WC – kept high there, see readBoardData in main.cpp)
-#define PIN_LED2   8   // CUL32: blue status LED, same function (XIAO: GPIO 8 not connected)
+#define PIN_HIGH  15   // kept high: XIAO yellow user LED off (active low, not used); CUL32 EEPROM write protection WC
+#define PIN_LED2   8   // CUL32: blue status LED, flashes on transmit/receive (XIAO: GPIO 8 not connected)
 #define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
-#define PIN_LED3   0   // (D0) optional external LED for a bridge in a case: D0 -> 330 ohm -> LED -> GND
+#define PIN_LED3   0   // (D0) optional external LED, same function: D0 -> 330 ohm -> LED -> GND (CUL32: J1 pin 4)
 #define LED3_ON  HIGH  // same function as the on-board LEDs
 #else
 // ESP32-DevKit (VSPI)
@@ -27,7 +26,7 @@
 #define PIN_CS     5
 #define PIN_GDO0   4   // IOCFG0 = 0x06: high from sync word, low at end of packet
 #define PIN_GDO2  16   // IOCFG2 = 0x0E: carrier sense (diagnostics only)
-#define PIN_LED   -1   // DevKit: no LED for radio traffic
+#define PIN_HIGH  -1
 #define PIN_LED2  -1
 #define LED2_ON  HIGH
 #define PIN_LED3  -1
