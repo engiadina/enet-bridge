@@ -410,12 +410,17 @@ class Hub:
         return enet_device.get("rolle") == "sender" or enet_device.get("typ") in SENSOR_TYPES
 
     def _device_versions(self, info: dict[str, Any]) -> None:
-        """Firmware, radio chip and ID of the bridge on the HA device (device page: "Firmware: 0.8.9")."""
+        """Hardware, firmware, radio chip and ID of the bridge on the HA device (device page: "Firmware: 0.8.9")."""
         if not getattr(self, "bridge_device_id", None):
             return
         v = self.radio.get("version")
+        if info.get("board") == "cul32":  # recognised by the firmware from busware's factory data
+            manufacturer, model = "busware", "CUL32 (ESP32-C6 + CC1101)"
+        else:
+            chip = "ESP32-C6" if info.get("chip") == "esp32c6" else "ESP32"
+            manufacturer, model = "wekomm engineering GmbH", f"eNet-Bridge ({chip} + CC1101)"
         dr.async_get(self.hass).async_update_device(
-            self.bridge_device_id, sw_version=info.get("fw"),
+            self.bridge_device_id, manufacturer=manufacturer, model=model, sw_version=info.get("fw"),
             hw_version=f"CC1101 0x{v:02X}" if isinstance(v, int) and v else None,
             serial_number=info.get("id"))
 
