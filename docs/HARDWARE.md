@@ -69,7 +69,8 @@ radio module differs.
 | Antenna | – | 10 (ANT, 50 Ω) | antenna pad |
 
 Optional **external LED** for a bridge in a closed case (the yellow on-board LED is not visible then): D0 (GPIO 0)
-→ 330 Ω → LED anode, LED cathode → GND. It flashes on radio traffic like the on-board LED.
+→ 330 Ω → LED anode, LED cathode → GND. It flashes on radio traffic like the on-board LED. On the CUL32 the same
+GPIO 0 is pin 4 of its 14-pin FPC connector J1 (0.5 mm pitch).
 
 XIAO pins D1 and D4–D7 stay free. Its only USB-C socket is the chip’s native USB, which shows up as
 `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…`. The XIAO’s own antenna (or u.FL socket) is for
