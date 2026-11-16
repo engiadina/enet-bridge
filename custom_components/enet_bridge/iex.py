@@ -65,15 +65,15 @@ ACTIONS = {
 # Channel types -> kind. Actuators: "schalten" (GO 2 on/off, GO 20 status), "dimmen" (+ GO 4 value, GO 21),
 # "jalousie" (untested). Transmitters: "taste" (single key, sends to offset + 6), "wippe" (offset + 2/3).
 # Variants of the actuator types (other GO numbers, layouts.py): CT_1F05 switching with reduced GOs (DIN-rail
-# switch/blind actuator), CT_1F08 Switching Actuator v2 (sensIQ), CT_1F01_DUMMY (System 2000 dimming top unit set to
-# switching) – untested.
+# switch/blind actuator), CT_1F08 Switching Actuator v2 (sensIQ, XLED PRO main light), CT_1F09 Switching Actuator v3
+# (XLED PRO base light), CT_1F01_DUMMY (System 2000 dimming top unit set to switching) – untested.
 # Operating top unit (UP1A/UP1AV): the actuator sits in the top unit, the flush-mounted insert only provides the load
 # output. The insert decides channel 2: CT_1F0B switching insert, CT_1F0D 2-channel switching insert, CT_1F0C
 # dimming insert, CT_1F10 blind insert. Channel 1 is the rocker of the top unit (CT_1F12 light, CT_1F1E blind): it
 # operates its own insert by wire and is a transmitter for other actuators – a key of the actuator. Not mapped:
 # CT_1F0E/CT_1F0E_SA (extension insert: runs in parallel to the main insert, which switches the load). All untested.
 CHANNEL_TYPES = {"CT_1F01": "schalten", "CT_1F02": "dimmen", "CT_1F03": "jalousie",
-                 "CT_1F05": "schalten", "CT_1F08": "schalten", "CT_1F01_DUMMY": "schalten",
+                 "CT_1F05": "schalten", "CT_1F08": "schalten", "CT_1F09": "schalten", "CT_1F01_DUMMY": "schalten",
                  "CT_1F0B": "schalten", "CT_1F0D": "schalten", "CT_1F0C": "dimmen", "CT_1F10": "jalousie",
                  "CT_1F19": "energie", "CT_1F1B": "bewegung", "CT_1F06": "repeater",
                  "CT_1F11": "wippe", "CT_1F12": "wippe", "CT_1F1E": "wippe",

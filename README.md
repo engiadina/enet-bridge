@@ -107,9 +107,10 @@ Tested in two installations:
 | Motion detector | Jung FMDW360WW | motion, illuminance |
 | Repeater | intermediate plug (5321 02) | signal, last message |
 | DIN-rail switching/dimming modules | 5430 00, 5431 00, 5433 00 | like the Mini actuators |
+| Steinel motion detectors with light output | sensIQ eNet, XLED PRO eNet (Square/Wide) – XLED PRO and sensIQ v2: pairing needs the product number of a real device (please report it), import from a server export works | light (XLED PRO: main and base light), motion, illuminance |
 | Operating top units | Memory (5492, 5493) on a System 3000 switching, 2-gang switching, dimming or blind insert | light or cover depending on the insert, rocker as event |
 
-Device definitions (parameters) for all 41 eNet device types of the catalogue are included. Encrypted
+Device definitions (parameters) for all 44 eNet device types of the catalogue are included. Encrypted
 installations (eNet Server 2.0 with AES) are not supported.
 
 ## Hardware

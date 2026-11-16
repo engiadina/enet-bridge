@@ -45,7 +45,10 @@ class EnetParamEntity(EnetEntity):
         channel = hub.channel(g, param_group.channel) if param_group.channel is not None else None
         self._attr_device_info = channel_info(hub, channel) if channel else device_info_for(hub, g)
         self._attr_unique_id = f"{g['sn']}_p_{param.key}"
-        prefix_ = channel_name(g.get("typ", ""), param_group.channel) or self._sender_channel(hub, g, param_group.channel)
+        own_page = channel is not None and sum(1 for k in hub.all_channels if k.enet_device is g) > 1
+        # channel prefix only where the channels share one device page (a channel device already carries the name)
+        prefix_ = None if own_page else (channel_name(g.get("typ", ""), param_group.channel)
+                                         or self._sender_channel(hub, g, param_group.channel))
         name = param.name
         if param.id == "MSMT":  # one parameter: slat reversing time (venetian blind) or fabric tensioning (awning)
             mode = hub._param_by_id(param_group, "OPMODE")

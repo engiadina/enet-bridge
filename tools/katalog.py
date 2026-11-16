@@ -19,6 +19,12 @@ Parameter memory (PID 79 = 0x4F): radio start element = index + 1, elements = by
 import glob, json, os, re, sys
 import xml.etree.ElementTree as ET
 
+# Device types the server knows without a manufacturer catalogue entry in fw2.21 (Steinel ships none there): device
+# type name (from the eNet app) → generic type. No product number known – pairing reports it as unknown until a tester
+# sends it; an import from a server export carries the type itself.
+GENERIC_ONLY = {"DVT_XLEDPRO": ("GDVT_XLEDPRO", "steinel"),  # Steinel XLED PRO eNet (Square/Wide)
+                "DVT_SENSIQv2": ("GDVT_SENSIQv2", "steinel")}
+
 
 def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
@@ -52,6 +58,18 @@ class Catalogue:
                 self.devtypes[e.get("id")] = (e.get("genericDeviceTypeID"), manufacturer_, e.get("productID"),
                                               md.get("articleNo") if md is not None else None,
                                               md.get("name") if md is not None else None)
+        # manufacturer catalogues of older firmware (e.g. Steinel sensIQ in fw2.0) for types missing here
+        for f in glob.glob(f"{d}/../*/*/DeviceCatalogue.xml"):
+            manufacturer_ = os.path.basename(os.path.dirname(f))
+            for e in load(f).iter("KnxRfDeviceType"):
+                if e.get("id") not in self.devtypes and e.get("genericDeviceTypeID") in self.generic:
+                    md = e.find("MetaData")
+                    self.devtypes[e.get("id")] = (e.get("genericDeviceTypeID"), manufacturer_, e.get("productID"),
+                                                  md.get("articleNo") if md is not None else None,
+                                                  md.get("name") if md is not None else None)
+        for dvt, (gdvt, manufacturer_) in GENERIC_ONLY.items():
+            if dvt not in self.devtypes and gdvt in self.generic:
+                self.devtypes[dvt] = (gdvt, manufacturer_, None, None, None)
 
     # --- Value types -------------------------------------------------------
     def value_type(self, vtct_id):
