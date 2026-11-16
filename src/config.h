@@ -16,6 +16,8 @@
 #define PIN_LED   15   // XIAO: yellow user LED, active low – flashes on transmit/receive (CUL32: GPIO 15 free)
 #define PIN_LED2   8   // CUL32: blue status LED, same function (XIAO: GPIO 8 not connected)
 #define LED2_ON   LOW  // CUL32 LED is active low (like the XIAO one)
+#define PIN_LED3   0   // (D0) optional external LED for a bridge in a case: D0 -> 330 ohm -> LED -> GND
+#define LED3_ON  HIGH  // same function as the on-board LEDs
 #else
 // ESP32-DevKit (VSPI)
 #define PIN_SCK   18
@@ -27,6 +29,8 @@
 #define PIN_LED   -1   // DevKit: no LED for radio traffic
 #define PIN_LED2  -1
 #define LED2_ON  HIGH
+#define PIN_LED3  -1
+#define LED3_ON  HIGH
 #endif
 
 // ---------------------------------------------------------------------------
