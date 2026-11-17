@@ -120,7 +120,8 @@ CC1101-Funkmodule">
 
 Zwei Wege, beide per USB am Home-Assistant-Rechner und mit derselben Firmware:
 
-- **Fertig kaufen:** **busware CUL32** (ESP32-C6 + CC1101 mit Antennenbuchse, ohne Löten) – anstecken, die
+- **Fertig kaufen:** **busware CUL32** (ESP32-C6 + CC1101 mit RP-SMA-Antennenbuchse, ohne Löten; die passende 868-MHz-Antenne mit RP-SMA
+  gleich bei busware mitbestellen) – anstecken, die
   Integration ersetzt die busware-Firmware durch die Bridge-Firmware. Danke an
   [Magnus Nordseth](https://github.com/mnordseth), der ihn gefunden hat.
 - **Selbst bauen:** Seeed **XIAO ESP32-C6** + CC1101-Modul für 868 MHz (7 Drähte) + 868-MHz-Antenne, Teile

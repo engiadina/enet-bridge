@@ -10,7 +10,8 @@ bottom left, two CC1101 868 MHz radio modules bottom right">
 There are two ways to get one, both with the same firmware:
 
 - **Ready-made: [busware CUL32](https://busware.de/products/cul32/)** (top in the photo) – ESP32-C6 and CC1101 on
-  one board with an RP-SMA antenna socket and USB-C, optional housing. No soldering: plug it in and the integration
+  one board with an RP-SMA antenna socket and USB-C, optional housing. Order the 868 MHz antenna with RP-SMA plug
+  from busware with it. No soldering: plug it in and the integration
   installs the bridge firmware. Thanks to [Magnus Nordseth](https://github.com/mnordseth) for finding this stick.
 - **Build it yourself: [Seeed XIAO ESP32-C6](https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/)**
   (bottom left) **+ CC1101 868 MHz module** (bottom right: the cheap 8-pin module and, below it, the Radiocontrolli
@@ -41,7 +42,10 @@ see [Antenna connection](#antenna-connection).
 
 ### Cheap “CC1101 868 MHz” modules
 
-The cheap 8-pin modules sold as “CC1101 868 MHz” also work, but:
+The cheap 8-pin modules also work. They are sold on Amazon, eBay and AliExpress as “CC1101 868MHz wireless module”
+(small green board, 8 pads, usually with a coil antenna and often in packs of two) – search for exactly that and make
+sure the listing says 868 MHz, not 433 MHz. Ours came from [this Amazon listing](https://www.amazon.de/dp/B0FB3K3CQP).
+Quality varies by seller, and ours had these drawbacks:
 
 - their crystal was off by ≈ 100 ppm (≈ 95 kHz at 868 MHz) – the bridge corrects this automatically;
 - the chip reported a different version (0x04 instead of 0x14), possibly a clone;
@@ -143,7 +147,8 @@ larger board – with the XIAO a much more compact one is possible. The CUL32 is
 
 ## busware CUL32
 
-The firmware uses exactly the CUL32’s CC1101 pin assignment, so no wiring is needed. Screw on an 868 MHz antenna,
+The firmware uses exactly the CUL32’s CC1101 pin assignment, so no wiring is needed. Screw on an 868 MHz antenna with
+**RP-SMA** plug (busware sells a matching one; a normal SMA antenna fits the thread but has no centre contact),
 plug the stick in by USB-C and set up the integration – it recognises that busware’s own firmware (culfw32) does not
 answer the bridge protocol and replaces it with the bridge firmware (about 15 s). Its blue LED flashes on radio
 traffic.

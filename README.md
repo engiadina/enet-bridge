@@ -120,7 +120,8 @@ CC1101 radio modules">
 
 Two ways, both connected by USB to the Home Assistant host and running the same firmware:
 
-- **Ready-made:** **busware CUL32** (ESP32-C6 + CC1101 with antenna socket, no soldering) – plug it in and the
+- **Ready-made:** **busware CUL32** (ESP32-C6 + CC1101 with RP-SMA antenna socket, no soldering; order the 868 MHz RP-SMA antenna from busware
+  with it) – plug it in and the
   integration replaces busware’s firmware with the bridge firmware. Thanks to
   [Magnus Nordseth](https://github.com/mnordseth) for finding it.
 - **Build it yourself:** Seeed **XIAO ESP32-C6** + CC1101 868 MHz module (7 wires) + 868 MHz antenna, parts
