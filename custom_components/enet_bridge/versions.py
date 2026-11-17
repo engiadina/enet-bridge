@@ -84,7 +84,12 @@ async def read(hub: Hub, ia: str, pr: Callable[[int, int], Awaitable[bytes]] | N
 def update_registry(hub: Hub, enet_device: dict[str, Any]) -> None:
     """Show the versions on the existing HA device (new devices get them via device_info_for)."""
     reg = dr.async_get(hub.hass)
-    if device := reg.async_get_device(identifiers={(DOMAIN, enet_device["sn"])}):
+    ident = (DOMAIN, enet_device["sn"])
+    if hasattr(reg, "async_get_device_by_identifier"):  # HA 2026.11+; async_get_device is deprecated there
+        device = reg.async_get_device_by_identifier(ident, hub.entry_id)
+    else:
+        device = reg.async_get_device(identifiers={ident})
+    if device:
         reg.async_update_device(device.id, sw_version=sw_version(enet_device), hw_version=hw_version(enet_device))
 
 
