@@ -44,7 +44,8 @@ see [Antenna connection](#antenna-connection).
 
 The cheap 8-pin modules also work. They are sold on Amazon, eBay and AliExpress as “CC1101 868MHz wireless module”
 (small green board, 8 pads, usually with a coil antenna and often in packs of two) – search for exactly that and make
-sure the listing says 868 MHz, not 433 MHz. Quality varies by seller, and ours had these drawbacks:
+sure the listing says 868 MHz, not 433 MHz. Ours came from [this Amazon listing](https://www.amazon.de/dp/B0FB3K3CQP).
+Quality varies by seller, and ours had these drawbacks:
 
 - their crystal was off by ≈ 100 ppm (≈ 95 kHz at 868 MHz) – the bridge corrects this automatically;
 - the chip reported a different version (0x04 instead of 0x14), possibly a clone;
