@@ -29,7 +29,8 @@ Server emulation: --server szenen.json
 """
 import datetime, json, os, queue, sys, threading, time, unicodedata
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# the parser of the integration (tools/iex.py has the same module name and only wraps it)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "custom_components", "enet_bridge"))
 import iex  # noqa: E402
 
 GO_SWITCH, GO_VALUE, GO_STATUS, GO_STATUS_VALUE, GO_SUMSTATUS_INFO = 2, 4, 20, 21, 22
