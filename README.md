@@ -92,7 +92,7 @@ Tested in two installations:
 |---|---|
 | Switching actuators | Mini 1-gang (SA1M, SA1MP), Mini 2-gang (SA2M), intermediate plug (SA1Z) |
 | Dimming actuators | Mini dimmer (DA1M), DALI Mini (SD1M) |
-| Transmitters | Wall transmitter 3-gang (WS3BG), hand-held transmitter 4-gang (HS4) |
+| Transmitters | Wall transmitter 3-gang (WS3BG), hand-held transmitter 4-gang (HS4); the other Gira and Jung wall and hand-held transmitters (1–4 rockers, e.g. 5331, 5350–5354, Jung FM 4001–4004 M, FM.. 5001–5004 M) are programmed the same way |
 | Blind/shutter actuators | Mini (5427 00): up/down/stop, position, slats, travel time measurement, rocker of a transmitter |
 | Sensors | Sun/twilight sensor (SF1S, Jung FM FS 1 S) |
 
@@ -107,6 +107,8 @@ Tested in two installations:
 | Motion detector | Jung FMDW360WW | motion, illuminance |
 | Repeater | intermediate plug (5321 02) | signal, last message |
 | DIN-rail switching/dimming modules | 5430 00, 5431 00, 5433 00 | like the Mini actuators |
+| Other dimming actuators (same channel type as the tested Mini dimmer) | System 2000 switching/dimming top unit (5490), 1–10 V control unit Mini (5421 00) | dimmable light |
+| Universal transmitter | 2-gang Mini (5453 00) – rocker mode only | rocker as event |
 | Steinel motion detectors with light output | sensIQ eNet, XLED PRO eNet (Square/Wide) – XLED PRO and sensIQ v2: pairing needs the product number of a real device (please report it), import from a server export works | light (XLED PRO: main and base light), motion, illuminance |
 | Operating top units | Memory (5492, 5493) on a System 3000 switching, 2-gang switching, dimming or blind insert | light or cover depending on the insert, rocker as event |
 

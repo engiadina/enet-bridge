@@ -92,7 +92,7 @@ Getestet in zwei Anlagen:
 |---|---|
 | Schaltaktoren | Mini 1fach (SA1M, SA1MP), Mini 2fach (SA2M), Zwischenstecker (SA1Z) |
 | Dimmaktoren | Mini-Dimmer (DA1M), DALI Mini (SD1M) |
-| Sender | Wandsender 3fach (WS3BG), Handsender 4fach (HS4) |
+| Sender | Wandsender 3fach (WS3BG), Handsender 4fach (HS4); die übrigen Wand- und Handsender von Gira und Jung (1–4 Wippen, z. B. 5331, 5350–5354, Jung FM 4001–4004 M, FM.. 5001–5004 M) werden genauso programmiert |
 | Jalousieaktoren | Mini (5427 00): Auf/Ab/Stopp, Position, Lamelle, Fahrzeit einmessen, Wippe eines Senders |
 | Sensoren | Sonnen-/Dämmerungssensor (SF1S, Jung FM FS 1 S) |
 
@@ -107,6 +107,8 @@ im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten
 | Bewegungsmelder | Jung FMDW360WW | Bewegung, Helligkeit |
 | Repeater | Zwischenstecker (5321 02) | Signal, letzte Meldung |
 | REG-Schalt-/Dimmmodule | 5430 00, 5431 00, 5433 00 | wie die Mini-Aktoren |
+| Weitere Dimmaktoren (gleicher Kanaltyp wie der getestete Mini-Dimmer) | System-2000-Schalt-/Dimmaufsatz (5490), Steuereinheit 1–10 V Mini (5421 00) | dimmbares Licht |
+| Universalsender | 2fach Mini (5453 00) – nur Betriebsart Wippe | Wippe als Ereignis |
 | Steinel-Bewegungsmelder mit Lichtausgang | sensIQ eNet, XLED PRO eNet (Square/Wide) – XLED PRO und sensIQ v2: Einlernen braucht die Produktnummer eines echten Geräts (bitte melden), Import aus einem Server-Export geht | Licht (XLED PRO: Haupt- und Grundlicht), Bewegung, Helligkeit |
 | Bedienaufsätze | Memory (5492, 5493) auf System-3000-Schalt-, Schalt-2fach-, Dimm- oder Jalousieeinsatz | Licht oder Rollladen je nach Einsatz, Wippe als Ereignis |
 
