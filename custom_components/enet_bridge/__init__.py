@@ -19,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 
 from . import pair, ha_rocker, sender
 from . import visibility
+from . import versions
 from .bridge import Bridge, BridgeError, foreign_radio
 from .installation import InstallationStore
 from .const import CONF_INSTALLATION, CONF_PORT, DEFAULT_DEFINITIONS, DOMAIN, MANUFACTURER
@@ -368,6 +369,8 @@ def device_info_for(hub: Hub, enet_device: dict) -> dr.DeviceInfo:
         model=hub.model(enet_device),
         model_id=article,
         serial_number=enet_device["sn"],
+        sw_version=versions.sw_version(enet_device),
+        hw_version=versions.hw_version(enet_device),
         suggested_area=enet_device.get("raum"),  # optional in anlage.json; applies only on first creation
         via_device_id=hub.bridge_device_id,
     )
@@ -391,6 +394,18 @@ def rocker_info(hub: Hub, enet_device: dict, n: int) -> dr.DeviceInfo:
     if sender.rocker_count(hub, enet_device) <= 1:
         return device_info_for(hub, enet_device)
     return _part_info(hub, enet_device, f"{enet_device['sn']}_wippe{n}", tr("wippe_geraet", n=n))
+
+
+def device_id_for(hub: Hub, ident: tuple[str, str]) -> str | None:
+    """HA device id of an eNet device or of one of its parts (channel/rocker child device). Identifiers are unique
+    per config entry since HA 2026.11 (async_get_device is deprecated there, removed in 2027.8)."""
+    reg = dr.async_get(hub.hass)
+    if not hasattr(reg, "async_get_device_by_identifier"):  # older HA
+        device = reg.async_get_device(identifiers={ident})
+    else:
+        device = (reg.async_get_device_by_identifier(ident, hub.entry_id)
+                  or reg.async_get_child_device_by_identifier(ident, hub.entry_id))
+    return device.id if device else None
 
 
 def _part_info(hub: Hub, enet_device: dict, ident: str, name: str) -> dr.ChildDeviceInfo:

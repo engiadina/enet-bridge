@@ -19,7 +19,6 @@ import math
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .bridge import BridgeError
@@ -83,12 +82,11 @@ class Calibration:
 
     def _log(self, text: str) -> None:
         """Activity list of the device (logbook.py: an entry of the device, not of one of its buttons)."""
-        from . import channel_info
+        from . import channel_info, device_id_for
 
         g = self.channel.enet_device
         ident = next(iter(channel_info(self.hub, self.channel)["identifiers"]))
-        device = dr.async_get(self.hub.hass).async_get_device(identifiers={ident})
-        self.hub.hass.bus.async_fire(EVENT_DEVICE_MESSAGE, {"device_id": device.id if device else None,
+        self.hub.hass.bus.async_fire(EVENT_DEVICE_MESSAGE, {"device_id": device_id_for(self.hub, ident),
                                                              "name": g["name"], "message": text})
 
     def status(self) -> str:
