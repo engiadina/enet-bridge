@@ -96,8 +96,9 @@ Module 21.5 × 15.6 mm, 2.54 mm pitch, 11 pins in two rows (pin 11 is missing). 
             └───────────────────────┘
 ```
 
-Pin 1 is top left when the crystal points down. The drawing does not say whether it shows the top or the bottom
-side, so **check before soldering: pins 7, 8 and 9 must be connected to each other (GND).**
+The drawing shows the **component side** (chip and crystal visible), with the crystal pointing down – as the lower
+module in the photo at the top. Then pin 1 (SI) is top left, and the right row reads from the top: VCC, gap
+(pin 11 missing), ANT, GND, GND, GND. Pins 7, 8 and 9 are connected to each other (GND).
 
 #### Cheap 8-pin “CC1101 868MHz Module” pinout
 
