@@ -13,7 +13,10 @@ New texts: add the key here, (German, English), placeholders in str.format style
 """
 from __future__ import annotations
 
-from .texts_nb import TEXTS_NB
+try:
+    from .texts_nb import TEXTS_NB
+except ImportError:  # tools/iex.py and tools/enet.py load the module without a package
+    from texts_nb import TEXTS_NB  # type: ignore[no-redef]
 
 _LANG = "de"  # German until set_language() has been called (tests, tools)
 LANGUAGES = ("de", "en", "nb")
