@@ -53,6 +53,7 @@ because they are stored in installations or used in automations and in the proto
 | `name`, `ia`, `sn`, `typ`, `raum` | name, individual address, serial number, device type (`DVT_…`), room |
 | `rolle` | role: `aktor` (actuator), `sender` (transmitter), `sensor`, `unbekannt` (unknown) |
 | `beschreibung`, `produkt`, `eingelernt` | description, product number, paired at |
+| `firmware` | firmware of a device: `kennung` (software ID, e.g. 45062651), `anwendung` (application version), `stack`, `update_stack`, `platine` (radio PCB number) |
 | `kanaele` | channels: `nr`, `art`, `offset` (group object offset), `obj` (interface object) |
 | `art` (channel) | `schalten` switch, `dimmen` dimmer, `jalousie` blind, `energie` energy sensor, `bewegung` motion detector, `repeater` |
 | `tasten` | keys/rockers of a transmitter: `art` `wippe` (rocker) / `taste` (single key), `ziele` (target channels), `ha_ziele` (HA lamps), `antwort_ga` (reply group address) |

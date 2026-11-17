@@ -21,6 +21,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from . import versions
 from .bridge import BridgeError
 from .const import KIND_BLIND
 from .iex import ACTUATOR_ROCKERS, CHANNEL_TYPES, DEVICE_TYPES, PRODUCT_TYPES, ia_str, product_ident
@@ -282,6 +283,8 @@ async def pair(hub: Hub, name: str | None = None) -> dict[str, Any]:
               "rolle": role, "kanaele": channels_,
               "ga_basis": base, "ga_basis_geprueft": True, "produkt": product,
               "eingelernt": time.strftime("%Y-%m-%d %H:%M")}
+    if fw := await versions.read(hub, ia_s):  # device is awake right after pairing (transmitters too)
+        enet_device["firmware"] = fw
     previous = hub.installation.get("entfernt", {}).pop(sn, None)  # same device was in the installation before
     if existing is not None:  # factory reset at the device: replace the entry, keep name/assignment/old base
         hub.installation["geraete"].remove(existing)

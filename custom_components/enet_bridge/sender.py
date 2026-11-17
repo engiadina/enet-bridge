@@ -35,6 +35,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from . import layouts
+from . import versions
 from .bridge import BridgeError
 from .const import DOMAIN
 from .pair import SRV_IA, RadioSession, apci, frame, ia_int
@@ -461,6 +462,9 @@ async def _program(hub: Hub, enet_device: dict[str, Any], assigned: dict[int, di
             t0 = time.monotonic()
             await s.write(assigned)
             _LOGGER.debug("%s: transmitter written in %.1f s", enet_device["name"], time.monotonic() - t0)
+            if fw := await versions.read(hub, enet_device["ia"], s.pr):  # awake anyway: firmware for the device page
+                enet_device["firmware"] = {**(enet_device.get("firmware") or {}), **fw}
+                versions.update_registry(hub, enet_device)
         finally:
             hold.cancel()
             with contextlib.suppress(BridgeError):

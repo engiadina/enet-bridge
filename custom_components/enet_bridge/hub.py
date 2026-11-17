@@ -21,7 +21,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from . import esp_config, firmware, layouts
+from . import esp_config, firmware, layouts, versions
 from .bridge import Bridge, BridgeError, foreign_radio
 from .const import KIND_DIMMER, KIND_BLIND, KIND_SWITCH, KIND_KEY, KIND_ROCKER, DOMAIN, SENSOR_TYPES
 from .installation import InstallationStore
@@ -935,6 +935,7 @@ class Hub:
                     _LOGGER.warning("%s (%s) does not answer the status request", k.enet_device["name"], k.key)
             await self._read_actuator_bases()
             await self._preload_parameters()
+            await versions.backfill(self)  # firmware versions of the actuators, once per device (read only)
             self.check.check_devices()
             for step in (self.ha_scenes.convert,  # eNet scenes from the import → HA scenes (once)
                             self.ha_scenes.reconcile,  # only differences go out over the radio

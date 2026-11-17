@@ -53,6 +53,7 @@ REC_LOCATION = PKG + "systemfunctions.locationmanagement.Location.rec"
 REC_BOX_FUNC = PKG + "transformation.knxrf.knxrfboxdevice.function.InstaNetBoxDeviceFunction.rec"
 REC_FUNC = PKG + "transformation.knxrf.knxrfdevice.function.KnxRfDeviceFunction"
 REC_VALUE = PKG + "devicemodel.device.value.DeviceValue"
+REC_STRING = PKG + "systemfunctions.persistenceframework.PersistableString.rec"
 REC_CONJ = PKG + "applications.conjunction."
 REC_ACTION = PKG + "devicemodel.device.action.DeviceFunctionAction.rec"
 
@@ -323,6 +324,17 @@ def read_iex(path):
             chans_by_dev.setdefault(dev_idx, []).append(
                 {"nr": c["number"], "art": art, "offset": c["groupObjectNumberOffset"], "obj": c["interfaceObjectIndex"],
                  "kanaltyp": short_str(c["channelType"])})
+    # software ID per device (catalogue DeviceSoftware.xml): list of strings, "FFFFFFFF" = empty slot
+    tab_string = int.from_bytes(raw(REC_STRING)[0x10:0x14], "big") if any(
+        n.endswith("/" + REC_STRING) for n in inner.namelist()) else None
+    strings = table(REC_STRING) if tab_string is not None else []
+
+    def software_id(ref):
+        if ref is None or tab_string is None:
+            return None
+        ids = [strings[r & 0xFFFFFFFF].get("string") for r in collection(ref) if r >> 32 == tab_string]
+        return next((i for i in ids if i and i.upper() != "FFFFFFFF"), None)
+
     rooms = {r["uID"]: r["name"] for r in table(REC_LOCATION) if r["_valid"] and r["locationType"] == 3 and r["name"]}
     devices = []
     for idx, dev in enumerate(table(REC_DEVICE)):
@@ -358,6 +370,9 @@ def read_iex(path):
             devices[-1]["tasten"] = keys_
         if room := rooms.get(dev["locationUID"]):
             devices[-1]["raum"] = room
+        fw = {"kennung": software_id(dev.get("softwareVersions")), "anwendung": dev.get("applicationReleaseVersion")}
+        if fw := {k: v for k, v in fw.items() if v}:
+            devices[-1]["firmware"] = fw
     devices.sort(key=lambda d: int(d["ia"].split(".")[2]))
 
     # Scenes: number from the values, GAs from the server functions, members from the actuator links

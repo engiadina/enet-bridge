@@ -19,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 
 from . import pair, ha_rocker, sender
 from . import visibility
+from . import versions
 from .bridge import Bridge, BridgeError, foreign_radio
 from .installation import InstallationStore
 from .const import CONF_INSTALLATION, CONF_PORT, DEFAULT_DEFINITIONS, DOMAIN, MANUFACTURER
@@ -368,6 +369,8 @@ def device_info_for(hub: Hub, enet_device: dict) -> dr.DeviceInfo:
         model=hub.model(enet_device),
         model_id=article,
         serial_number=enet_device["sn"],
+        sw_version=versions.sw_version(enet_device),
+        hw_version=versions.hw_version(enet_device),
         suggested_area=enet_device.get("raum"),  # optional in anlage.json; applies only on first creation
         via_device_id=hub.bridge_device_id,
     )
