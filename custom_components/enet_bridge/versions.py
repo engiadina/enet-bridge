@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers import device_registry as dr
 
 from .bridge import BridgeError
-from .const import DOMAIN, SENSOR_TYPES
+from .const import SENSOR_TYPES
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -83,14 +83,9 @@ async def read(hub: Hub, ia: str, pr: Callable[[int, int], Awaitable[bytes]] | N
 
 def update_registry(hub: Hub, enet_device: dict[str, Any]) -> None:
     """Show the versions on the existing HA device (new devices get them via device_info_for)."""
-    reg = dr.async_get(hub.hass)
-    ident = (DOMAIN, enet_device["sn"])
-    if hasattr(reg, "async_get_device_by_identifier"):  # HA 2026.11+; async_get_device is deprecated there
-        device = reg.async_get_device_by_identifier(ident, hub.entry_id)
-    else:
-        device = reg.async_get_device(identifiers={ident})
-    if device:
-        reg.async_update_device(device.id, sw_version=sw_version(enet_device), hw_version=hw_version(enet_device))
+    if device_id := hub.device_ids.get(enet_device["sn"]):
+        dr.async_get(hub.hass).async_update_device(device_id, sw_version=sw_version(enet_device),
+                                                   hw_version=hw_version(enet_device))
 
 
 async def backfill(hub: Hub) -> None:

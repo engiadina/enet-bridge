@@ -396,6 +396,18 @@ def rocker_info(hub: Hub, enet_device: dict, n: int) -> dr.DeviceInfo:
     return _part_info(hub, enet_device, f"{enet_device['sn']}_wippe{n}", tr("wippe_geraet", n=n))
 
 
+def device_id_for(hub: Hub, ident: tuple[str, str]) -> str | None:
+    """HA device id of an eNet device or of one of its parts (channel/rocker child device). Identifiers are unique
+    per config entry since HA 2026.11 (async_get_device is deprecated there, removed in 2027.8)."""
+    reg = dr.async_get(hub.hass)
+    if not hasattr(reg, "async_get_device_by_identifier"):  # older HA
+        device = reg.async_get_device(identifiers={ident})
+    else:
+        device = (reg.async_get_device_by_identifier(ident, hub.entry_id)
+                  or reg.async_get_child_device_by_identifier(ident, hub.entry_id))
+    return device.id if device else None
+
+
 def _part_info(hub: Hub, enet_device: dict, ident: str, name: str) -> dr.ChildDeviceInfo:
     """Child device (HA 2026.10+): part of the eNet device, listed on its page; HA combines the name with the
     device's name and takes over the area from the device."""

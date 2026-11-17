@@ -6,7 +6,6 @@ from typing import Any
 from homeassistant.components.repairs import RepairsFlow
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 
 from .bridge import BridgeError
@@ -48,9 +47,11 @@ class NotAnswering(RepairsFlow):
     async def async_step_entfernen(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is None:
             return self.async_show_form(step_id="entfernen", description_placeholders={"name": self._device["name"]})
-        dev = dr.async_get(self.hass).async_get_device(identifiers={(DOMAIN, self._device["sn"])})
-        if dev is not None:
-            await self.hass.services.async_call(DOMAIN, "geraet_entfernen", {"device_id": dev.id}, blocking=True)
+        from . import device_id_for
+
+        hub = _hub(self.hass, self.data)
+        if hub and (dev_id := device_id_for(hub, (DOMAIN, self._device["sn"]))):
+            await self.hass.services.async_call(DOMAIN, "geraet_entfernen", {"device_id": dev_id}, blocking=True)
         ir.async_delete_issue(self.hass, DOMAIN, self.issue_id)
         return self.async_create_entry(data={})
 
