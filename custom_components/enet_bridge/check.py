@@ -38,6 +38,7 @@ MAX_LINKS = 24  # maximum entries read per GO (end of table = nack rc 255)
 
 class Check:
     def __init__(self, hub: Hub) -> None:
+        self._unreadable = False  # a member did not answer during the last scene link check
         self.hub = hub
         self.hass = hub.hass
         self.missing_links: dict[str, list[tuple[int, int]]] = {}  # channel → [(GA, GO)]
@@ -130,13 +131,33 @@ class Check:
                 gas.add(int.from_bytes(v[7:9], "big"))
         return gas
 
-    async def check_links(self) -> None:
-        """Read the scene links of all members of HA scenes and report missing ones."""
+    async def check_links(self, force: bool = False) -> None:
+        """Read the scene links of all members of HA scenes and report missing ones. Unchanged scenes and devices
+        since the last complete check: report the stored result without reading (about 120 radio requests after
+        every HA start in the office otherwise)."""
+        fingerprint = self._links_fingerprint()
+        stored = self.hub.installation.get("pruefung_szenen_links") or {}
+        if not force and stored.get("fp") == fingerprint and not stored.get("fehlend"):
+            self._report_missing({})  # complete before and nothing missing: no need to read again
+            return
+        self._unreadable = False
         missing = await self._missing_links()
         self._report_missing(missing)
+        if not self._unreadable:  # all members answered: result is complete, keep it
+            self.hub.installation["pruefung_szenen_links"] = {
+                "fp": fingerprint, "fehlend": {key: [list(x) for x in links] for key, links in missing.items()}}
+            await self.hub.save_installation()
 
-    async def _missing_links(self, ia: str | None = None) -> dict[str, list[tuple[int, int]]]:
-        """Missing scene links per channel (ia: only this device)."""
+    def _links_fingerprint(self) -> str:
+        """Everything the scene link check depends on: the wanted links and the members' identity/GA base
+        (a factory reset changes the GA base and empties the link table)."""
+        channels_ = {k.key: k for k in self.hub.channels_}
+        needed = self._needed_links()
+        devices = sorted({(channels_[key].enet_device["sn"], channels_[key].ia,
+                           channels_[key].enet_device.get("ga_basis")) for key in needed})
+        return repr((sorted((key, sorted(v)) for key, v in needed.items()), devices))
+
+    def _needed_links(self, ia: str | None = None) -> dict[str, set[tuple[int, int]]]:
         channels_ = {k.key: k for k in self.hub.channels_}
         needed: dict[str, set[tuple[int, int]]] = {}
         for s in self.hub.scenes.scenes:
@@ -150,12 +171,19 @@ class Check:
                     needed.setdefault(key, set()).add((s.ga, k.go("SC", GO_SCENE)))
                     if s.ga_status is not None:
                         needed[key].add((s.ga_status, k.go("SSGET", GO_SUMSTATUS_GET)))
+        return needed
+
+    async def _missing_links(self, ia: str | None = None) -> dict[str, list[tuple[int, int]]]:
+        """Missing scene links per channel (ia: only this device)."""
+        channels_ = {k.key: k for k in self.hub.channels_}
+        needed = self._needed_links(ia)
         missing: dict[str, list[tuple[int, int]]] = {}
         for key, wanted in needed.items():
             k = channels_[key]
             for go in (k.go("SC", GO_SCENE), k.go("SSGET", GO_SUMSTATUS_GET)):
                 present = await self._links(k, go)
                 if present is None:
+                    self._unreadable = True
                     continue  # not reachable: reported as "does not respond"
                 missing_ = [(ga, g) for ga, g in wanted if g == go and ga not in present]
                 if missing_:
@@ -197,7 +225,7 @@ class Check:
         # if links were missing, the device was usually reset – then its scene values are missing too
         for ia in sorted({channels_[key].ia for key in self.missing_links if key in channels_}):
             errors += await self.hub.scenes.restore_values(ia)
-        await self.check_links()
+        await self.check_links(force=True)
         return errors
 
     async def restore_actuator(self, ia: str) -> list[str]:

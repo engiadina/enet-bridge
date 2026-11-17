@@ -59,6 +59,7 @@ because they are stored in installations or used in automations and in the proto
 | `tasten` | keys/rockers of a transmitter: `art` `wippe` (rocker) / `taste` (single key), `ziele` (target channels), `ha_ziele` (HA lamps), `antwort_ga` (reply group address) |
 | `ga_basis`, `ga_basis_geprueft` | group address base of a device (changes with every factory reset), checked flag |
 | `zentral` | central key targets of a wall transmitter |
+| `pruefung_szenen_links` | result of the last complete scene link check: `fp` (fingerprint of scenes and members), `fehlend` (missing links) |
 | `sensor_aktionen` | actions of the sun sensor channels |
 | `server` | emulated eNet server: `domain`, `sn`, `ia` |
 | `esp` | configuration for the bridge: `szenen` (local scenes), `server_tasten` (server keys) |
