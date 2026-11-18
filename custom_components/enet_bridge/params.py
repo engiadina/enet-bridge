@@ -89,19 +89,21 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "SST": ("Lamellen-Schrittzeit", "Slat step time", True),
     "REPEATER_MODE_ENABLE": ("Repeatermodus", "Repeater mode", False),
     "LEARN_MODE_ENABLE": ("Manuelle Inbetriebnahme (Gerät)", "Manual commissioning (device)", False),
-    "SUMSTATE_MAX_TIMEOUT": ("Statusmeldung Wartezeit", "Status message timeout", False),
-    # sun sensor (DVT_SF1S, channel type CT_1F18); channel prefix "sun protection"/"twilight" from CHANNEL_NAMES
+    "SUMSTATE_MAX_TIMEOUT": ("Quittung Wartezeit", "Acknowledgement timeout", False),
+    # sun sensor (DVT_SF1S, channel type CT_1F18); channel prefix "sun protection"/"twilight" from CHANNEL_NAMES.
+    # The scene numbers (48–51) are fixed by the special functions → hidden; the acknowledgement mode is shown
+    # (factory state "unlinked" decides whether the sensor reports on its own – under test)
     "PT_INThScS.THV1": ("Schwelle", "Threshold", True),
-    "PT_INThScS.ASNVE": ("Szene bei Überschreitung", "Scene when exceeded", True),
-    "PT_INThScS.ASNVU": ("Szene bei Unterschreitung", "Scene when below", True),
+    "PT_INThScS.ASNVE": ("Szene bei Überschreitung", "Scene when exceeded", False),
+    "PT_INThScS.ASNVU": ("Szene bei Unterschreitung", "Scene when below", False),
     "PT_INThScS.MCE": ("Bedienung am Gerät", "Operation on the device", False),
     "PT_INThScS.LME": ("Lernmodus am Gerät", "Learn mode on the device", False),
     "CHANNEL_1_SCENE_SENSOR_MODE": ("Funktion", "Function", False),
     "CHANNEL_2_SCENE_SENSOR_MODE": ("Funktion", "Function", False),
-    "CHANNEL_1_ACTUAL_SCENE_NUMBER": ("Szenennummer", "Scene number", True),
-    "CHANNEL_2_ACTUAL_SCENE_NUMBER": ("Szenennummer", "Scene number", True),
-    "CHANNEL_1_SUMSTATE_MODE": ("Statusmeldung", "Status message", False),
-    "CHANNEL_2_SUMSTATE_MODE": ("Statusmeldung", "Status message", False),
+    "CHANNEL_1_ACTUAL_SCENE_NUMBER": ("Szenennummer", "Scene number", False),
+    "CHANNEL_2_ACTUAL_SCENE_NUMBER": ("Szenennummer", "Scene number", False),
+    "CHANNEL_1_SUMSTATE_MODE": ("Quittung", "Acknowledgement", True),
+    "CHANNEL_2_SUMSTATE_MODE": ("Quittung", "Acknowledgement", True),
     "CHARGE_VOLTAGE": ("Ladespannung", "Charging voltage", True),
     # motion detector channel (CT_1F1B, e.g. Steinel XLED PRO)
     "BSPE": ("Helligkeitsschwelle aktiv", "Brightness threshold active", True),
@@ -131,7 +133,6 @@ CHOICE: dict[str, tuple[str, str]] = {
     "LED_CAPACITIVE": ("LED Phasenabschnitt", "LED trailing edge"), "LED_INDUCTIVE": ("LED Phasenanschnitt", "LED leading edge"),
     "RESTART": ("Neu starten", "Restart"), "SP_SUNPROTECTION": ("Sonnenschutz", "Sun protection"),
     "TF_TWILIGHT_FNC": ("Dämmerung", "Twilight"), "NO_OPTIONALS": ("Keine", "None"),
-    "OFF_3_REPETITIONS_UNLINKED": ("Aus (3 Wiederholungen, unverknüpft)", "Off (3 repetitions, unlinked)"),
     "PULSE_MODE": ("Impuls", "Pulse"), "NIGHT_GROUND": ("Nachtbetrieb", "Night operation"),
 }
 COUNTERS = {"SWITCH_COUNTER": ("Schaltspiele", "Switching cycles"),
@@ -143,14 +144,27 @@ def _language(paar: tuple[str, str]) -> str:
     return paar[0] if german() else paar[1]
 
 
-def choice(value: str) -> str:
+def _sumstate(value: str) -> str | None:
+    """Sumstate mode (PID 0xCD): ON = the device waits for an acknowledgement (SumstatusInfo, green LED on
+    transmitters), OFF_n_REPETITIONS = no acknowledgement, the telegram is sent n times; 254 = the same with 3,
+    factory state "unlinked"."""
+    if value == "ON":
+        return _language(("Mit Quittung", "With acknowledgement"))
+    if m := re.fullmatch(r"OFF_(\d+)_REPETITIONS?(_UNLINKED)?", value):
+        n, unlinked = int(m.group(1)), bool(m.group(2))
+        if german():
+            return f"Ohne Quittung, {n}× senden" + (" (Werkszustand, unverknüpft)" if unlinked else "")
+        return f"No acknowledgement, send {n}×" + (" (factory state, unlinked)" if unlinked else "")
+    return None
+
+
+def choice(value: str, param_id: str = "") -> str:
     """Display of a choice value (catalog identifier) in the configured language."""
+    if param_id.endswith("SUMSTATE_MODE") and (text := _sumstate(value)):
+        return text
     if value in CHOICE:
         return _language(CHOICE[value])
-    if m := re.fullmatch(r"OFF_(\d+)_REPETITIONS?", value):  # status message mode of transmitters
-        n = int(m.group(1))
-        return f"Aus ({n} Wiederholung{'en' if n > 1 else ''})" if german() else f"Off ({n} repetition{'s' if n > 1 else ''})"
-    return value
+    return _sumstate(value) or value
 
 
 def channel_name(typ: str, channel: int | None) -> str | None:
@@ -234,7 +248,7 @@ class Param:
     @property
     def default_active(self) -> bool:
         if self.kind == "sender" and CHANNEL_SETTING.match(self.id):
-            return False  # status message mode / scene number of transmitter channels: not in the manuals
+            return False  # acknowledgement mode / scene number of transmitter channels: not in the manuals
         return bool(SPECIAL.match(self.id)) or (self._own_name() or ("", "", False))[2]
 
     def _own_name(self) -> tuple[str, str, bool] | None:
@@ -355,6 +369,10 @@ class ParamStore:
         self.signal = signal
         self._store: Store = Store(hass, 1, f"{DOMAIN}_parameter_{entry_id}")
         self.values_: dict[str, dict[str, str]] = {}
+        # sleeping sensors: changed settings are only noted (SN → {key: hex}) and written in one go after a single
+        # wake-up ("Program sensor" button) – otherwise every change would need its own press on the test key
+        self._pending_store: Store = Store(hass, 1, f"{DOMAIN}_parameter_vorgemerkt_{entry_id}")
+        self.pending: dict[str, dict[str, str]] = {}
         self.lock = asyncio.Lock()
         self._programming: dict[str, asyncio.Lock] = {}
         # After the frame the actuator restarts and switches its outputs off (test 2026-10-30): the hub remembers
@@ -371,9 +389,11 @@ class ParamStore:
 
     async def laden(self) -> None:
         self.values_ = (await self._store.async_load()) or {}
+        self.pending = (await self._pending_store.async_load()) or {}
 
     def raw_(self, sn: str, p: Param) -> bytes | None:
-        h = self.values_.get(sn, {}).get(p.key)
+        """Noted (not yet written) value first, otherwise the value read from the device."""
+        h = self.pending.get(sn, {}).get(p.key) or self.values_.get(sn, {}).get(p.key)
         return bytes.fromhex(h) if h is not None else None
 
     def value(self, sn: str, p: Param) -> Any:
@@ -498,6 +518,30 @@ class ParamStore:
         if read_values != data:
             raise BridgeError("verify_failed", tr("verify_fehler", name=f"{ia} obj {obj} @{start}", neu=data.hex(), gelesen=read_values.hex()))
 
+    def is_pending(self, sn: str, p: Param | None = None) -> bool:
+        noted = self.pending.get(sn, {})
+        return bool(noted) if p is None else p.key in noted
+
+    async def note(self, sn: str, p: Param, value: Any) -> None:
+        """Note a changed setting of a sleeping device; written by write_pending()."""
+        self.pending.setdefault(sn, {})[p.key] = p.encode(value).hex()
+        await self._pending_store.async_save(self.pending)
+        async_dispatcher_send(self.hass, self.signal, sn)
+
+    async def drop_pending(self, sn: str) -> None:
+        if self.pending.pop(sn, None) is not None:
+            await self._pending_store.async_save(self.pending)
+
+    async def write_pending(self, ia: str, sn: str, params: list[tuple[int, Param]]) -> int:
+        """Write the noted settings (device awake). params: (device_obj, param) of the device. Returns the number
+        written; each one leaves the list once it is written and verified."""
+        written = 0
+        for device_obj, p in params:
+            if (h := self.pending.get(sn, {}).get(p.key)) is not None:
+                await self.write(ia, sn, device_obj, p, p.decode(bytes.fromhex(h)))
+                written += 1
+        return written
+
     async def write(self, ia: str, sn: str, device_obj: int, p: Param, value: Any) -> None:
         """Write one parameter, same sequence as the eNet Server (load state, checksum, timestamp)."""
         new = p.encode(value)
@@ -516,6 +560,10 @@ class ParamStore:
             read_values = bytes.fromhex(r.get("value", ""))[: p.length]
             self.values_.setdefault(sn, {})[p.key] = read_values.hex()
             await self._store.async_save(self.values_)
+            if read_values == new and (noted := self.pending.get(sn)) and noted.pop(p.key, None) is not None:
+                if not noted:
+                    del self.pending[sn]
+                await self._pending_store.async_save(self.pending)
         async_dispatcher_send(self.hass, self.signal, sn)
         if read_values != new:
             raise BridgeError("verify_failed", tr("verify_fehler", name=p.name, neu=new.hex(), gelesen=read_values.hex()))

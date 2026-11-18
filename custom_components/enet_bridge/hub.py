@@ -248,7 +248,7 @@ class Hub:
         self.params.restore_states = self._restore_states
         self.params.frame_report = self._frame_report
         self.programmed: set[str] = set()  # IAs whose actuator is currently in a programming frame
-        self.senders_active: set[str] = set()  # SNs of transmitters currently being programmed (waiting or running)
+        self.senders_active: set[str] = set()  # SNs of transmitters (and sleeping sensors) being programmed
         self.scene_in_progress: str | None = None  # HA scene whose eNet part is currently being transferred
         self.scenes = SceneManager(self)
         self.ha_scenes = HaScenes(self)
@@ -633,6 +633,46 @@ class Hub:
         same = [g for g in self.device_params(group.enet_device) if g.channel == group.channel]
         others = [g for g in self.device_params(group.enet_device) if g.channel != group.channel]
         return next((p for g in same + others for p in g.params if p.id == ident), None)
+
+    def collects(self, enet_device: dict[str, Any]) -> bool:
+        """Sleeping device other than a transmitter (sun sensor): settings are noted and written together via the
+        "Program sensor" button (transmitters have their own programming)."""
+        return self.sleeps(enet_device) and enet_device.get("rolle") != "sender"
+
+    def sensor_pending(self, enet_device: dict[str, Any]) -> bool:
+        """Something to program on a sleeping sensor: changed settings or a changed scene assignment."""
+        return self.params.is_pending(enet_device["sn"]) or bool(enet_device.get("sensor_vorgemerkt"))
+
+    async def note_sensor_change(self, enet_device: dict[str, Any], p: Any = None, value: Any = None) -> None:
+        """Setting (p, value) or scene assignment of a sensor changed: note it; the button "Program sensor" appears
+        (reload) – like the pending operating modes of a transmitter."""
+        before = self.sensor_pending(enet_device)
+        if p is not None:
+            await self.params.note(enet_device["sn"], p, value)
+        else:
+            enet_device["sensor_vorgemerkt"] = True
+            await self.save_installation()
+        if not before:
+            self.hass.config_entries.async_schedule_reload(self.entry_id)
+
+    async def program_sensor(self, enet_device: dict[str, Any]) -> None:
+        """Button "Program sensor": wake the sensor once and write the noted settings. (The scene assignment takes
+        effect in HA right away; programming the actuators directly follows later.)"""
+        sn = enet_device["sn"]
+        if sn in self.senders_active:
+            return
+        params = [(g.device_obj, p) for g in self.device_params(enet_device) for p in g.params]
+        self.senders_active.add(sn)
+        async_dispatcher_send(self.hass, self.signal(f"sender_aktiv_{sn}"))  # lock the button meanwhile
+        try:
+            if self.params.is_pending(sn):
+                await self.woken(enet_device, lambda: self.params.write_pending(enet_device["ia"], sn, params))
+            if enet_device.pop("sensor_vorgemerkt", None):
+                await self.save_installation()
+        finally:
+            self.senders_active.discard(sn)
+            async_dispatcher_send(self.hass, self.signal(f"sender_aktiv_{sn}"))
+        self.reload_after_radio()  # button disappears
 
     def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
         return [g for g in self.param_groups if g.enet_device is enet_device]

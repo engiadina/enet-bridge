@@ -48,13 +48,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
 class EnetParamSelect(EnetParamEntity, SelectEntity):
     def __init__(self, hub, param_group, param) -> None:
         super().__init__(hub, param_group, param)
-        self._store_key = {choice(k): k for k in param.typ.get("werte", {})}
+        werte = param.typ.get("werte", {})
+        keys = sorted(werte, key=werte.get) if param.id.endswith("SUMSTATE_MODE") else werte  # 0, 1 … 10, 254
+        self._store_key = {choice(k, param.id): k for k in keys}
         self._attr_options = list(self._store_key)
 
     @property
     def current_option(self) -> str | None:
         w = self.value
-        return choice(w) if w is not None else None
+        return choice(w, self.param.id) if w is not None else None
 
     async def async_select_option(self, option: str) -> None:
         await self.write(self._store_key[option])
@@ -257,8 +259,8 @@ class KeyAction(EnetEntity, SelectEntity):
 
 
 class SensorAction(EnetEntity, SelectEntity):
-    """Sonnensensor: Szene bei Sonnenschutz bzw. Dämmerung ein/aus. Die Integration ruft sie auf, wenn das
-    Szenentelegramm des Sensors kommt (Hub._sensor_aktion) – sofort wirksam, am Sensor wird nichts programmiert."""
+    """Sun sensor: scene for sun protection / twilight on/off. The integration calls it when the sensor's scene
+    telegram arrives (Hub._sensor_aktion) – effective right away; a change also shows "Program sensor"."""
 
     def __init__(self, hub, enet_device, channel: int, on: bool) -> None:
         super().__init__(hub)
@@ -299,3 +301,4 @@ class SensorAction(EnetEntity, SelectEntity):
             self.enet_device.pop("sensor_aktionen")
         await self.hub.save_installation()
         self.async_write_ha_state()
+        await self.hub.note_sensor_change(self.enet_device)

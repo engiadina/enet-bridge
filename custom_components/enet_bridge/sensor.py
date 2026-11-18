@@ -253,7 +253,7 @@ class ParamText(EnetParamEntity, SensorEntity):
     def native_value(self):
         from .params import choice
         w = self.value
-        return None if w is None else choice(w)
+        return None if w is None else choice(w, self.param.id)
 
 
 class FrequencyCorrection(EnetEntity, SensorEntity):

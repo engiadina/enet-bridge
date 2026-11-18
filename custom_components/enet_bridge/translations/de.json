@@ -152,6 +152,9 @@
       "sender_programmieren": {
         "name": "Sender programmieren"
       },
+      "sensor_programmieren": {
+        "name": "* Sensor programmieren *"
+      },
       "fahrzeit_einmessen": {
         "name": "* Fahrzeit einmessen *"
       },
