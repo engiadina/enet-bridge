@@ -497,6 +497,41 @@ class ParamStore:
         if not r.get("value", "").startswith("01"):
             _LOGGER.warning("%s: load state after programming %s instead of 01", ia, r.get("value"))
 
+    async def write_image(self, ia: str, device_obj: int, image: list[tuple[Param, bytes]], purpose: str) -> list[str]:
+        """Write many parameters at once (factory values or stored settings after pairing): properties directly,
+        the parameter memory (PID 79) of each object in contiguous blocks inside one programming frame. Gaps
+        between catalogue parameters stay untouched. Returns error texts."""
+        errors: list[str] = []
+        memory: dict[int, dict[int, int]] = {}
+        async with self.lock, self.programming(ia):
+            for p, data in image:
+                if p.d["pid"] == PID_PARAM:
+                    mem = memory.setdefault(p.d["obj"], {})
+                    for i, b in enumerate(data):
+                        mem[p.d["start"] + i] = b
+                    continue
+                try:
+                    await self._pw(ia, p.d["obj"], p.d["pid"], data, p.d["start"], p.d["anzahl"])
+                except BridgeError as err:
+                    errors.append(f"{p.id}: {err}")
+            for obj, mem in sorted(memory.items()):
+                runs: list[tuple[int, bytearray]] = []
+                for addr in sorted(mem):
+                    if runs and runs[-1][0] + len(runs[-1][1]) == addr and len(runs[-1][1]) < MAX_BLOCK:
+                        runs[-1][1].append(mem[addr])
+                    else:
+                        runs.append((addr, bytearray([mem[addr]])))
+
+                async def steps(obj=obj, runs=runs) -> None:
+                    for start, data in runs:
+                        await self._pw(ia, obj, PID_PARAM, bytes(data), start, len(data))
+
+                try:
+                    await self._frame(ia, device_obj, obj, steps, parameter=True, purpose=purpose)
+                except BridgeError as err:
+                    errors.append(f"obj {obj}: {err}")
+        return errors
+
     async def program(self, ia: str, device_obj: int, obj: int, steps, purpose: str | None = None) -> None:
         """Run arbitrary steps (e.g. create/delete links) inside the programming frame."""
         async with self.lock, self.programming(ia):

@@ -16,9 +16,11 @@ re-paired (followed by "Program transmitter", which also adapts the actuator sid
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from . import versions
@@ -26,6 +28,8 @@ from .bridge import BridgeError
 from .const import KIND_BLIND
 from .iex import ACTUATOR_ROCKERS, CHANNEL_TYPES, DEVICE_TYPES, PRODUCT_TYPES, ia_str, product_ident
 from .measurements import MEASUREMENT_KINDS
+from .params import NOT_FOR_TYPE, Param
+from .scenes import PID_LINKS
 from .texts import tr
 
 if TYPE_CHECKING:
@@ -405,11 +409,87 @@ async def _init_blinds(hub: Hub, g: dict[str, Any]) -> None:
             _LOGGER.warning("%s: travel time channel %d not written: %s", g["name"], k["nr"], err)
 
 
+def _writable_params(hub: Hub, g: dict[str, Any]) -> list[Param]:
+    """All writable catalogue parameters of an actuator (device and channels of the stored channel type), without
+    counters/energy and the learning switch."""
+    d = hub.definitions.get(g.get("typ", ""), {})
+    skip = NOT_FOR_TYPE.get(g.get("typ", ""), set())
+    types_ = {k["nr"]: k.get("kanaltyp") for k in g.get("kanaele", [])}
+    raw = list(d.get("geraet", []))
+    for k in d.get("kanaele", []):
+        if types_.get(k["nr"]) in (None, k["kanaltyp"]):  # switched channel type: catalogue defaults don't fit
+            raw += k.get("parameter", [])
+    params = [Param(x) for x in raw]
+    return [p for p in params if not p.read_only and p.id not in skip and "INFO_ACTIVE" not in p.id
+            and p.id != "LEARN_MODE_ENABLE" and "standard" in p.d["typ"]
+            and p.d["typ"].get("kodierung") not in (None, "unbekannt")]
+
+
+async def _initialize(hub: Hub, g: dict[str, Any], known: bool) -> list[str]:
+    """Bring a freshly paired actuator into a defined state, like a factory reset – whatever it held before
+    (another installation, earlier tests):
+    - known device (factory reset of a device of this installation): its stored settings, factory values for the
+      rest (scene values are written back afterwards by restore_actuator);
+    - new device: factory values of all settings and scene values, links of other installations deleted.
+    The programming frame also ends the programming mode (the learning LED stops blinking; until then the actuator
+    keeps blinking although the KNX programming mode PID 0x36 is already 00 – test 2026-11-18)."""
+    stored = hub.params.values_.get(g["sn"], {}) if known else {}
+    image: list[tuple[Param, bytes]] = []
+    for p in _writable_params(hub, g):
+        data = bytes.fromhex(stored.get(p.key, ""))
+        if len(data) != p.length:
+            try:
+                data = p.encode(p.d["typ"]["standard"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        image.append((p, data))
+    purpose = tr("zweck_einlernen")
+    errors = await hub.params.write_image(g["ia"], hub.device_obj(g), image, purpose) if image else []
+    if not known:
+        errors += await _delete_foreign_links(hub, g)
+    # refresh the cache (settings entities after the reload)
+    with contextlib.suppress(BridgeError):
+        await hub.params.read(g["ia"], g["sn"], [p for p in (q for q, _ in image) if p.usable])
+    _LOGGER.info("%s: %s written after pairing (%d parameters)%s", g["name"],
+                 "stored settings" if known else "factory settings", len(image),
+                 f", errors: {'; '.join(errors)}" if errors else "")
+    return errors
+
+
+async def _delete_foreign_links(hub: Hub, g: dict[str, Any]) -> list[str]:
+    """New device: every created link (not the factory entries) comes from elsewhere – delete them."""
+    errors: list[str] = []
+    for c in g.get("kanaele", []):
+        k = SimpleNamespace(ia=g["ia"], obj=c["obj"], key=f"{g['ia']}/{c['nr']}")
+        try:
+            foreign = [x for x in await hub.check.read_table(k) if x.typ != 1]
+        except BridgeError as err:
+            errors.append(f"K{c['nr']}: {err}")
+            continue
+        if not foreign:
+            continue
+
+        async def steps(k=k, foreign=foreign) -> None:
+            for link in foreign:
+                await hub.bridge.request("fp_cmd", ia=k.ia, obj=k.obj, pid=PID_LINKS, data=link.command_(2).hex())
+
+        _LOGGER.info("%s K%d: deleting %d links of another installation", g["name"], c["nr"], len(foreign))
+        try:
+            await hub.params.program(g["ia"], hub.device_obj(g), c["obj"], steps, purpose=tr("zweck_alt_links"))
+        except BridgeError as err:
+            errors.append(f"K{c['nr']}: {err}")
+    return errors
+
+
 async def add(hub: Hub, name: str | None = None, room: str | None = None) -> dict[str, Any]:
     """Complete pairing (service and "+ Add device"): search, take over, set room; a transmitter is programmed right
     away (awake in learning mode) and released – its learning LED stops blinking = paired."""
     known = {x["sn"] for x in hub.installation["geraete"]}
     g = await pair(hub, name)
+    if g["rolle"] == "aktor":
+        errors = await _initialize(hub, g, g["sn"] in known)
+        if errors:
+            _LOGGER.warning("Initializing %s after pairing: %s", g["name"], "; ".join(errors))
     if g["rolle"] == "aktor" and g["sn"] in known:
         # factory reset of an actuator of the installation: scene links and values in the device are gone – write back
         hub.activity(tr("akt_szenen_wiederherstellen", name=g["name"]))

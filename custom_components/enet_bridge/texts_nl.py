@@ -72,6 +72,7 @@ TEXTS_NL: dict[str, str] = {
     "link_keine_szene": "van de server, geen scène",
     "link_fremd": "van apparaat {sn}, hoort niet bij de installatie",
     "zweck_einstellung": "instelling {name}",
+    "zweck_einlernen": "inleren afronden",
     "zweck_fahrzeit": "looptijd {name}",
     "einmessen_schritt_oben": "Inmeten: beweegt omhoog – zodra helemaal boven, druk op “Positie bereikt”",
     "einmessen_schritt_oben_markise": "Inmeten: wordt ingetrokken – zodra helemaal ingetrokken, druk op “Positie bereikt”",

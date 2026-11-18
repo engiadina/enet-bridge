@@ -756,11 +756,25 @@ class Hub:
             activity(tr("akt_sensor_wach"))
             hold = self.hass.async_create_background_task(s.keep_awake(), f"{DOMAIN} keep sensor awake")
             try:
-                return await job()
+                result = await job()
+                await self._read_versions_awake(enet_device, s)
+                return result
             finally:
                 hold.cancel()
                 with contextlib.suppress(BridgeError):
                     await s.pw(self.device_obj(enet_device), 0x48, b"\x03")  # release
+
+    async def _read_versions_awake(self, enet_device: dict[str, Any], s) -> None:
+        """The sensor is awake anyway: read its firmware versions once for the device page (the startup backfill
+        skips sleeping devices)."""
+        if "platine" in (enet_device.get("firmware") or {}):
+            return
+        if fw := await versions.read(self, enet_device["ia"], s.pr):
+            enet_device["firmware"] = {**(enet_device.get("firmware") or {}), **fw}
+            versions.update_registry(self, enet_device)
+            await self.save_installation()
+            _LOGGER.info("%s (%s): firmware %s", enet_device["name"], enet_device["ia"],
+                         versions.sw_version(enet_device))
 
     @callback
     def _check_switch_on_brightness(self, key_obj: Key, msg: dict[str, Any]) -> None:
