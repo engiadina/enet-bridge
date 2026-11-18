@@ -86,6 +86,13 @@ class EnetParamEntity(EnetEntity):
     def available(self) -> bool:
         return super().available and self.value is not None
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = dict(self._attr_extra_state_attributes)
+        if self.hub.params.is_pending(self.param_group.enet_device["sn"], self.param):
+            attrs["vorgemerkt"] = True  # changed in HA, not yet written to the device
+        return attrs
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self._listen("params", self._on_params)
@@ -97,6 +104,9 @@ class EnetParamEntity(EnetEntity):
 
     async def write(self, value) -> None:
         g = self.param_group.enet_device
+        if self.hub.collects(g):  # sleeping sensor: note only, "Program sensor" writes everything after one wake-up
+            await self.hub.note_setting(g, self.param, value)
+            return
         # priority of a special function: PSN[n] (call) and PSN[n+1] (cancel) are kept equal, as the catalogue makes
         # each depend on the other
         partner = None

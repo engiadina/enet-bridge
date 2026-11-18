@@ -23,7 +23,7 @@ from . import versions
 from .bridge import Bridge, BridgeError, foreign_radio
 from .installation import InstallationStore
 from .const import CONF_INSTALLATION, CONF_PORT, DEFAULT_DEFINITIONS, DOMAIN, MANUFACTURER
-from .hub import Hub
+from .hub import Hub, sensor_action_key
 from .texts import tr
 from . import texts
 from .iex import product_ident
@@ -86,6 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     await hub.scenes.laden()
     await hub.params.laden()  # stored parameter values decide which settings exist (visibility.py)
     _remove_orphaned_keys(hass, hub)
+    await _sensor_view(hass, hub)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await visibility.sync_registry(hass, hub)
     await hub.async_start()
@@ -163,6 +164,45 @@ def _remove_orphaned_keys(hass: HomeAssistant, hub: Hub) -> None:
             if uid not in remain:
                 _LOGGER.info("Entity %s removed (button no longer assigned)", e.entity_id)
                 reg.async_remove(e.entity_id)
+
+
+SENSOR_HIDDEN = re.compile(r"(^|\.)(ASNVE|ASNVU)$|^CHANNEL_\d+_ACTUAL_SCENE_NUMBER$")
+SENSOR_SHOWN = re.compile(r"^CHANNEL_\d+_SUMSTATE_MODE$")
+
+
+async def _sensor_view(hass: HomeAssistant, hub: Hub) -> None:
+    """Sleeping sensors: remove "Program sensor" / "Program scenes" while nothing is noted. Once per installation (ansicht_sensor):
+    entities created by older versions get the current defaults – scene numbers off, acknowledgement on, scene
+    events and scene choices visible."""
+    reg = er.async_get(hass)
+    sensors = [g for g in hub.installation["geraete"] if hub.collects(g)]
+    for g in sensors:
+        for suffix, pending in (("sensor_programmieren", hub.settings_pending(g)),
+                                ("szenen_programmieren", hub.scenes_pending(g))):
+            if not pending and (eid := reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_{suffix}")):
+                reg.async_remove(eid)
+    if hub.installation.get("ansicht_sensor", 0) >= 1:
+        return
+    for g in sensors:
+        for grp in hub.device_params(g):
+            for p in grp.params:
+                uid = f"{g['sn']}_p_{p.key}"
+                if not (eid := next(filter(None, (reg.async_get_entity_id(d, DOMAIN, uid)
+                                                  for d in ("number", "select", "sensor", "switch"))), None)):
+                    continue
+                e = reg.async_get(eid)
+                if SENSOR_HIDDEN.search(p.id) and e.disabled_by is None:
+                    reg.async_update_entity(eid, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+                elif SENSOR_SHOWN.match(p.id) and e.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+                    reg.async_update_entity(eid, disabled_by=None)
+        for channel in (1, 2):
+            shown_ = [("event", f"{g['sn']}_szene_{channel}")] + [
+                ("select", f"{g['sn']}_sensor_{sensor_action_key(channel, on)}_aktion") for on in (True, False)]
+            for domain, uid in shown_:  # scene events and scene choices: visible
+                if (eid := reg.async_get_entity_id(domain, DOMAIN, uid)) and reg.async_get(eid).hidden_by:
+                    reg.async_update_entity(eid, hidden_by=None)
+    hub.installation["ansicht_sensor"] = 1
+    await hub.save_installation()
 
 
 async def _pair(hass: HomeAssistant, call: ServiceCall) -> None:

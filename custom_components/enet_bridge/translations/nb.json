@@ -152,6 +152,12 @@
       "sender_programmieren": {
         "name": "Programmer sender"
       },
+      "sensor_programmieren": {
+        "name": "* Programmer sensor *"
+      },
+      "szenen_programmieren": {
+        "name": "* Programmer scener *"
+      },
       "fahrzeit_einmessen": {
         "name": "* Mål kjøretid *"
       },
