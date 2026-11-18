@@ -1,32 +1,41 @@
-"""Fixed texts of the integration in German, English and Norwegian (Bokmål, texts_nb.py).
+"""Fixed texts of the integration in German, English, Norwegian (Bokmål, texts_nb.py) and Dutch (texts_nl.py).
 
 For everything Home Assistant does not translate itself: entries in the activity log (logbook), error messages in
 the UI, dynamic option lists, parameter names. Texts for setup, entities, services and repairs live in
 strings.json / translations/*.json as usual.
 
-The language comes from the HA setting (set_language() when the entry is set up); German, Norwegian, otherwise
-English.
+The language comes from the HA setting (set_language() when the entry is set up); German, Norwegian, Dutch,
+otherwise English.
 Log messages (_LOGGER) are in English and are not translated.
 
-New texts: add the key here, (German, English), placeholders in str.format style; Norwegian in texts_nb.py
-(optional – missing keys fall back to English).
+New texts: add the key here, (German, English), placeholders in str.format style; Norwegian in texts_nb.py,
+Dutch in texts_nl.py (optional – missing keys fall back to English).
 """
 from __future__ import annotations
 
 try:
     from .texts_nb import TEXTS_NB
+    from .texts_nl import TEXTS_NL
 except ImportError:  # tools/iex.py and tools/enet.py load the module without a package
     from texts_nb import TEXTS_NB  # type: ignore[no-redef]
+    from texts_nl import TEXTS_NL  # type: ignore[no-redef]
 
 _LANG = "de"  # German until set_language() has been called (tests, tools)
-LANGUAGES = ("de", "en", "nb")
+LANGUAGES = ("de", "en", "nb", "nl")
 
 
 def set_language(language: str | None) -> None:
-    """Take the language from hass.config.language: German, Norwegian (Bokmål), anything else English."""
+    """Take the language from hass.config.language: German, Norwegian (Bokmål), Dutch, anything else English."""
     global _LANG
     code = (language or "").lower()
-    _LANG = "de" if code.startswith("de") else "nb" if code.startswith(("nb", "no")) else "en"
+    if code.startswith("de"):
+        _LANG = "de"
+    elif code.startswith(("nb", "no")):
+        _LANG = "nb"
+    elif code.startswith("nl"):
+        _LANG = "nl"
+    else:
+        _LANG = "en"
 
 
 def german() -> bool:
@@ -38,9 +47,16 @@ def language() -> str:
 
 
 def tr(key_: str, **values_: object) -> str:
-    """Text in the configured language, placeholders replaced. Norwegian falls back to English per text."""
+    """Text in the configured language, placeholders replaced. Norwegian and Dutch fall back to English per text."""
     de, en = TEXTS[key_]
-    text = de if _LANG == "de" else TEXTS_NB.get(key_, en) if _LANG == "nb" else en
+    if _LANG == "de":
+        text = de
+    elif _LANG == "nb":
+        text = TEXTS_NB.get(key_, en)
+    elif _LANG == "nl":
+        text = TEXTS_NL.get(key_, en)
+    else:
+        text = en
     return text.format(**values_)
 
 

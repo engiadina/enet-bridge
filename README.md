@@ -70,7 +70,7 @@ I have an eNet Server myself. It works very well and is nicely integrated into H
   the actuators (leftovers of earlier assignments, links of foreign devices) show up under *Settings → Repairs*
   – removed only after confirmation.
 - Bridge firmware is installed and updated by the integration itself; the radio is calibrated automatically.
-- German and English user interface.
+- User interface in German, English, Norwegian Bokmål and Dutch.
 
 ## Screenshots
 
