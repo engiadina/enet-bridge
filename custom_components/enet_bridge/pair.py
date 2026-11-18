@@ -481,6 +481,26 @@ async def _delete_foreign_links(hub: Hub, g: dict[str, Any]) -> list[str]:
     return errors
 
 
+REPORT_ITSELF = "OFF_3_REPETITIONS"  # sumstate mode: no acknowledgement, send 3× (factory: unlinked → silent)
+
+
+async def _report_itself(hub: Hub, g: dict[str, Any]) -> None:
+    """Sleeping sensor (sun sensor, motion detector), still awake right after pairing: set the acknowledgement mode
+    of its channels from the factory state "unlinked" (sends nothing on its own – sun sensor 2026-11-18) to
+    "no acknowledgement, send 3×", so HA gets its reports without a link."""
+    d = hub.definitions.get(g.get("typ", ""), {})
+    for x in [x for k in d.get("kanaele", []) for x in k.get("parameter", [])] + list(d.get("geraet", [])):
+        p = Param(x)
+        if not p.id.endswith("SUMSTATE_MODE") or REPORT_ITSELF not in p.d["typ"].get("werte", {}):
+            continue
+        try:
+            await hub.params.write(g["ia"], g["sn"], hub.device_obj(g), p, REPORT_ITSELF)
+            _LOGGER.info("%s: %s set to %s", g["name"], p.id, REPORT_ITSELF)
+        except BridgeError as err:
+            _LOGGER.warning("%s: %s not set (%s) – set \"Acknowledgement\" and press \"Program sensor\"",
+                            g["name"], p.id, err)
+
+
 async def add(hub: Hub, name: str | None = None, room: str | None = None) -> dict[str, Any]:
     """Complete pairing (service and "+ Add device"): search, take over, set room; a transmitter is programmed right
     away (awake in learning mode) and released – its learning LED stops blinking = paired."""
@@ -501,6 +521,8 @@ async def add(hub: Hub, name: str | None = None, room: str | None = None) -> dic
             _LOGGER.warning("Restoring scenes of %s: %s", g["name"], "; ".join(errors))
     if g["rolle"] == "aktor":
         await _init_blinds(hub, g)
+    if hub.collects(g):
+        await _report_itself(hub, g)
     if room:
         g["raum"] = room  # suggestion for the HA area when creating the device
         await hub.save_installation()

@@ -13,12 +13,20 @@ linked actuator always reacts to both. Hence:
   sensor reports (Hub._sensor_action), the directly programmed lights are left out there.
 
 Programmed state per sensor in geraet["sensor_direkt"]: {"1"|"2": {channel key: [value on, value off]}}.
+
+Motion detector (Jung FMDW360WW, catalogue INMOVS; from the manual, not tested on a device): no scenes. On motion
+below its brightness threshold it sends "Timed Start" (GO 3, with its run-on time) and later "retrigger" (GO 4);
+the linked actuators switch on for that time and run the timer themselves. The choice per motion channel
+(geraet["sensor_aktionen"]["bewegung_<nr>"]) is a scene or a single lamp: its eNet lights that are switched on are
+linked directly (actuator GO TSPT/TSPR ← GA base·256 + offset + 3/4), the rest is switched by HA while motion is
+reported. Programmed: geraet["sensor_direkt"]["bewegung_<nr>"] = [channel keys].
 """
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
 
+from . import layouts
 from .bridge import BridgeError
 from .ha_scenes import scene_value
 from .scenes import GO_SCENE, PID_LINKS, SCV_START
@@ -30,6 +38,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 GA_OFFSET = {1: 3, 2: 7}  # sensor channel → GA offset of its scene telegrams (GO offset 0/4 + 3)
+KIND_MOTION = "bewegung"
+MOTION_LINKS = (("TSPT", 3), ("TSPR", 4))  # actuator function ← GO of the motion detector (timed start, retrigger)
+LAMP = "lampe:"  # action "single lamp": lampe:<channel key "ia/ch"> or lampe:<entity_id>
 
 
 def action_key(channel: int, on: bool) -> str:
@@ -78,7 +89,74 @@ def programmed(g: dict[str, Any], channel: int) -> dict[str, list[int]]:
 
 def differs(hub: Hub, g: dict[str, Any]) -> bool:
     """Do the chosen scenes (their current content) differ from what is programmed in the actuators?"""
-    return any(target(hub, g, ch) != programmed(g, ch) for ch in GA_OFFSET)
+    return any(target(hub, g, ch) != programmed(g, ch) for ch in GA_OFFSET) \
+        or any(motion_target(hub, g, c["nr"]) != motion_programmed(g, c["nr"]) for c in motion_channels(g))
+
+
+# --- Motion detector ---------------------------------------------------------------------------------------------
+def motion_key(nr: int) -> str:
+    return f"{KIND_MOTION}_{nr}"
+
+
+def motion_channels(g: dict[str, Any]) -> list[dict[str, Any]]:
+    return [c for c in g.get("kanaele", []) if c.get("art") == KIND_MOTION]
+
+
+def linkable(k: Channel) -> bool:
+    """Light channel with the timed-start function (switching/dimming actuators; not blinds)."""
+    return all(layouts.go(k.stored, fn) for fn, _ in MOTION_LINKS)
+
+
+def motion_target(hub: Hub, g: dict[str, Any], nr: int) -> list[str]:
+    """eNet lights of the chosen action that are switched on by it → linked directly to the motion detector."""
+    action = g.get("sensor_aktionen", {}).get(motion_key(nr), "")
+    channels_ = {k.key: k for k in hub.channels_}
+    if action.startswith(LAMP):
+        keys = [action[len(LAMP):]]
+    else:
+        keys = [key for key, value in enet_part(hub, action).items() if value > 0]
+    return sorted(key for key in keys if key in channels_ and linkable(channels_[key]))
+
+
+def motion_programmed(g: dict[str, Any], nr: int) -> list[str]:
+    return g.get("sensor_direkt", {}).get(motion_key(nr), [])
+
+
+async def _motion_links(hub: Hub, k: Channel, sn: str, ga0: int, create: bool) -> None:
+    """Link (or unlink) an actuator channel to the motion detector: its timed-start GOs to the detector's GAs."""
+    async def steps() -> None:
+        for fn, sensor_go in MOTION_LINKS:
+            data = bytes([0 if create else 2, 0]) + bytes.fromhex(sn) + (ga0 + sensor_go).to_bytes(2, "big") \
+                + layouts.go(k.stored, fn).to_bytes(2, "big")
+            await hub.bridge.request("fp_cmd", ia=k.ia, obj=k.obj, pid=PID_LINKS, data=data.hex())
+
+    await hub.params.program(k.ia, hub.device_obj(k.enet_device), k.obj, steps, purpose=tr("zweck_sensor_links"))
+
+
+async def _program_motion(hub: Hub, g: dict[str, Any], errors: list[str]) -> None:
+    sn, base = g["sn"], g.get("ga_basis", 0) * 256
+    channels_ = {k.key: k for k in hub.channels_}
+    stored = g.setdefault("sensor_direkt", {})
+    for c in motion_channels(g):
+        key_m = motion_key(c["nr"])
+        old, new = set(motion_programmed(g, c["nr"])), set(motion_target(hub, g, c["nr"]))
+        done = set(old)
+        for key in sorted(old ^ new):
+            k = channels_.get(key)
+            if k is None:
+                errors.append(tr("sensor_aktor_fehlt", kanal=key))
+                continue
+            try:
+                await _motion_links(hub, k, sn, base + c["offset"], create=key in new)
+                (done.add if key in new else done.discard)(key)
+            except BridgeError as err:
+                errors.append(f"{k.enet_device['name']} K{k.nr}: {err}")
+            if done:
+                stored[key_m] = sorted(done)
+            else:
+                stored.pop(key_m, None)
+            await hub.save_installation()
+        _LOGGER.info("%s motion channel %d: directly linked %s", g["name"], c["nr"], sorted(done))
 
 
 async def _link(hub: Hub, k: Channel, sn: str, ga: int, create: bool) -> None:
@@ -137,6 +215,7 @@ async def program(hub: Hub, g: dict[str, Any]) -> list[str]:
                 stored.pop(str(ch))
             await hub.save_installation()
         _LOGGER.info("%s channel %d: directly linked %s", g["name"], ch, sorted(done))
+    await _program_motion(hub, g, errors)
     if not stored:
         g.pop("sensor_direkt", None)
         await hub.save_installation()

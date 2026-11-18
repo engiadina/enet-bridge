@@ -248,6 +248,9 @@
       "taste_aktion": {
         "name": "Taste {nr}: Aktion"
       },
+      "bewegung_aktion": {
+        "name": "Bei Bewegung"
+      },
       "sonnenschutz_ein_aktion": {
         "name": "Sonnenschutz ein: Szene"
       },

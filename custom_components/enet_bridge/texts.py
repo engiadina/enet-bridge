@@ -96,6 +96,7 @@ TEXTS: dict[str, tuple[str, str]] = {
                                  "program again"),
     "akt_programmierung_beendet": ("– Programmierung beendet", "– programming finished"),
     "aktion_melden": ("Nur melden", "Report only"),
+    "aktion_lampe": ("Lampe: {name}", "Lamp: {name}"),
     "aktion_szene": ("Szene: {name}", "Scene: {name}"),
     "aktion_enet_szene": ("eNet-Szene: {name}", "eNet scene: {name}"),
     "aktion_bridge_szene": ("Bridge-Szene: {name}", "Bridge scene: {name}"),

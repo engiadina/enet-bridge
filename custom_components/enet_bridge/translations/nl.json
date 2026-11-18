@@ -248,6 +248,9 @@
       "taste_aktion": {
         "name": "Toets {nr}: actie"
       },
+      "bewegung_aktion": {
+        "name": "Bij beweging"
+      },
       "sonnenschutz_ein_aktion": {
         "name": "Zonwering aan: scène"
       },

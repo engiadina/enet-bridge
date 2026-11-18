@@ -248,6 +248,9 @@
       "taste_aktion": {
         "name": "Key {nr}: action"
       },
+      "bewegung_aktion": {
+        "name": "On motion"
+      },
       "sonnenschutz_ein_aktion": {
         "name": "Sun protection on: scene"
       },

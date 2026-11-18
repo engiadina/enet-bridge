@@ -176,10 +176,14 @@ class Measurements:
             self._off_timers.pop(key, None)
             self.motion[key] = False
             async_dispatcher_send(self.hub.hass, self.hub.signal(f"bewegung_{sn}_{nr}"))
+            self.hub.motion_changed(sn, nr, False)
 
+        started = not self.motion.get(key, False)
         self.motion[key] = True
         self._off_timers[key] = async_call_later(self.hub.hass, max(MOTION_MIN_S, duration_s), _end)
         async_dispatcher_send(self.hub.hass, self.hub.signal(f"bewegung_{sn}_{nr}"))
+        if started:
+            self.hub.motion_changed(sn, nr, True)
 
     def _may_send(self) -> bool:
         h = self.hub

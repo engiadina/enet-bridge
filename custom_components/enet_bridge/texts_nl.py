@@ -28,6 +28,7 @@ TEXTS_NL: dict[str, str] = {
                                  "opnieuw programmeren"),
     "akt_programmierung_beendet": "– programmeren voltooid",
     "aktion_melden": "Alleen melden",
+    "aktion_lampe": "Lamp: {name}",
     "aktion_szene": "Scène: {name}",
     "aktion_enet_szene": "eNet-scène: {name}",
     "aktion_bridge_szene": "Bridgescène: {name}",
