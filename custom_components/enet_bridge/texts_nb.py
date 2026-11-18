@@ -28,6 +28,7 @@ TEXTS_NB: dict[str, str] = {
                                  "programmer på nytt"),
     "akt_programmierung_beendet": "– programmering ferdig",
     "aktion_melden": "Bare meld",
+    "aktion_lampe": "Lampe: {name}",
     "aktion_szene": "Scene: {name}",
     "aktion_enet_szene": "eNet-scene: {name}",
     "aktion_bridge_szene": "Broscene: {name}",

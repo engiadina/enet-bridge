@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_added_domain, async_track_state_removed_domain
 
-from . import EnetConfigEntry, device_info_for, ha_rocker, sender, rocker_info
+from . import EnetConfigEntry, device_info_for, ha_rocker, sender, sensor_scenes, rocker_info
 from .bridge import BridgeError
 from .const import DOMAIN, SENSOR_TYPES
 from .entity import EnetEntity, EnetParamEntity, param_entities
@@ -42,6 +42,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                 for k in (2 * n - 1, 2 * n)]
     new += [SensorAction(hub, g, channel, on) for g in hub.installation["geraete"] if g.get("typ") in SENSOR_TYPES
             for channel in (1, 2) for on in (True, False)]
+    new += [MotionAction(hub, g, c["nr"]) for g in hub.installation["geraete"]
+            for c in sensor_scenes.motion_channels(g)]
     async_add_entities(new)
 
 
@@ -303,3 +305,29 @@ class SensorAction(EnetEntity, SelectEntity):
         await self.hub.save_installation()
         self.async_write_ha_state()
         await self.hub.note_scene_assignment(self.enet_device, previous)
+
+
+class MotionAction(SensorAction):
+    """Motion detector channel: what to switch on while motion is reported – a scene or a single lamp. eNet lights
+    that it switches on are linked directly to the detector ("Program scenes", sensor_scenes.py), the rest is
+    switched by HA (Hub._motion_action)."""
+
+    def __init__(self, hub, enet_device, nr: int) -> None:
+        EnetEntity.__init__(self, hub)
+        from .sensor import meas_device_info
+
+        self.enet_device, self.key = enet_device, sensor_scenes.motion_key(nr)
+        self._attr_translation_key = "bewegung_aktion"
+        self._attr_unique_id = f"{enet_device['sn']}_sensor_{self.key}_aktion"
+        self._attr_device_info = meas_device_info(hub, enet_device, nr)
+
+    def _options(self) -> dict[str, str]:
+        out = super()._options()
+        ha = ha_lamps(self.hass)
+        names_ = list(ha.values())
+        out.update({tr("aktion_lampe", name=f"{k.enet_device['name']} K{k.nr}"): f"{sensor_scenes.LAMP}{k.key}"
+                    for k in self.hub.channels_ if sensor_scenes.linkable(k)})
+        out.update({tr("aktion_lampe", name=tr("lampe_ha_eid" if names_.count(name) > 1 else "lampe_ha",
+                                               name=name, eid=eid)): f"{sensor_scenes.LAMP}{eid}"
+                    for eid, name in ha.items()})
+        return out

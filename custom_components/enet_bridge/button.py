@@ -29,7 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                        [ProgramSensor(hub, g) for g in hub.installation["geraete"]
                         if hub.collects(g) and hub.settings_pending(g)] +
                        [ProgramScenes(hub, g) for g in hub.installation["geraete"]
-                        if hub.collects(g) and hub.scenes_pending(g)] +
+                        if hub.has_sensor_actions(g) and hub.scenes_pending(g)] +
                        [cls(hub, k) for k in hub.blinds for cls in (MeasureStart, MeasureEnd, MeasureCancel)] +
                        # on the rocker pages only while something is pending (main page: always, e.g. after a reset)
                        [ProgramSender(hub, g, n) for g in sender_ if (w := sender.rocker_count(hub, g)) > 1

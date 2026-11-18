@@ -639,6 +639,13 @@ class Hub:
         "Program sensor" button (transmitters have their own programming)."""
         return self.sleeps(enet_device) and enet_device.get("rolle") != "sender"
 
+    def has_sensor_actions(self, enet_device: dict[str, Any]) -> bool:
+        """Device whose reports can switch lights (sun sensor scenes, motion detector channels): selection on the
+        device page, eNet part linked directly into the actuators via "Program scenes"."""
+        from . import sensor_scenes
+
+        return self.collects(enet_device) or bool(sensor_scenes.motion_channels(enet_device))
+
     def settings_pending(self, enet_device: dict[str, Any]) -> bool:
         """Changed settings of a sleeping sensor not yet written ("Program sensor")."""
         return self.params.is_pending(enet_device["sn"])
@@ -655,7 +662,7 @@ class Hub:
         from . import sensor_scenes
 
         for g in self.installation["geraete"]:
-            if self.collects(g) and not self.scenes_pending(g) and sensor_scenes.differs(self, g):
+            if self.has_sensor_actions(g) and not self.scenes_pending(g) and sensor_scenes.differs(self, g):
                 g["sensor_vorgemerkt"] = dict(g.get("sensor_aktionen", {}))
                 await self.save_installation()
                 self.hass.config_entries.async_schedule_reload(self.entry_id)
@@ -922,6 +929,69 @@ class Hub:
                 await self.scenes.call_scene(s)
         except Exception as err:  # noqa: BLE001 – only report scene errors, sensor evaluation continues
             _LOGGER.warning("%s: scene failed: %s", name, err)
+
+    @callback
+    def motion_changed(self, sn: str, nr: int, on: bool) -> None:
+        """Motion detector channel starts / ends reporting motion (measurements.py): switch the HA part of the
+        chosen action on / off."""
+        from . import sensor_scenes
+
+        g = next((g for g in self.installation["geraete"] if g["sn"] == sn), {})
+        action = g.get("sensor_aktionen", {}).get(sensor_scenes.motion_key(nr))
+        if action and not self.listen_only:
+            self.hass.async_create_background_task(self._motion_action(g, nr, on, action), f"{DOMAIN} motion")
+
+    async def _motion_action(self, g: dict, nr: int, on: bool, action: str) -> None:
+        """HA part of a motion action: everything not linked directly (sensor_scenes.py) – HA lamps, eNet lamps
+        that cannot be linked or are off in the scene. On: switch on / apply the scene; off: switch those off."""
+        from . import sensor_scenes
+
+        direct = set(sensor_scenes.motion_programmed(g, nr))
+        lamps = self.ha_scenes._lamps()  # entity_id → eNet channel
+        entity_of = {k.key: e for e, k in lamps.items()}
+        art, _, value = action.partition(":")
+        name = f"{g.get('name', g['sn'])} K{nr} {'motion' if on else 'no motion'}"
+        try:
+            if art == "lampe":
+                eid = entity_of.get(value) if "/" in value else value
+                if value in direct or eid is None:
+                    return
+                await self.hass.services.async_call("homeassistant", "turn_on" if on else "turn_off",
+                                                    {"entity_id": eid}, blocking=True)
+            elif art == "ha":
+                sc_ = next((s for s in self.ha_scenes.cfg if str(s["id"]) == value), None)
+                if sc_ is None:
+                    _LOGGER.warning("%s: scene %s not found", name, value)
+                    return
+                rest = {e: z for e, z in sc_.get("entities", {}).items()
+                        if not (e in lamps and lamps[e].key in direct)}
+                if not rest:
+                    return
+                if on:
+                    await self.hass.services.async_call("scene", "apply", {"entities": rest}, blocking=True)
+                else:
+                    off = [e for e, z in rest.items() if (z.get("state") if isinstance(z, dict) else z) != "off"]
+                    if off:
+                        await self.hass.services.async_call("homeassistant", "turn_off", {"entity_id": off},
+                                                            blocking=True)
+            elif art == "enet":
+                s = next((s for s in self.scenes.scenes if str(s.id) == value), None)
+                if s is None:
+                    _LOGGER.warning("%s: eNet scene %s not found", name, value)
+                    return
+                if set(s.members) <= direct:
+                    return  # all members run on their own timer
+                if on:
+                    await self.scenes.call_scene(s)
+                else:
+                    off = [entity_of[m] for m in s.members if m not in direct and m in entity_of
+                           and s.values_.get(m, 0) > 0]
+                    if off:
+                        await self.hass.services.async_call("homeassistant", "turn_off", {"entity_id": off},
+                                                            blocking=True)
+            _LOGGER.debug("%s → %s (directly linked %s)", name, action, sorted(direct))
+        except Exception as err:  # noqa: BLE001 – only report, the motion evaluation continues
+            _LOGGER.warning("%s: action failed: %s", name, err)
 
     def _learn_sender_base(self, sn: str, ga: int) -> Key | None:
         """Key press doesn't match the known GA base: transmitters sleep (link table not readable), so derive

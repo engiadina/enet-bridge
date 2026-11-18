@@ -248,6 +248,9 @@
       "taste_aktion": {
         "name": "Tast {nr}: handling"
       },
+      "bewegung_aktion": {
+        "name": "Ved bevegelse"
+      },
       "sonnenschutz_ein_aktion": {
         "name": "Solbeskyttelse på: scene"
       },

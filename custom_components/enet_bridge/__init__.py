@@ -176,7 +176,7 @@ async def _sensor_view(hass: HomeAssistant, hub: Hub) -> None:
     events and scene choices visible."""
     reg = er.async_get(hass)
     sensors = [g for g in hub.installation["geraete"] if hub.collects(g)]
-    for g in sensors:
+    for g in [g for g in hub.installation["geraete"] if hub.has_sensor_actions(g)]:
         for suffix, pending in (("sensor_programmieren", hub.settings_pending(g)),
                                 ("szenen_programmieren", hub.scenes_pending(g))):
             if not pending and (eid := reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_{suffix}")):

@@ -61,10 +61,10 @@ because they are stored in installations or used in automations and in the proto
 | `zentral` | central key targets of a wall transmitter |
 | `pruefung_szenen_links` | result of the last complete scene link check: `fp` (fingerprint of scenes and members), `fehlend` (missing links) |
 | `parameter_vorgemerkt` | storage file: settings of sleeping sensors changed in HA and not yet written (SN → {key: hex}); entity attribute `vorgemerkt` |
-| `sensor_vorgemerkt` | sun sensor: scene assignment changed and not yet programmed – holds the programmed `sensor_aktionen` ("Program scenes" pending) |
-| `sensor_direkt` | sun sensor: actuators programmed directly per sensor channel (`"1"`/`"2"` → {channel key: [value on, value off]}) |
+| `sensor_vorgemerkt` | sun sensor / motion detector: scene assignment changed and not yet programmed – holds the programmed `sensor_aktionen` ("Program scenes" pending) |
+| `sensor_direkt` | sun sensor: actuators programmed directly per sensor channel (`"1"`/`"2"` → {channel key: [value on, value off]}); motion detector `"bewegung_<nr>"` → [channel keys] linked to its timed start |
 | `ansicht_sensor` | installation: version of the one-time adjustment of sensor entities (scene numbers off, acknowledgement on) |
-| `sensor_aktionen` | actions of the sun sensor channels |
+| `sensor_aktionen` | actions of the sun sensor channels (`"1_ein"` … `"2_aus"`) and motion detector channels (`"bewegung_<nr>"`: scene or `lampe:<lamp>`) |
 | `server` | emulated eNet server: `domain`, `sn`, `ia` |
 | `esp` | configuration for the bridge: `szenen` (local scenes), `server_tasten` (server keys) |
 | `szenen` | scenes from a server export |
