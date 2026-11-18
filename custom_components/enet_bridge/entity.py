@@ -105,7 +105,7 @@ class EnetParamEntity(EnetEntity):
     async def write(self, value) -> None:
         g = self.param_group.enet_device
         if self.hub.collects(g):  # sleeping sensor: note only, "Program sensor" writes everything after one wake-up
-            await self.hub.note_sensor_change(g, self.param, value)
+            await self.hub.note_setting(g, self.param, value)
             return
         # priority of a special function: PSN[n] (call) and PSN[n+1] (cancel) are kept equal, as the catalogue makes
         # each depend on the other

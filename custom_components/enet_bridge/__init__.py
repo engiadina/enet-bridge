@@ -171,15 +171,16 @@ SENSOR_SHOWN = re.compile(r"^CHANNEL_\d+_SUMSTATE_MODE$")
 
 
 async def _sensor_view(hass: HomeAssistant, hub: Hub) -> None:
-    """Sleeping sensors: remove "Program sensor" while nothing is noted. Once per installation (ansicht_sensor):
+    """Sleeping sensors: remove "Program sensor" / "Program scenes" while nothing is noted. Once per installation (ansicht_sensor):
     entities created by older versions get the current defaults – scene numbers off, acknowledgement on, scene
     events and scene choices visible."""
     reg = er.async_get(hass)
     sensors = [g for g in hub.installation["geraete"] if hub.collects(g)]
     for g in sensors:
-        if not hub.sensor_pending(g) and (
-                eid := reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_sensor_programmieren")):
-            reg.async_remove(eid)
+        for suffix, pending in (("sensor_programmieren", hub.settings_pending(g)),
+                                ("szenen_programmieren", hub.scenes_pending(g))):
+            if not pending and (eid := reg.async_get_entity_id("button", DOMAIN, f"{g['sn']}_{suffix}")):
+                reg.async_remove(eid)
     if hub.installation.get("ansicht_sensor", 0) >= 1:
         return
     for g in sensors:

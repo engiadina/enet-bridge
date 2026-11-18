@@ -292,6 +292,7 @@ class SensorAction(EnetEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         value = self._options()[option]
+        previous = dict(self.enet_device.get("sensor_aktionen", {}))
         actions = self.enet_device.setdefault("sensor_aktionen", {})
         if value == sender.REPORT:
             actions.pop(self.key, None)
@@ -301,4 +302,4 @@ class SensorAction(EnetEntity, SelectEntity):
             self.enet_device.pop("sensor_aktionen")
         await self.hub.save_installation()
         self.async_write_ha_state()
-        await self.hub.note_sensor_change(self.enet_device)
+        await self.hub.note_scene_assignment(self.enet_device, previous)

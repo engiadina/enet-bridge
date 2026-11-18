@@ -155,6 +155,9 @@
       "sensor_programmieren": {
         "name": "* Program sensor *"
       },
+      "szenen_programmieren": {
+        "name": "* Program scenes *"
+      },
       "fahrzeit_einmessen": {
         "name": "* Measure travel time *"
       },

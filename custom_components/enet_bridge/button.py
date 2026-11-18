@@ -27,7 +27,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry,
                        [SceneStore(hub, s) for s in hub.scenes.scenes if s.art != "ha"] +
                        [ProgramSender(hub, g) for g in sender_] +
                        [ProgramSensor(hub, g) for g in hub.installation["geraete"]
-                        if hub.collects(g) and hub.sensor_pending(g)] +
+                        if hub.collects(g) and hub.settings_pending(g)] +
+                       [ProgramScenes(hub, g) for g in hub.installation["geraete"]
+                        if hub.collects(g) and hub.scenes_pending(g)] +
                        [cls(hub, k) for k in hub.blinds for cls in (MeasureStart, MeasureEnd, MeasureCancel)] +
                        # on the rocker pages only while something is pending (main page: always, e.g. after a reset)
                        [ProgramSender(hub, g, n) for g in sender_ if (w := sender.rocker_count(hub, g)) > 1
@@ -52,17 +54,18 @@ class ParamRead(EnetEntity, ButtonEntity):
 
 
 class ProgramSensor(EnetEntity, ButtonEntity):
-    """Sleeping sensor, like "Program transmitter" on a rocker page: exists only while something is noted (changed
-    settings or scene assignment); wakes the sensor once (press a test key when the activity log asks for it) and
-    writes everything. Greyed out while it runs."""
+    """Sleeping sensor (configuration), like "Program transmitter" on a rocker page: exists only while changed
+    settings are noted; wakes the sensor once (press a test key when the activity log asks for it) and writes them.
+    Greyed out while it runs."""
 
     _attr_translation_key = "sensor_programmieren"
     _attr_entity_category = EntityCategory.CONFIG
+    _suffix = "sensor_programmieren"
 
     def __init__(self, hub, enet_device) -> None:
         super().__init__(hub)
         self.enet_device = enet_device
-        self._attr_unique_id = f"{enet_device['sn']}_sensor_programmieren"
+        self._attr_unique_id = f"{enet_device['sn']}_{self._suffix}"
         self._attr_device_info = device_info_for(hub, enet_device)
 
     async def async_added_to_hass(self) -> None:
@@ -73,13 +76,28 @@ class ProgramSensor(EnetEntity, ButtonEntity):
     def available(self) -> bool:
         return super().available and self.enet_device["sn"] not in self.hub.senders_active
 
+    async def _run(self) -> None:
+        await self.hub.program_sensor(self.enet_device)
+
     async def async_press(self) -> None:
         if self.enet_device["sn"] in self.hub.senders_active:
             raise HomeAssistantError(tr("programmierung_laeuft_knopf", name=self.enet_device["name"]))
         try:
-            await self.hub.program_sensor(self.enet_device)
+            await self._run()
         except BridgeError as err:
             raise HomeAssistantError(f"{self.enet_device['name']}: {err}") from err
+
+
+class ProgramScenes(ProgramSensor):
+    """Sun sensor (controls): exists only while the scene assignment has changed; programs the scenes (actuators),
+    independent of the sensor's settings."""
+
+    _attr_translation_key = "szenen_programmieren"
+    _attr_entity_category = None
+    _suffix = "szenen_programmieren"
+
+    async def _run(self) -> None:
+        await self.hub.program_scenes(self.enet_device)
 
 
 class SceneStore(EnetEntity, ButtonEntity):

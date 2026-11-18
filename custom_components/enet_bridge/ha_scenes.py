@@ -165,6 +165,7 @@ class HaScenes:
             self.hub.scene_in_progress = None
             self.hub.report_programming()
             await self._refresh_keys()
+            await self.hub.check_sensor_scenes()
             if errors:  # per scene it is in its activity; retried at the next save or start
                 _LOGGER.warning("HA-Szenen: %s", "; ".join(errors))
 

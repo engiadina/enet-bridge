@@ -639,40 +639,92 @@ class Hub:
         "Program sensor" button (transmitters have their own programming)."""
         return self.sleeps(enet_device) and enet_device.get("rolle") != "sender"
 
-    def sensor_pending(self, enet_device: dict[str, Any]) -> bool:
-        """Something to program on a sleeping sensor: changed settings or a changed scene assignment."""
-        return self.params.is_pending(enet_device["sn"]) or bool(enet_device.get("sensor_vorgemerkt"))
+    def settings_pending(self, enet_device: dict[str, Any]) -> bool:
+        """Changed settings of a sleeping sensor not yet written ("Program sensor")."""
+        return self.params.is_pending(enet_device["sn"])
 
-    async def note_sensor_change(self, enet_device: dict[str, Any], p: Any = None, value: Any = None) -> None:
-        """Setting (p, value) or scene assignment of a sensor changed: note it; the button "Program sensor" appears
-        (reload) – like the pending operating modes of a transmitter."""
-        before = self.sensor_pending(enet_device)
-        if p is not None:
-            await self.params.note(enet_device["sn"], p, value)
-        else:
-            enet_device["sensor_vorgemerkt"] = True
-            await self.save_installation()
-        if not before:
+    @staticmethod
+    def scenes_pending(enet_device: dict[str, Any]) -> bool:
+        """Changed scene assignment of a sensor or changed content of its scenes ("Program scenes");
+        sensor_vorgemerkt holds the programmed assignment."""
+        return "sensor_vorgemerkt" in enet_device
+
+    async def check_sensor_scenes(self) -> None:
+        """After the HA scenes were (re)read: a sensor whose chosen scenes changed in content gets "Program
+        scenes" (its directly programmed actuators no longer match)."""
+        from . import sensor_scenes
+
+        for g in self.installation["geraete"]:
+            if self.collects(g) and not self.scenes_pending(g) and sensor_scenes.differs(self, g):
+                g["sensor_vorgemerkt"] = dict(g.get("sensor_aktionen", {}))
+                await self.save_installation()
+                self.hass.config_entries.async_schedule_reload(self.entry_id)
+
+    def _pending_state(self, enet_device: dict[str, Any]) -> tuple[bool, bool]:
+        return self.settings_pending(enet_device), self.scenes_pending(enet_device)
+
+    async def note_setting(self, enet_device: dict[str, Any], p: Any, value: Any) -> None:
+        """Setting of a sleeping sensor changed: note it – or drop the note if it is back at the device's value.
+        The button "Program sensor" appears / disappears (reload), like the pending modes of a transmitter."""
+        before = self._pending_state(enet_device)
+        await self.params.note(enet_device["sn"], p, value)
+        if self._pending_state(enet_device) != before:
             self.hass.config_entries.async_schedule_reload(self.entry_id)
 
-    async def program_sensor(self, enet_device: dict[str, Any]) -> None:
-        """Button "Program sensor": wake the sensor once and write the noted settings. (The scene assignment takes
-        effect in HA right away; programming the actuators directly follows later.)"""
+    async def note_scene_assignment(self, enet_device: dict[str, Any], previous: dict[str, str]) -> None:
+        """Scene assignment of a sensor changed (previous = before this change): remember the programmed one on the
+        first change; back at it → nothing pending. The button "Program scenes" appears / disappears (reload)."""
+        from . import sensor_scenes
+
+        before = self._pending_state(enet_device)
+        programmed = enet_device.get("sensor_vorgemerkt", previous)
+        if enet_device.get("sensor_aktionen", {}) == programmed and not sensor_scenes.differs(self, enet_device):
+            enet_device.pop("sensor_vorgemerkt", None)
+        else:
+            enet_device["sensor_vorgemerkt"] = programmed
+        await self.save_installation()
+        if self._pending_state(enet_device) != before:
+            self.hass.config_entries.async_schedule_reload(self.entry_id)
+
+    async def _locked(self, enet_device: dict[str, Any], job) -> None:
+        """Run job with the device's programming buttons greyed out, reload afterwards (buttons disappear)."""
         sn = enet_device["sn"]
         if sn in self.senders_active:
             return
-        params = [(g.device_obj, p) for g in self.device_params(enet_device) for p in g.params]
         self.senders_active.add(sn)
-        async_dispatcher_send(self.hass, self.signal(f"sender_aktiv_{sn}"))  # lock the button meanwhile
+        async_dispatcher_send(self.hass, self.signal(f"sender_aktiv_{sn}"))
         try:
-            if self.params.is_pending(sn):
-                await self.woken(enet_device, lambda: self.params.write_pending(enet_device["ia"], sn, params))
-            if enet_device.pop("sensor_vorgemerkt", None):
-                await self.save_installation()
+            await job()
         finally:
             self.senders_active.discard(sn)
             async_dispatcher_send(self.hass, self.signal(f"sender_aktiv_{sn}"))
-        self.reload_after_radio()  # button disappears
+        self.reload_after_radio()
+
+    async def program_sensor(self, enet_device: dict[str, Any]) -> None:
+        """Button "Program sensor" (configuration): wake the sensor once and write the noted settings."""
+        sn = enet_device["sn"]
+        params = [(g.device_obj, p) for g in self.device_params(enet_device) for p in g.params]
+
+        async def job() -> None:
+            if self.params.is_pending(sn):
+                await self.woken(enet_device, lambda: self.params.write_pending(enet_device["ia"], sn, params))
+        await self._locked(enet_device, job)
+
+    async def program_scenes(self, enet_device: dict[str, Any]) -> None:
+        """Button "Program scenes" (controls): program the eNet lights that are in both scenes of a sensor channel
+        directly into the actuators (sensor_scenes.py); the rest is switched by HA when the sensor reports. The
+        sensor itself is not touched (no wake-up)."""
+        from . import sensor_scenes
+
+        errors: list[str] = []
+
+        async def job() -> None:
+            errors.extend(await sensor_scenes.program(self, enet_device))
+            if not errors and enet_device.pop("sensor_vorgemerkt", None) is not None:
+                await self.save_installation()
+        await self._locked(enet_device, job)
+        if errors:
+            raise BridgeError("sensor", tr("sensor_szenen_fehler", fehler="; ".join(errors)))
 
     def device_params(self, enet_device: dict[str, Any]) -> list[ParamGroup]:
         return [g for g in self.param_groups if g.enet_device is enet_device]
@@ -822,8 +874,11 @@ class Hub:
     async def _sensor_action(self, g: dict, channel: int, on: bool, action: str) -> None:
         """Recall the sun sensor's selected scene (selection on the device page). HA scene via scene.turn_on –
         its eNet part goes out as a scene telegram (HaScenes); eNet scene directly as a scene telegram."""
+        from . import sensor_scenes
+
         art, _, value = action.partition(":")
         name = f"{g.get('name', g['sn'])} K{channel} {'ein' if on else 'aus'}"
+        direct = set(sensor_scenes.programmed(g, channel))  # these switched themselves on the sensor's telegram
         try:
             if art == "ha":
                 eid = next((st.entity_id for st in self.hass.states.async_all("scene")
@@ -831,13 +886,24 @@ class Hub:
                 if eid is None:
                     _LOGGER.warning("%s: scene %s not found", name, value)
                     return
-                _LOGGER.debug("%s → %s", name, eid)
-                await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=True)
+                if not direct:
+                    _LOGGER.debug("%s → %s", name, eid)
+                    await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=True)
+                    return
+                sc_ = next((s for s in self.ha_scenes.cfg if str(s["id"]) == value), None)
+                lamps = self.ha_scenes._lamps()
+                rest = {e: z for e, z in (sc_ or {}).get("entities", {}).items()
+                        if not (e in lamps and lamps[e].key in direct)}
+                _LOGGER.debug("%s → %s: rest %s (directly linked %s)", name, eid, sorted(rest), sorted(direct))
+                if rest:
+                    await self.hass.services.async_call("scene", "apply", {"entities": rest}, blocking=True)
             elif art == "enet":
                 s = next((s for s in self.scenes.scenes if str(s.id) == value), None)
                 if s is None:
                     _LOGGER.warning("%s: eNet scene %s not found", name, value)
                     return
+                if set(s.members) <= direct:
+                    return  # all members switched themselves
                 _LOGGER.debug("%s → eNet scene %s", name, s.name)
                 await self.scenes.call_scene(s)
         except Exception as err:  # noqa: BLE001 – only report scene errors, sensor evaluation continues

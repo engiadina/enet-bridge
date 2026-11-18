@@ -523,8 +523,16 @@ class ParamStore:
         return bool(noted) if p is None else p.key in noted
 
     async def note(self, sn: str, p: Param, value: Any) -> None:
-        """Note a changed setting of a sleeping device; written by write_pending()."""
-        self.pending.setdefault(sn, {})[p.key] = p.encode(value).hex()
+        """Note a changed setting of a sleeping device; written by write_pending(). Back at the value read from
+        the device: the note is dropped."""
+        new = p.encode(value).hex()
+        noted = self.pending.setdefault(sn, {})
+        if new == self.values_.get(sn, {}).get(p.key):
+            noted.pop(p.key, None)
+        else:
+            noted[p.key] = new
+        if not noted:
+            del self.pending[sn]
         await self._pending_store.async_save(self.pending)
         async_dispatcher_send(self.hass, self.signal, sn)
 
