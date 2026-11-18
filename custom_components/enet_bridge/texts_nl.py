@@ -27,7 +27,7 @@ TEXTS_NL: dict[str, str] = {
     "akt_links_unvollstaendig": ("– zender geprogrammeerd, maar actorkoppelingen niet volledig bijgewerkt ({err}) – "
                                  "opnieuw programmeren"),
     "akt_programmierung_beendet": "– programmeren voltooid",
-    "aktion_melden": "Alleen melden (automatisering in Home Assistant)",
+    "aktion_melden": "Alleen melden",
     "aktion_szene": "Scène: {name}",
     "aktion_enet_szene": "eNet-scène: {name}",
     "aktion_bridge_szene": "Bridgescène: {name}",
@@ -183,4 +183,8 @@ TEXTS_NL: dict[str, str] = {
     "entfernen_fehler": "Verwijderen: {err}",
     "server_funktionen_fehler": "Serverfuncties: {err}",
     "geraet_szenen": "eNet-scènes",
+    "zweck_sensor_links": "koppeling met de zonnesensor",
+    "zweck_sensor_werte": "scènewaarden van de zonnesensor",
+    "sensor_aktor_fehlt": "{kanal}: actor niet in de installatie",
+    "sensor_szenen_fehler": "Scènes niet volledig geprogrammeerd: {fehler}",
 }

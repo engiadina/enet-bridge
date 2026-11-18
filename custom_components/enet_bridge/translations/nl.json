@@ -160,6 +160,12 @@
       },
       "position_erreicht": {
         "name": "Positie bereikt"
+      },
+      "sensor_programmieren": {
+        "name": "* Sensor programmeren *"
+      },
+      "szenen_programmieren": {
+        "name": "* Scènes programmeren *"
       }
     },
     "sensor": {
