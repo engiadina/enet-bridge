@@ -72,7 +72,7 @@ eingebunden. Trotzdem hatte ich drei Hauptgründe:
   *Einstellungen → Reparaturen* – entfernt wird erst nach Bestätigung.
 - Die Bridge-Firmware spielt die Integration selbst ein und aktualisiert sie; das Funkmodul wird automatisch
   kalibriert.
-- Oberfläche auf Deutsch und Englisch.
+- Oberfläche auf Deutsch, Englisch, Norwegisch (Bokmål) und Niederländisch.
 
 ## Bildschirmfotos
 

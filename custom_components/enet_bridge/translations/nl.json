@@ -1,0 +1,545 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "eNet-bridge",
+        "description": "Waar komt de installatie vandaan?",
+        "menu_options": {
+          "export": "Overnemen uit een eNet Server-export (.iex)",
+          "neu": "Nieuwe installatie zonder eNet Server",
+          "datei": "Bestaand installatiebestand (anlage.json)"
+        }
+      },
+      "export": {
+        "title": "eNet Server overnemen",
+        "description": "Exporteer het project in de eNet Server (of de app) en upload het .iex-bestand. Domein, serveridentiteit, apparaten en scènes worden overgenomen; er hoeft niets opnieuw geprogrammeerd te worden.",
+        "data": {
+          "export": "Projectexport (.iex)",
+          "port": "Poort van de bridge",
+          "server_aus": "De eNet Server is uitgeschakeld"
+        },
+        "data_description": {
+          "server_aus": "Zolang de echte server draait: niet aanvinken. De bridge luistert dan alleen mee (toetsen, lampstatussen) en verzendt en programmeert niets. Zodra de server uit is, zet je \"Alleen meeluisteren\" op de bridge uit."
+        }
+      },
+      "neu": {
+        "title": "Nieuwe installatie",
+        "description": "De bridge wordt de server van een nieuwe eNet-installatie (eigen domein en serveridentiteit). Apparaten worden later toegevoegd door ze in te leren.",
+        "data": {
+          "port": "Poort van de bridge"
+        }
+      },
+      "datei": {
+        "title": "Installatiebestand",
+        "description": "Seriële poort van de bridge en pad naar het installatiebestand (anlage.json uit tools/iex.py). Het wordt eenmalig geïmporteerd; daarna beheert Home Assistant de installatie.",
+        "data": {
+          "port": "Poort van de bridge",
+          "anlage": "Installatie (JSON)"
+        }
+      },
+      "reconfigure": {
+        "title": "Poort van de bridge",
+        "description": "Kies de seriële poort van de eNet-bridge. Radiomodules van andere integraties (Thread/Zigbee/Z-Wave) worden niet aangeboden.",
+        "data": {
+          "port": "Poort van de bridge"
+        }
+      }
+    },
+    "error": {
+      "port_missing": "Poort niet gevonden",
+      "anlage_missing": "Bestand niet gevonden",
+      "anlage_invalid": "Geen geldig installatiebestand",
+      "export_invalid": "Geen geldige eNet Server-export",
+      "export_encrypted": "Versleutelde installaties worden niet ondersteund – schakel eerst de versleuteling in de eNet Server uit",
+      "port_fremd": "Dit is de radiomodule van een andere integratie (Thread/Zigbee/Z-Wave) – kies de poort van de bridge"
+    },
+    "abort": {
+      "already_configured": "Deze installatie is al ingesteld",
+      "port_in_use": "Deze bridgepoort wordt al door een andere eNet-installatie gebruikt",
+      "reconfigure_successful": "Poort van de bridge gewijzigd"
+    }
+  },
+  "entity": {
+    "switch": {
+      "server": {
+        "name": "Serverfuncties"
+      },
+      "mithoeren": {
+        "name": "Alleen meeluisteren"
+      }
+    },
+    "binary_sensor": {
+      "real_server": {
+        "name": "Echte eNet-server actief"
+      },
+      "funkmodul": {
+        "name": "Radiomodule"
+      },
+      "batterie": {
+        "name": "Batterij",
+        "state": {
+          "off": "OK",
+          "on": "Laag"
+        }
+      },
+      "sonnenschutz": {
+        "name": "Zonwering"
+      },
+      "daemmerung": {
+        "name": "Schemering"
+      },
+      "bewegung": {
+        "name": "Beweging"
+      }
+    },
+    "event": {
+      "taste": {
+        "name": "Toets {nr}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "gedrueckt": "Ingedrukt",
+              "losgelassen": "Losgelaten"
+            }
+          }
+        }
+      },
+      "wippe": {
+        "name": "Toetsen {nr}/{nr2}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "links_gedrueckt": "Links ingedrukt",
+              "links_losgelassen": "Links losgelaten",
+              "rechts_gedrueckt": "Rechts ingedrukt",
+              "rechts_losgelassen": "Rechts losgelaten",
+              "beide_gedrueckt": "Beide ingedrukt",
+              "beide_losgelassen": "Beide losgelaten"
+            }
+          }
+        }
+      },
+      "sonnenschutz_szene": {
+        "name": "Zonweringsscène",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "Aan",
+              "aus": "Uit"
+            }
+          }
+        }
+      },
+      "daemmerung_szene": {
+        "name": "Schemeringsscène",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ein": "Aan",
+              "aus": "Uit"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "parameter_lesen": {
+        "name": "* Parameters lezen *"
+      },
+      "szene_speichern": {
+        "name": "{szene} opslaan"
+      },
+      "sender_programmieren": {
+        "name": "Zender programmeren"
+      },
+      "fahrzeit_einmessen": {
+        "name": "* Looptijd inmeten *"
+      },
+      "einmessen_abbrechen": {
+        "name": "Inmeten annuleren"
+      },
+      "position_erreicht": {
+        "name": "Positie bereikt"
+      }
+    },
+    "sensor": {
+      "signal": {
+        "name": "Signaal"
+      },
+      "letzte_meldung": {
+        "name": "Laatste melding"
+      },
+      "frequenzkorrektur": {
+        "name": "Frequentiecorrectie"
+      },
+      "programmierung": {
+        "name": "Programmering",
+        "state": {
+          "bereit": "Gereed",
+          "szene": "Scène wordt overgedragen",
+          "aktor": "Actor wordt geprogrammeerd"
+        },
+        "state_attributes": {
+          "szene": {
+            "name": "Scène"
+          },
+          "geraete": {
+            "name": "Apparaten"
+          }
+        }
+      },
+      "helligkeit": {
+        "name": "Verlichtingssterkte"
+      },
+      "spannung": {
+        "name": "Spanning"
+      },
+      "strom": {
+        "name": "Stroom"
+      },
+      "wirkleistung": {
+        "name": "Werkelijk vermogen"
+      },
+      "blindleistung": {
+        "name": "Blindvermogen"
+      },
+      "scheinleistung": {
+        "name": "Schijnbaar vermogen"
+      },
+      "energie": {
+        "name": "Energie"
+      },
+      "einmessen": {
+        "name": "Inmeten"
+      },
+      "einmessen_laufzeit": {
+        "name": "Verstreken tijd"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Bridge-firmware"
+      }
+    },
+    "select": {
+      "wippe_betriebsart": {
+        "name": "Modus",
+        "state": {
+          "wippe": "Wip",
+          "tasten": "Twee losse toetsen"
+        }
+      },
+      "wippe_lampe": {
+        "name": "Actor {lampe}"
+      },
+      "wippe_abdimmen": {
+        "name": "Schakelt bij omlaag dimmen",
+        "state": {
+          "aus": "Uitschakelen (zoals eNet)",
+          "an": "Aan laten"
+        }
+      },
+      "taste_aktion": {
+        "name": "Toets {nr}: actie"
+      },
+      "sonnenschutz_ein_aktion": {
+        "name": "Zonwering aan: scène"
+      },
+      "sonnenschutz_aus_aktion": {
+        "name": "Zonwering uit: scène"
+      },
+      "daemmerung_ein_aktion": {
+        "name": "Schemering aan: scène"
+      },
+      "daemmerung_aus_aktion": {
+        "name": "Schemering uit: scène"
+      }
+    }
+  },
+  "services": {
+    "release": {
+      "name": "Bridge vrijgeven",
+      "description": "Sluit de seriële poort, bijvoorbeeld om firmware te flashen."
+    },
+    "reconnect": {
+      "name": "Bridge opnieuw verbinden",
+      "description": "Opent de seriële poort opnieuw."
+    },
+    "szene_anlegen": {
+      "name": "eNet-scène aanmaken",
+      "description": "Maakt een KNX-scène in de actoren aan (koppelingen voor scène-oproep en verzamelstatus). Met 'Leren' worden de huidige toestanden van de lampen de scènewaarden.",
+      "fields": {
+        "name": {
+          "name": "Naam",
+          "description": "Naam van de scène"
+        },
+        "entity_id": {
+          "name": "Lampen",
+          "description": "eNet-lampen die meedoen"
+        },
+        "lernen": {
+          "name": "Leren",
+          "description": "Huidige toestand als scènewaarden opslaan"
+        }
+      }
+    },
+    "szene_loeschen": {
+      "name": "eNet-scène verwijderen",
+      "description": "Verwijdert de scènekoppelingen uit alle deelnemers en verwijdert de scène.",
+      "fields": {
+        "entity_id": {
+          "name": "Scène",
+          "description": "Te verwijderen eNet-scène"
+        }
+      }
+    },
+    "geraet_einlernen": {
+      "name": "Apparaat inleren",
+      "description": "Zoekt naar een eNet-apparaat in de leermodus (druk op de knop van het apparaat), neemt het op in de installatie en kalibreert zo nodig de radio.",
+      "fields": {
+        "name": {
+          "name": "Naam",
+          "description": "Naam van het nieuwe apparaat (optioneel)."
+        }
+      }
+    },
+    "geraet_entfernen": {
+      "name": "Apparaat verwijderen",
+      "description": "Zet een eNet-apparaat terug naar de fabrieksinstellingen en verwijdert het uit de installatie.",
+      "fields": {
+        "device_id": {
+          "name": "Apparaat",
+          "description": "Te verwijderen eNet-apparaat."
+        }
+      }
+    },
+    "sender_programmieren": {
+      "name": "Zender programmeren",
+      "description": "Wekt een hand- of wandzender (druk er een toets op) en schrijft de volledige configuratie opnieuw vanuit de installatie: modus van elke wip, wip → actoren, losse toets → servertoets.",
+      "fields": {
+        "device_id": {
+          "name": "Zender",
+          "description": "Te programmeren eNet-zender."
+        }
+      }
+    },
+    "verknuepfungen_lesen": {
+      "name": "Koppelingen lezen",
+      "description": "Leest de koppeltabellen van actoren (allemaal, als er geen is geselecteerd) en beoordeelt elke regel: fabrieksregel, scène, wip, ander apparaat, oude koppeling of vreemd apparaat. Oude en vreemde koppelingen worden gemeld onder Reparaties. Leest alleen, wijzigt niets.",
+      "fields": {
+        "device_id": {
+          "name": "Actoren",
+          "description": "Te lezen eNet-actoren (leeg: allemaal)."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "geraet": {
+      "initiate_flow": {
+        "user": "Apparaat toevoegen"
+      },
+      "entry_type": "eNet-apparaat",
+      "step": {
+        "user": {
+          "title": "eNet-apparaat toevoegen",
+          "description": "Vul eventueel een naam en een ruimte in. Zet het apparaat na een klik op Verzenden in de leermodus (mini-actoren: knop 4 s ingedrukt houden; zenders: leerknop of toetscombinatie). Het zoeken duurt 2 minuten; een zender wordt direct geprogrammeerd en zijn leer-LED stopt met knipperen.",
+          "data": {
+            "name": "Naam",
+            "raum": "Ruimte"
+          }
+        }
+      },
+      "progress": {
+        "suchen": "Zoeken – zet het apparaat nu in de leermodus. Inleren en programmeren duren tot 2 minuten."
+      },
+      "abort": {
+        "eingelernt": "{name} ({typ}) ingeleerd als {ia}.",
+        "fehlgeschlagen": "Inleren mislukt: {fehler}",
+        "nicht_geladen": "De eNet-installatie is niet geladen (bridge aangesloten?)."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "eNet-installatie",
+        "menu_options": {
+          "sender": "Zender configureren",
+          "entfernen": "Apparaat verwijderen"
+        }
+      },
+      "entfernen": {
+        "title": "Apparaat verwijderen",
+        "description": "Welk apparaat moet uit de installatie worden verwijderd? Het wordt teruggezet naar de fabrieksinstellingen.",
+        "data": {
+          "geraet": "Apparaat"
+        }
+      },
+      "bestaetigen": {
+        "title": "{name} verwijderen?",
+        "description": "**{name}** ({typ}, {ia}) wordt teruggezet naar de fabrieksinstellingen en uit de installatie verwijderd. Het reageert niet meer totdat het opnieuw is ingeleerd (naam en configuratie worden onthouden).\n\nOok betroffen:\n{details}",
+        "data": {
+          "verstanden": "Ik begrijp het – apparaat verwijderen"
+        }
+      },
+      "sender": {
+        "title": "Zender configureren",
+        "description": "Welke hand- of wandzender moet worden geconfigureerd?",
+        "data": {
+          "geraet": "Zender"
+        }
+      },
+      "betriebsart": {
+        "title": "{name}: wippen",
+        "description": "Modus per wip (wip 1 = toetsen 1/2, wip 2 = toetsen 3/4 …).\n\n- **Wip**: schakelt/dimt de gekozen lampen direct, terugmelding van de lampen.\n- **Losse toetsen**: elke toets meldt zich bij de bridge (groene LED) en activeert een eNet-scène, een bridgescène of alleen een gebeurtenis voor Home Assistant-automatiseringen.",
+        "data": {
+          "wippe_1": "Wip 1 (toetsen 1/2)",
+          "wippe_2": "Wip 2 (toetsen 3/4)",
+          "wippe_3": "Wip 3 (toetsen 5/6)",
+          "wippe_4": "Wip 4 (toetsen 7/8)"
+        }
+      },
+      "details": {
+        "title": "{name}: toewijzing",
+        "description": "Lampen van de wippen of actie van elke losse toets. Als modus of lampen veranderen, wordt de zender daarna geprogrammeerd (druk er een toets op); een gewijzigde actie heeft alleen de bridge nodig. Home Assistant-lampen (andere integraties) worden door Home Assistant geschakeld en gedimd; de bridge bevestigt de wip (groene LED, alleen zolang er geen eNet Server draait).",
+        "data": {
+          "lampen_1": "Wip 1: eNet-actoren",
+          "ha_lampen_1": "Wip 1: Home Assistant-lampen",
+          "lampen_2": "Wip 2: eNet-actoren",
+          "ha_lampen_2": "Wip 2: Home Assistant-lampen",
+          "lampen_3": "Wip 3: eNet-actoren",
+          "ha_lampen_3": "Wip 3: Home Assistant-lampen",
+          "lampen_4": "Wip 4: eNet-actoren",
+          "ha_lampen_4": "Wip 4: Home Assistant-lampen",
+          "taste_1": "Toets 1",
+          "taste_2": "Toets 2",
+          "taste_3": "Toets 3",
+          "taste_4": "Toets 4",
+          "taste_5": "Toets 5",
+          "taste_6": "Toets 6",
+          "taste_7": "Toets 7",
+          "taste_8": "Toets 8"
+        }
+      }
+    },
+    "progress": {
+      "laeuft": "Apparaat wordt verwijderd … (bij een zender: druk er nu een toets op)",
+      "programmieren": "Zender wordt geprogrammeerd … druk er nu een toets op (wekken) en houd hem ongeveer een minuut in de buurt.",
+      "uebertragen": "Toewijzing wordt naar de bridge overgedragen …"
+    },
+    "error": {
+      "nicht_bestaetigt": "Bevestig eerst."
+    },
+    "abort": {
+      "entfernt": "{name} is verwijderd.",
+      "entfernt_offen": "{name} is uit de installatie verwijderd. Open: {offen}",
+      "fehlgeschlagen": "Verwijderen mislukt: {fehler}",
+      "nicht_geladen": "De eNet-installatie is niet geladen (bridge aangesloten?).",
+      "belegt": "{name}: toewijzing toegepast (alleen bridge, zender ongewijzigd).",
+      "belegt_programmiert": "{name}: zender geprogrammeerd en toewijzing toegepast.",
+      "keine_sender": "Er is geen zender in de installatie."
+    }
+  },
+  "exceptions": {
+    "geraet_loeschen": {
+      "message": "Verwijder eNet-apparaten via “Configureren → Apparaat verwijderen” bij de eNet-installatie – daar wordt het apparaat teruggezet en wordt alles wat ermee samenhangt opgeruimd."
+    }
+  },
+  "issues": {
+    "antwortet_nicht": {
+      "title": "eNet: {name} reageert niet",
+      "description": "{name} ({ia}, serienummer {sn}) hoort bij de installatie maar reageert niet. Mogelijke oorzaken: geen stroom, buiten radiobereik, verwijderd of vervangen (een nieuw apparaat heeft een ander serienummer en moet opnieuw worden ingeleerd).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{name} reageert niet",
+            "menu_options": {
+              "erneut": "Opnieuw opvragen",
+              "entfernen": "Uit de installatie verwijderen"
+            }
+          },
+          "entfernen": {
+            "title": "{name} verwijderen",
+            "description": "{name} wordt uit de installatie verwijderd, inclusief entiteiten, scènelidmaatschappen en verwijzingen in zenders. Als het apparaat nog aanwezig is, wordt het teruggezet naar de fabrieksinstellingen."
+          }
+        },
+        "abort": {
+          "antwortet_weiter_nicht": "{name} reageert nog steeds niet.",
+          "erledigt": "Klaar."
+        }
+      }
+    },
+    "szenen_mithoeren": {
+      "title": "eNet: scènes worden na de meeluistermodus omgezet",
+      "description": "Deze eNet-scènes kunnen nog niet worden bewerkt: {szenen}. Om ze in Home Assistant-scènes om te zetten, moeten de scènewaarden uit de actoren worden gelezen, en de bridge verzendt niets zolang \"Alleen meeluisteren\" aan staat. Schakel de echte eNet Server uit en zet daarna \"Alleen meeluisteren\" op de bridge uit; de scènes worden automatisch omgezet."
+    },
+    "szenen_nicht_umgewandelt": {
+      "title": "eNet: scènes nog niet omgezet",
+      "description": "Deze eNet-scènes zijn nog geen Home Assistant-scènes, omdat niet alle scènewaarden uit de actoren konden worden gelezen: {szenen}. Het omzetten wordt bij elke start opnieuw geprobeerd."
+    },
+    "szenen_links_fehlen": {
+      "title": "eNet: scènekoppelingen ontbreken",
+      "description": "Bij {kanaele} ontbreken koppelingen voor de scènes {szenen}. Deze lampen reageren niet op de eNet-scène-oproep (Home Assistant schakelt ze in plaats daarvan afzonderlijk).",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Scènekoppelingen aanmaken",
+            "description": "De ontbrekende koppelingen worden naar de actoren geschreven. De actoren herstarten kort; lampen die aan waren, worden daarna weer ingeschakeld."
+          }
+        },
+        "abort": {
+          "nicht_repariert": "Niet alles aangemaakt: {fehler}",
+          "erledigt": "Klaar."
+        }
+      }
+    },
+    "unbekannter_sender": {
+      "title": "eNet: onbekende zender ({sn})",
+      "description": "Een zender met serienummer {sn} drukt toetsen in, maar hoort niet bij de installatie. Voeg hem toe: Instellingen → Apparaten & diensten → eNet → \"Apparaat toevoegen\"."
+    },
+    "szene_wird_uebertragen": {
+      "title": "eNet: scène {szene} wordt overgedragen – even geduld",
+      "description": "Het eNet-deel van de scène {szene} wordt naar de actoren geschreven. Tot dit klaar is, wordt de scène lamp voor lamp via Home Assistant uitgevoerd. Deze melding verdwijnt vanzelf."
+    },
+    "aktor_wird_programmiert": {
+      "title": "eNet: {geraete} wordt geprogrammeerd – even geduld",
+      "description": "{geraete} wordt via de radio geprogrammeerd. De lampen gaan kort uit en worden daarna hersteld. Deze melding verdwijnt vanzelf."
+    },
+    "links_auffaellig": {
+      "title": "eNet: {name} heeft onverwachte koppelingen",
+      "description": "De koppeltabel van {name} ({ia}) bevat regels die bij geen enkele scène en geen enkele wip van de installatie horen:\n\n{eintraege}\n\nZulke restanten laten de lamp reageren op toetsen of telegrammen die ze zou moeten negeren (bijvoorbeeld dimmen naar een andere waarde bij het loslaten van een servertoets). Meestal komen ze van eerdere toewijzingen in de eNet Server.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Onverwachte koppelingen in {name}",
+            "menu_options": {
+              "entfernen": "Koppelingen verwijderen",
+              "behalten": "Behouden (niet opnieuw melden)"
+            }
+          },
+          "entfernen": {
+            "title": "Koppelingen uit {name} verwijderen",
+            "description": "De tabel wordt opnieuw gelezen en de vermelde regels worden uit de actor verwijderd. De actor herstart kort; een lamp die aan was, wordt daarna weer ingeschakeld. Verwijder ze alleen als geen enkele zender buiten deze installatie ze nog gebruikt."
+          },
+          "behalten": {
+            "title": "Koppelingen in {name} behouden",
+            "description": "De regels blijven in de actor en worden niet meer gemeld. Nieuwe onverwachte regels worden nog steeds gemeld."
+          }
+        },
+        "abort": {
+          "nicht_entfernt": "Niet alles verwijderd: {fehler}",
+          "erledigt": "Klaar."
+        }
+      }
+    }
+  },
+  "selector": {
+    "wippen_art": {
+      "options": {
+        "wippe": "Wip (schakelt/dimt lampen direct)",
+        "tasten": "Twee losse toetsen (servertoetsen, groene LED)"
+      }
+    }
+  }
+}

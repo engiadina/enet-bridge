@@ -30,9 +30,9 @@ Important modules of the integration: `hub.py` (central state, sync with the bri
   changes; the integration updates bridges automatically.
 - **Integration:** bump `version` in `manifest.json`. The code has to run on the current Home Assistant release.
 - **UI texts:** never hard-code user-visible text. Setup, entities, services and repairs go into `strings.json` and
-  `translations/*.json` (English, German, Norwegian Bokmål). Everything else goes through `texts.tr()` with an
-  entry in `texts.py` (German and English) and optionally `texts_nb.py` (Norwegian; missing keys fall back to
-  English). Log messages are English and not translated.
+  `translations/*.json` (English, German, Norwegian Bokmål, Dutch). Everything else goes through `texts.tr()` with
+  an entry in `texts.py` (German and English) and optionally `texts_nb.py` (Norwegian) and `texts_nl.py` (Dutch);
+  missing keys fall back to English. Log messages are English and not translated.
 - **Compatibility:** do not rename stored keys, entity unique IDs, service names, event fields or JSON protocol
   fields (see below) – they live in existing installations and user automations.
 - **No private data:** never commit exports (`.iex`), installation files, captures with real serial numbers or
