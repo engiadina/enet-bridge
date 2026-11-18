@@ -76,6 +76,7 @@ TEXTS_NB: dict[str, str] = {
     "link_keine_szene": "fra serveren, ingen scene",
     "link_fremd": "fra enhet {sn}, ikke en del av anlegget",
     "zweck_einstellung": "innstilling {name}",
+    "zweck_einlernen": "fullføre innlæring",
     "zweck_fahrzeit": "kjøretid {name}",
     "einmessen_schritt_oben": "Måling: kjører opp – når helt oppe, trykk «Posisjon nådd»",
     "einmessen_schritt_oben_markise": "Måling: kjører inn – når helt inne, trykk «Posisjon nådd»",

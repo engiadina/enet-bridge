@@ -159,6 +159,7 @@ TEXTS: dict[str, tuple[str, str]] = {
     "link_keine_szene": ("vom Server, zu keiner Szene", "from the server, no scene"),
     "link_fremd": ("von Gerät {sn}, das nicht in der Anlage ist", "from device {sn}, not part of the installation"),
     "zweck_einstellung": ("Einstellung {name}", "setting {name}"),
+    "zweck_einlernen": ("Einlernen abschließen", "completing pairing"),
     "zweck_fahrzeit": ("Fahrzeit {name}", "travel time {name}"),
     "einmessen_schritt_oben": ("Einmessen: fährt nach oben – wenn ganz oben, „Position erreicht“ drücken", "Measuring: moving up – when fully up, press “Position reached”"),
     "einmessen_schritt_oben_markise": ("Einmessen: fährt ein – wenn ganz eingefahren, „Position erreicht“ drücken", "Measuring: retracting – when fully retracted, press “Position reached”"),
