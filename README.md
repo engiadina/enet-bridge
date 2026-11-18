@@ -135,6 +135,18 @@ Parts list, wiring, antenna and measurements: **[docs/HARDWARE.md](docs/HARDWARE
 
 <br clear="right">
 
+### Looking for a step-by-step guide?
+
+Building the bridge yourself for the first time? The illustrated build guide walks you through the XIAO
+ESP32-C6 + CC1101 build in assembly-manual style: parts, soldering basics, preparing the radio module and antenna
+socket, wiring, the enclosure and the setup in Home Assistant, with a troubleshooting table at the end. It is
+available as a printable **[PDF](docs/build-guide.pdf)** and as a single long **[PNG](docs/build-guide.png)** for
+reading on screen. Pinout and antenna rules follow [docs/HARDWARE.md](docs/HARDWARE.md); if the two ever
+differ, HARDWARE.md wins.
+
+Build guide by Marnix Harderwijk – more articles about smart home automation at
+[xdomotics.nl](https://www.xdomotics.nl).
+
 ## Installation
 
 Requirements: Home Assistant **2026.10** or newer, a free USB port on the HA host.
