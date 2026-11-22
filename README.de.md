@@ -260,6 +260,13 @@ Firmware: PlatformIO (`pio run -e esp32dev`, XIAO ESP32-C6: `-e xiao_esp32c6`; `
 Protokoll-Logik hat Host-Tests: `pio test -e native`. Schnittstelle Bridge ↔ Host (serielle JSON-Zeilen):
 [docs/INTERFACE.md](docs/INTERFACE.md).
 
+## Mitwirkende
+
+- [Magnus Nordseth](https://github.com/mnordseth) – Autor der [eNet-Integration für den eNet Server](https://github.com/mnordseth/enet-homeassistant),
+  dem ersten Weg, eNet in Home Assistant zu nutzen; Erkenntnisse zu Kanaltypen von Bedienaufsätzen, Jalousien und
+  Sensoren aus echten Anlagen; Hinweis auf den busware CUL32.
+- [Marnix Harderwijk](https://github.com/mrpharderwijk) – bebilderte Bauanleitung.
+
 ## Lizenz
 
 Copyright 2026 Guido Weckwerth. Lizenz: [Apache License 2.0](LICENSE), **ausgenommen** Symbol/Logo in
