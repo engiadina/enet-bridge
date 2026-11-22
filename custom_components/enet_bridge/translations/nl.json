@@ -39,7 +39,7 @@
       },
       "reconfigure": {
         "title": "Poort van de bridge",
-        "description": "Kies de seriële poort van de eNet-bridge. Radiomodules van andere integraties (Thread/Zigbee/Z-Wave) worden niet aangeboden.",
+        "description": "Kies de seriële poort van de eNet-bridge. Radiomodules van andere integraties (Thread/Zigbee/Z-Wave) worden niet aangeboden. Een bridge op een andere computer (ser2net) kan worden ingevoerd als socket://host:port.",
         "data": {
           "port": "Poort van de bridge"
         }

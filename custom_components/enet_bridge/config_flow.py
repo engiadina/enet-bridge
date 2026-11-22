@@ -43,7 +43,7 @@ from homeassistant.helpers.selector import (
 
 from . import pair, iex, sender
 from .installation import load_file, new_installation
-from .bridge import BridgeError, foreign_radio, list_ports
+from .bridge import BridgeError, foreign_radio, list_ports, network_port
 from .const import CONF_INSTALLATION, CONF_INSTALLATION_DATA, CONF_PORT, DEFAULT_INSTALLATION, DOMAIN
 from . import texts
 from .texts import tr
@@ -77,7 +77,7 @@ class EnetConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _port_ok(self, port: str, errors: dict[str, str]) -> bool:
         if foreign_radio(port):
             errors[CONF_PORT] = "port_fremd"
-        elif not await self.hass.async_add_executor_job(os.path.exists, port):
+        elif not network_port(port) and not await self.hass.async_add_executor_job(os.path.exists, port):
             errors[CONF_PORT] = "port_missing"
         return not errors
 

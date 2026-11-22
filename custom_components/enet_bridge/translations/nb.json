@@ -39,7 +39,7 @@
       },
       "reconfigure": {
         "title": "Broport",
-        "description": "Velg serieporten til eNet-broen. Radioer fra andre integrasjoner (Thread/Zigbee/Z-Wave) vises ikke.",
+        "description": "Velg serieporten til eNet-broen. Radioer fra andre integrasjoner (Thread/Zigbee/Z-Wave) vises ikke. En bro på en annen maskin (ser2net) kan angis som socket://vert:port.",
         "data": {
           "port": "Broport"
         }

@@ -197,6 +197,9 @@ TEXTS: dict[str, tuple[str, str]] = {
     "akt_sensor_wach": ("– Sensor ist wach", "– sensor is awake"),
     "keine_bridge_port": ("{port} ist keine Bridge (Funkmodul einer anderen Integration)",
                           "{port} is not a bridge (radio of another integration)"),
+    "flash_netzwerk": ("Firmware kann über {port} nicht installiert werden – die Bridge am Rechner flashen, an dem "
+                       "sie angeschlossen ist",
+                       "Firmware cannot be installed via {port} – flash the bridge on the computer it is attached to"),
     # --- Pairing / removal ------------------------------------------------------------------------------
     "akt_einlernen_start": ("– Einlernen: Gerät jetzt in den Lernmodus versetzen (Mini-Aktoren: Taste am Gerät 4 s "
                             "drücken, Lernmodus 1 min), Suche läuft 2 Minuten",

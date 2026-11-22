@@ -39,7 +39,7 @@
       },
       "reconfigure": {
         "title": "Bridge port",
-        "description": "Choose the serial port of the eNet bridge. Radios of other integrations (Thread/Zigbee/Z-Wave) are not offered.",
+        "description": "Choose the serial port of the eNet bridge. Radios of other integrations (Thread/Zigbee/Z-Wave) are not offered. A bridge on another computer (ser2net) can be entered as socket://host:port.",
         "data": {
           "port": "Bridge port"
         }

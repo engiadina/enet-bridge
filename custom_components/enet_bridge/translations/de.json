@@ -39,7 +39,7 @@
       },
       "reconfigure": {
         "title": "Port der Bridge",
-        "description": "Seriellen Port der eNet-Bridge wählen. Funkmodule anderer Integrationen (Thread/Zigbee/Z-Wave) werden nicht angeboten.",
+        "description": "Seriellen Port der eNet-Bridge wählen. Funkmodule anderer Integrationen (Thread/Zigbee/Z-Wave) werden nicht angeboten. Eine Bridge an einem anderen Rechner (ser2net) als socket://host:port eingeben.",
         "data": {
           "port": "Port der Bridge"
         }

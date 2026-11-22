@@ -106,6 +106,8 @@ TEXTS_NL: dict[str, str] = {
     "akt_sensor_wecken": "– druk op een testtoets van de sensor (wekken)",
     "akt_sensor_wach": "– sensor is wakker",
     "keine_bridge_port": "{port} is geen bridge (radiomodule van een andere integratie)",
+    "flash_netzwerk": ("Firmware kan niet via {port} worden geïnstalleerd – flash de bridge op de computer waarop "
+                       "hij is aangesloten"),
     # --- Pairing / removal ------------------------------------------------------------------------------
     "akt_einlernen_start": ("– inleren: zet het apparaat nu in de leermodus (mini-actoren: knop op het apparaat 4 s "
                             "indrukken, leermodus duurt 1 min), er wordt 2 minuten gezocht"),
