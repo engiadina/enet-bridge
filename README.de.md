@@ -1,5 +1,10 @@
 # eNet-Bridge für Home Assistant
 
+[![Release](https://img.shields.io/github/v/release/engiadina/enet-bridge)](https://github.com/engiadina/enet-bridge/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![License](https://img.shields.io/github/license/engiadina/enet-bridge)](LICENSE)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.10%2B-blue)](https://www.home-assistant.io)
+
 **Gira/Jung-eNet**-Funkgeräte direkt in Home Assistant nutzen – **ohne eNet Server**.
 
 Ein kleines USB-Funkmodem (ESP32-C6 + CC1101, Teile für etwa 20–30 €) übernimmt die Aufgaben des eNet Servers: Es

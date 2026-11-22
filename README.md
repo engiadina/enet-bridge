@@ -1,5 +1,10 @@
 # eNet Bridge for Home Assistant
 
+[![Release](https://img.shields.io/github/v/release/engiadina/enet-bridge)](https://github.com/engiadina/enet-bridge/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![License](https://img.shields.io/github/license/engiadina/enet-bridge)](LICENSE)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.10%2B-blue)](https://www.home-assistant.io)
+
 Use your **Gira / Jung eNet** radio devices directly in Home Assistant – **without the eNet Server**.
 
 A small USB radio modem (ESP32-C6 + CC1101, about 20–30 € in parts) takes over the job of the eNet Server: it speaks
