@@ -1,5 +1,10 @@
 # eNet-Bridge für Home Assistant
 
+[![Release](https://img.shields.io/github/v/release/engiadina/enet-bridge)](https://github.com/engiadina/enet-bridge/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![License](https://img.shields.io/github/license/engiadina/enet-bridge)](LICENSE)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.10%2B-blue)](https://www.home-assistant.io)
+
 **Gira/Jung-eNet**-Funkgeräte direkt in Home Assistant nutzen – **ohne eNet Server**.
 
 Ein kleines USB-Funkmodem (ESP32-C6 + CC1101, Teile für etwa 20–30 €) übernimmt die Aufgaben des eNet Servers: Es
@@ -254,6 +259,13 @@ enthalten die Produktnummer, die das Gerät gemeldet hat, damit es unterstützt 
 Firmware: PlatformIO (`pio run -e esp32dev`, XIAO ESP32-C6: `-e xiao_esp32c6`; `tools/fw_bundle.sh` legt beide in `bridge_fw/`). Die
 Protokoll-Logik hat Host-Tests: `pio test -e native`. Schnittstelle Bridge ↔ Host (serielle JSON-Zeilen):
 [docs/INTERFACE.md](docs/INTERFACE.md).
+
+## Mitwirkende
+
+- [Magnus Nordseth](https://github.com/mnordseth) – Autor der [eNet-Integration für den eNet Server](https://github.com/mnordseth/enet-homeassistant),
+  dem ersten Weg, eNet in Home Assistant zu nutzen; Erkenntnisse zu Kanaltypen von Bedienaufsätzen, Jalousien und
+  Sensoren aus echten Anlagen; Hinweis auf den busware CUL32.
+- [Marnix Harderwijk](https://github.com/mrpharderwijk) – bebilderte Bauanleitung.
 
 ## Lizenz
 
