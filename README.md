@@ -110,9 +110,9 @@ Tested in two installations:
 | Other dimming actuators (same channel type as the tested Mini dimmer) | System 2000 switching/dimming top unit (5490), 1–10 V control unit Mini (5421 00) | dimmable light |
 | Universal transmitter | 2-gang Mini (5453 00) – rocker mode only | rocker as event |
 | Steinel motion detectors with light output | sensIQ eNet, XLED PRO eNet (Square/Wide) – XLED PRO and sensIQ v2: pairing needs the product number of a real device (please report it), import from a server export works | light (XLED PRO: main and base light), motion, illuminance |
-| Operating top units | Memory (5492, 5493) on a System 3000 switching, 2-gang switching, dimming or blind insert | light or cover depending on the insert, rocker as event |
+| Operating top units | Memory (5492, 5493) and standard (5494, 5495) on a System 3000 switching, 2-gang switching, dimming or blind insert | light or cover depending on the insert, rocker as event |
 
-Device definitions (parameters) for all 44 eNet device types of the catalogue are included. Encrypted
+Device definitions (parameters) for all 45 eNet device types of the catalogue are included. Encrypted
 installations (eNet Server 2.0 with AES) are not supported.
 
 ## Hardware

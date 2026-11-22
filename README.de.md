@@ -110,9 +110,9 @@ im Modellnamen. Wer eines davon hat: Bitte melden, ob es funktioniert (am besten
 | Weitere Dimmaktoren (gleicher Kanaltyp wie der getestete Mini-Dimmer) | System-2000-Schalt-/Dimmaufsatz (5490), Steuereinheit 1–10 V Mini (5421 00) | dimmbares Licht |
 | Universalsender | 2fach Mini (5453 00) – nur Betriebsart Wippe | Wippe als Ereignis |
 | Steinel-Bewegungsmelder mit Lichtausgang | sensIQ eNet, XLED PRO eNet (Square/Wide) – XLED PRO und sensIQ v2: Einlernen braucht die Produktnummer eines echten Geräts (bitte melden), Import aus einem Server-Export geht | Licht (XLED PRO: Haupt- und Grundlicht), Bewegung, Helligkeit |
-| Bedienaufsätze | Memory (5492, 5493) auf System-3000-Schalt-, Schalt-2fach-, Dimm- oder Jalousieeinsatz | Licht oder Rollladen je nach Einsatz, Wippe als Ereignis |
+| Bedienaufsätze | Memory (5492, 5493) und Standard (5494, 5495) auf System-3000-Schalt-, Schalt-2fach-, Dimm- oder Jalousieeinsatz | Licht oder Rollladen je nach Einsatz, Wippe als Ereignis |
 
-Gerätedefinitionen (Parameter) für alle 44 eNet-Gerätetypen des Katalogs sind enthalten. Verschlüsselte Anlagen
+Gerätedefinitionen (Parameter) für alle 45 eNet-Gerätetypen des Katalogs sind enthalten. Verschlüsselte Anlagen
 (eNet Server 2.0 mit AES) werden nicht unterstützt.
 
 ## Hardware
