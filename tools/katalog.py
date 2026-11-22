@@ -3,7 +3,7 @@
 Generate device definitions from the Insta catalogue of the eNet Server firmware.
 
   python3 tools/katalog.py --alle                      # all types → custom_components/enet_bridge/definitionen.json
-  python3 tools/katalog.py [--katalog katalog/fw2.21] [--aus …] [--typen DVT_SD1M,…]
+  python3 tools/katalog.py [--katalog katalog/fw2.30] [--aus …] [--typen DVT_SD1M,…]
 
 The catalogue (devices_2.x.0.tgz from the server update) is kept locally (katalog/, not in the repo). The definitions
 of all types generated from it have been part of the integration since 2026-10-29; a local
@@ -19,9 +19,9 @@ Parameter memory (PID 79 = 0x4F): radio start element = index + 1, elements = by
 import glob, json, os, re, sys
 import xml.etree.ElementTree as ET
 
-# Device types the server knows without a manufacturer catalogue entry in fw2.21 (Steinel ships none there): device
-# type name (from the eNet app) → generic type. No product number known – pairing reports it as unknown until a tester
-# sends it; an import from a server export carries the type itself.
+# Device types the server knows without a manufacturer catalogue entry in fw2.21/fw2.30 (Steinel ships none there):
+# device type name (from the eNet app) → generic type. No product number known – pairing reports it as unknown until a
+# tester sends it; an import from a server export carries the type itself.
 GENERIC_ONLY = {"DVT_XLEDPRO": ("GDVT_XLEDPRO", "steinel"),  # Steinel XLED PRO eNet (Square/Wide)
                 "DVT_SENSIQv2": ("GDVT_SENSIQv2", "steinel")}
 
@@ -272,7 +272,7 @@ def encoding(t):
 
 
 def main():
-    kat = Catalogue(arg("--katalog", "katalog/fw2.21"))
+    kat = Catalogue(arg("--katalog", "katalog/fw2.30"))
     all_ = "--alle" in sys.argv
     off = arg("--aus", "custom_components/enet_bridge/definitionen.json" if all_ else "katalog/definitionen.json")
     types_ = arg("--typen")

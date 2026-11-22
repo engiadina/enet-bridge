@@ -72,10 +72,11 @@ NAMES: dict[str, tuple[str, str, bool]] = {
     "TM_SUPP": ("Unterdrückungsdauer Wirkleistung", "Suppression time active power", True),
     "TM_MEAN": ("Zeitdauer der Mittelwertbildung", "Averaging time", True),
     "INFO_ACTIVE_ENERGY_RESETABLE": ("Wirkenergie", "Active energy", True),
-    # universal transmitter (5453) and operating top unit (5492/5493)
+    # universal transmitter (5453) and operating top units (5492–5495)
     "BINARY_INPUT_RISING_FALLING_EDGE_1": ("Schaltflanke E1 fallend (Öffner)", "Input E1 falling edge (NC)", True),
     "BINARY_INPUT_RISING_FALLING_EDGE_2": ("Schaltflanke E2 fallend (Öffner)", "Input E2 falling edge (NC)", True),
     "ENABLE_EXTENSION": ("Nebenstellenbedienung zulassen", "Allow extension operation", True),
+    "NIGHT_LIGHT_FUNCTION_ENABLE": ("Nachtmodus", "Night mode", True),  # operating top unit 5494/5495
     # blind actuators (CT_1F03 and variants)
     "MUDT": ("Fahrzeit", "Travel time", True),
     "RPT": ("Umschaltpause", "Reversal pause", True),
