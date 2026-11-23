@@ -19,7 +19,8 @@
           "server_aus": "The eNet Server is switched off"
         },
         "data_description": {
-          "server_aus": "While the real server is running: leave unchecked. The bridge then only listens (keys, lamp states), sends and programs nothing. Once the server is off, turn off \"Listen only\" on the bridge."
+          "server_aus": "While the real server is running: leave unchecked. The bridge then only listens (keys, lamp states), sends and programs nothing. Once the server is off, turn off \"Listen only\" on the bridge.",
+          "port": "USB device of the bridge, or socket://host:port for a bridge on another computer (ser2net, trusted network only)."
         }
       },
       "neu": {
@@ -27,6 +28,9 @@
         "description": "The bridge becomes the server of a new eNet installation (own domain and server identity). Devices are added later by teaching them in.",
         "data": {
           "port": "Bridge port"
+        },
+        "data_description": {
+          "port": "USB device of the bridge, or socket://host:port for a bridge on another computer (ser2net, trusted network only)."
         }
       },
       "datei": {
@@ -35,6 +39,9 @@
         "data": {
           "port": "Bridge port",
           "anlage": "Installation (JSON)"
+        },
+        "data_description": {
+          "port": "USB device of the bridge, or socket://host:port for a bridge on another computer (ser2net, trusted network only)."
         }
       },
       "reconfigure": {
@@ -42,6 +49,9 @@
         "description": "Choose the serial port of the eNet bridge. Radios of other integrations (Thread/Zigbee/Z-Wave) are not offered.",
         "data": {
           "port": "Bridge port"
+        },
+        "data_description": {
+          "port": "USB device of the bridge, or socket://host:port for a bridge on another computer (ser2net, trusted network only)."
         }
       }
     },

@@ -22,7 +22,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from . import esp_config, firmware, layouts, versions
-from .bridge import Bridge, BridgeError, foreign_radio
+from .bridge import Bridge, BridgeError, foreign_radio, network_port
 from .const import KIND_DIMMER, KIND_BLIND, KIND_SWITCH, KIND_KEY, KIND_ROCKER, DOMAIN, SENSOR_TYPES
 from .installation import InstallationStore
 from .params import NOT_FOR_TYPE, Param, ParamStore, dpt9_decode
@@ -1159,8 +1159,12 @@ class Hub:
         self.bridge.info = {}
         if not self.no_bridge:
             self.no_bridge = True
-            _LOGGER.warning("No eNet bridge answers on port %s – install the firmware via the update entity "
-                            "\"Bridge firmware\"", self.bridge.port)
+            if network_port(self.bridge.port):
+                _LOGGER.warning("No eNet bridge answers on %s – check ser2net there; firmware can only be installed "
+                                "on the computer the bridge is attached to", self.bridge.port)
+            else:
+                _LOGGER.warning("No eNet bridge answers on port %s – install the firmware via the update entity "
+                                "\"Bridge firmware\"", self.bridge.port)
         async_dispatcher_send(self.hass, self.signal("bridge"))
         return None
 
@@ -1174,6 +1178,10 @@ class Hub:
         if attempt in self._auto_update:
             return False
         self._auto_update.add(attempt)
+        if network_port(self.bridge.port):
+            _LOGGER.warning("Bridge firmware %s is outdated (bundled: %s) – flash it on the computer the bridge is "
+                            "attached to; not possible via %s", info.get("fw"), new, self.bridge.port)
+            return False
         _LOGGER.warning("Bridge firmware %s is outdated – updating to %s automatically", info.get("fw"), new)
         return True
 
@@ -1183,6 +1191,8 @@ class Hub:
             return
         if foreign_radio(self.bridge.port):
             raise BridgeError("fremd", tr("keine_bridge_port", port=self.bridge.port))
+        if network_port(self.bridge.port):  # the bootloader reset needs the USB control lines
+            raise BridgeError("netzwerk", tr("flash_netzwerk", port=self.bridge.port))
         self.flashing = True
         async_dispatcher_send(self.hass, self.signal("bridge"))
         try:

@@ -19,7 +19,8 @@
           "server_aus": "eNet Server er slått av"
         },
         "data_description": {
-          "server_aus": "Mens den ekte serveren kjører: la stå uavkrysset. Broen lytter da bare (taster, lampestatus), og sender og programmerer ingenting. Når serveren er slått av, slår du av «Bare lytte» på broen."
+          "server_aus": "Mens den ekte serveren kjører: la stå uavkrysset. Broen lytter da bare (taster, lampestatus), og sender og programmerer ingenting. Når serveren er slått av, slår du av «Bare lytte» på broen.",
+          "port": "USB-enheten til broen, eller socket://vert:port for en bro på en annen maskin (ser2net, kun i et pålitelig nettverk)."
         }
       },
       "neu": {
@@ -27,6 +28,9 @@
         "description": "Broen blir server for et nytt eNet-anlegg (eget domene og egen serveridentitet). Enheter legges til senere ved å lære dem inn.",
         "data": {
           "port": "Broport"
+        },
+        "data_description": {
+          "port": "USB-enheten til broen, eller socket://vert:port for en bro på en annen maskin (ser2net, kun i et pålitelig nettverk)."
         }
       },
       "datei": {
@@ -35,6 +39,9 @@
         "data": {
           "port": "Broport",
           "anlage": "Anlegg (JSON)"
+        },
+        "data_description": {
+          "port": "USB-enheten til broen, eller socket://vert:port for en bro på en annen maskin (ser2net, kun i et pålitelig nettverk)."
         }
       },
       "reconfigure": {
@@ -42,6 +49,9 @@
         "description": "Velg serieporten til eNet-broen. Radioer fra andre integrasjoner (Thread/Zigbee/Z-Wave) vises ikke.",
         "data": {
           "port": "Broport"
+        },
+        "data_description": {
+          "port": "USB-enheten til broen, eller socket://vert:port for en bro på en annen maskin (ser2net, kun i et pålitelig nettverk)."
         }
       }
     },

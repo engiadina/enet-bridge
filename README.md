@@ -179,6 +179,12 @@ The setup asks where the installation comes from:
 Then choose the bridge’s serial port. If the board has no bridge firmware yet, install it with the update entity
 **“Bridge firmware”**.
 
+A bridge plugged into another computer can be reached through [ser2net](https://github.com/cminyard/ser2net)
+(raw mode): enter `socket://host:port` (or `rfc2217://host:port`) as the port. The connection is neither encrypted
+nor authenticated – whoever reaches that port controls the eNet installation, so use it only in a trusted network and
+limit the port to the Home Assistant host. Firmware cannot be installed over the network; flash the bridge on the
+computer it is attached to.
+
 ### Switching over from the eNet Server
 
 1. Make a full Home Assistant backup.

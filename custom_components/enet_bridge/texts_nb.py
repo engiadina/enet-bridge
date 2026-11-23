@@ -110,6 +110,7 @@ TEXTS_NB: dict[str, str] = {
     "akt_sensor_wecken": "– trykk på en testknapp på sensoren (vekk den)",
     "akt_sensor_wach": "– sensoren er våken",
     "keine_bridge_port": "{port} er ikke en bro (radio fra en annen integrasjon)",
+    "flash_netzwerk": "Fastvaren kan ikke installeres via {port} – flash broen på maskinen den er koblet til",
     # --- Pairing / removal ------------------------------------------------------------------------------
     "akt_einlernen_start": ("– innlæring: sett enheten i læremodus nå (miniaktuatorer: hold knappen på enheten inne "
                             "i 4 s, læremodus varer 1 min), søker i 2 minutter"),

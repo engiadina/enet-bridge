@@ -19,7 +19,8 @@
           "server_aus": "Der eNet Server ist ausgeschaltet"
         },
         "data_description": {
-          "server_aus": "Solange der echte Server läuft: aus lassen. Die Bridge hört dann nur mit (Tasten, Lampenzustände), sendet nichts und programmiert nichts. Sobald der Server aus ist, an der Bridge „Nur mithören“ ausschalten."
+          "server_aus": "Solange der echte Server läuft: aus lassen. Die Bridge hört dann nur mit (Tasten, Lampenzustände), sendet nichts und programmiert nichts. Sobald der Server aus ist, an der Bridge „Nur mithören“ ausschalten.",
+          "port": "USB-Gerät der Bridge oder socket://host:port für eine Bridge an einem anderen Rechner (ser2net, nur in vertrauenswürdigem Netz)."
         }
       },
       "neu": {
@@ -27,6 +28,9 @@
         "description": "Die Bridge wird zum Server einer neuen eNet-Anlage (eigene Domäne und Server-Kennung). Geräte werden danach eingelernt.",
         "data": {
           "port": "Port der Bridge"
+        },
+        "data_description": {
+          "port": "USB-Gerät der Bridge oder socket://host:port für eine Bridge an einem anderen Rechner (ser2net, nur in vertrauenswürdigem Netz)."
         }
       },
       "datei": {
@@ -35,6 +39,9 @@
         "data": {
           "port": "Port der Bridge",
           "anlage": "Anlage (JSON)"
+        },
+        "data_description": {
+          "port": "USB-Gerät der Bridge oder socket://host:port für eine Bridge an einem anderen Rechner (ser2net, nur in vertrauenswürdigem Netz)."
         }
       },
       "reconfigure": {
@@ -42,6 +49,9 @@
         "description": "Seriellen Port der eNet-Bridge wählen. Funkmodule anderer Integrationen (Thread/Zigbee/Z-Wave) werden nicht angeboten.",
         "data": {
           "port": "Port der Bridge"
+        },
+        "data_description": {
+          "port": "USB-Gerät der Bridge oder socket://host:port für eine Bridge an einem anderen Rechner (ser2net, nur in vertrauenswürdigem Netz)."
         }
       }
     },

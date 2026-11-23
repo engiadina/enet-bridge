@@ -19,7 +19,8 @@
           "server_aus": "De eNet Server is uitgeschakeld"
         },
         "data_description": {
-          "server_aus": "Zolang de echte server draait: niet aanvinken. De bridge luistert dan alleen mee (toetsen, lampstatussen) en verzendt en programmeert niets. Zodra de server uit is, zet je \"Alleen meeluisteren\" op de bridge uit."
+          "server_aus": "Zolang de echte server draait: niet aanvinken. De bridge luistert dan alleen mee (toetsen, lampstatussen) en verzendt en programmeert niets. Zodra de server uit is, zet je \"Alleen meeluisteren\" op de bridge uit.",
+          "port": "USB-apparaat van de bridge, of socket://host:port voor een bridge op een andere computer (ser2net, alleen in een vertrouwd netwerk)."
         }
       },
       "neu": {
@@ -27,6 +28,9 @@
         "description": "De bridge wordt de server van een nieuwe eNet-installatie (eigen domein en serveridentiteit). Apparaten worden later toegevoegd door ze in te leren.",
         "data": {
           "port": "Poort van de bridge"
+        },
+        "data_description": {
+          "port": "USB-apparaat van de bridge, of socket://host:port voor een bridge op een andere computer (ser2net, alleen in een vertrouwd netwerk)."
         }
       },
       "datei": {
@@ -35,6 +39,9 @@
         "data": {
           "port": "Poort van de bridge",
           "anlage": "Installatie (JSON)"
+        },
+        "data_description": {
+          "port": "USB-apparaat van de bridge, of socket://host:port voor een bridge op een andere computer (ser2net, alleen in een vertrouwd netwerk)."
         }
       },
       "reconfigure": {
@@ -42,6 +49,9 @@
         "description": "Kies de seriële poort van de eNet-bridge. Radiomodules van andere integraties (Thread/Zigbee/Z-Wave) worden niet aangeboden.",
         "data": {
           "port": "Poort van de bridge"
+        },
+        "data_description": {
+          "port": "USB-apparaat van de bridge, of socket://host:port voor een bridge op een andere computer (ser2net, alleen in een vertrouwd netwerk)."
         }
       }
     },

@@ -58,8 +58,9 @@ class Bridge:
 
     # --- Connection -------------------------------------------------------
     def _open(self) -> None:
-        s = serial.Serial()
-        s.port, s.baudrate, s.timeout = self.port, 115200, 0.2
+        # serial_for_url: device path or a network URL (socket://host:port for ser2net raw, rfc2217://host:port)
+        s = serial.serial_for_url(self.port, do_not_open=True)
+        s.baudrate, s.timeout = 115200, 0.2
         s.dtr = s.rts = False  # otherwise reset (on Linux the ESP restarts on open anyway)
         s.open()
         self._ser = s
@@ -249,6 +250,11 @@ class Bridge:
 # Just opening one crashes e.g. the OpenThread Border Router on the ZBT-2 (2026-11-02).
 FOREIGN_RADIOS = ("nabu_casa", "skyconnect", "zbt-", "zigbee", "conbee", "raspbee", "slzb", "z-wave", "zwave",
                      "zooz", "aeotec")
+
+
+def network_port(port: str) -> bool:
+    """Bridge reached over the network (e.g. ser2net: socket://host:port) instead of a local device."""
+    return "://" in port
 
 
 def foreign_radio(port: str) -> bool:
