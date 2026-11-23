@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import EnetConfigEntry, bridge_info
-from .bridge import BridgeError
+from .bridge import BridgeError, network_port
 from .entity import EnetEntity
 from .texts import tr
 from .visibility import filtered
@@ -30,12 +30,18 @@ class BridgeFirmware(EnetEntity, UpdateEntity):
     _attr_translation_key = "firmware"
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_supported_features = UpdateEntityFeature.INSTALL
 
     def __init__(self, hub) -> None:
         super().__init__(hub)
         self._attr_unique_id = f"{hub.entry_id}_firmware"
         self._attr_device_info = bridge_info(hub)
+
+    @property
+    def supported_features(self) -> UpdateEntityFeature:
+        # over the network (ser2net) no bootloader reset: show the version, offer no install
+        if network_port(self.hub.bridge.port):
+            return UpdateEntityFeature(0)
+        return UpdateEntityFeature.INSTALL
 
     @property
     def available(self) -> bool:
@@ -58,6 +64,8 @@ class BridgeFirmware(EnetEntity, UpdateEntity):
 
     @property
     def release_summary(self) -> str | None:
+        if network_port(self.hub.bridge.port):
+            return tr("flash_netzwerk", port=self.hub.bridge.port)
         if self.hub.no_bridge:
             return tr("keine_bridge_am_port")
         return None

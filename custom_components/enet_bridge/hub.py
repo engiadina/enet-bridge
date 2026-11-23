@@ -1159,8 +1159,12 @@ class Hub:
         self.bridge.info = {}
         if not self.no_bridge:
             self.no_bridge = True
-            _LOGGER.warning("No eNet bridge answers on port %s – install the firmware via the update entity "
-                            "\"Bridge firmware\"", self.bridge.port)
+            if network_port(self.bridge.port):
+                _LOGGER.warning("No eNet bridge answers on %s – check ser2net there; firmware can only be installed "
+                                "on the computer the bridge is attached to", self.bridge.port)
+            else:
+                _LOGGER.warning("No eNet bridge answers on port %s – install the firmware via the update entity "
+                                "\"Bridge firmware\"", self.bridge.port)
         async_dispatcher_send(self.hass, self.signal("bridge"))
         return None
 

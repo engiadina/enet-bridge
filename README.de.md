@@ -167,6 +167,12 @@ Die Einrichtung fragt, woher die Anlage kommt:
 Danach den seriellen Port der Bridge wählen. Hat die Platine noch keine Bridge-Firmware, über die Update-Entität
 **„Bridge-Firmware“** installieren.
 
+Eine Bridge an einem anderen Rechner ist über [ser2net](https://github.com/cminyard/ser2net) (Raw-Modus) erreichbar:
+als Port `socket://host:port` (oder `rfc2217://host:port`) eingeben. Die Verbindung ist weder verschlüsselt noch
+authentisiert – wer den Port erreicht, steuert die eNet-Anlage. Daher nur in einem vertrauenswürdigen Netz nutzen und
+den Port auf den Home-Assistant-Rechner beschränken. Firmware lässt sich über das Netz nicht installieren; die Bridge
+am Rechner flashen, an dem sie angeschlossen ist.
+
 ### Umstieg vom eNet Server
 
 1. Vollständiges Home-Assistant-Backup anlegen.
