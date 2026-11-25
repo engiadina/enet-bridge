@@ -656,7 +656,8 @@ async def change_assignment(hub: Hub, enet_device: dict[str, Any], assigned: dic
 
 # --- Device page: queue operating mode and lamps, action immediately, button "Program transmitter" ---
 OPERATING_MODES = ("wippe", "tasten")  # rocker without lamps = unused (the same in the transmitter)
-LAMP_SIDE = 2  # more lamps per rocker only in the "Assign transmitter" dialog; then locked on the device page
+LAMP_SIDE = 10  # lamps per rocker on the device page (manuals: up to 10 actuators per transmitter in one step);
+# more only in the "Assign transmitter" dialog, then locked on the device page
 PENDING = ("geplant", "geplant_lampen")
 
 
@@ -723,7 +724,7 @@ def rocker_lamps(enet_device: dict[str, Any], n: int) -> list[str]:
 
 
 def lamp_choices(enet_device: dict[str, Any], n: int) -> int:
-    """Number of "Lamp i" selects of rocker n: lamp 2 only once lamp 1 is assigned."""
+    """Number of "Lamp i" selects of rocker n: the next one appears once the previous one is assigned."""
     if mode(enet_device, n) != "wippe":
         return 0
     return min(len(rocker_lamps(enet_device, n)) + 1, LAMP_SIDE)

@@ -156,7 +156,7 @@ TEXTS_NB: dict[str, str] = {
     "folge_esp_szenen": "- Lokale broscener mister kommandoen: {liste}",
     "folge_szenen": "- Fjernes fra eNet-scenene: {liste}",
     # --- Transmitter device page, bridge, scenes ------------------------------------------------------
-    "wippe_komplex": ("{name} vippe {n} har mer enn to lys – endre den bare under «eNet → Konfigurer → "
+    "wippe_komplex": ("{name} vippe {n} har mer enn ti lys – endre den bare under «eNet → Konfigurer → "
                       "Konfigurer sender», ellers ville koblinger gå tapt."),
     "akt_vorgemerkt": "– endring notert, trykk «Programmer sender» for å ta den i bruk",
     "lampe_keine": "Ingen",

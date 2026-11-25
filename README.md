@@ -228,7 +228,7 @@ blueprint **“eNet Bridge – transmitter single keys”** (short/long press pe
 `blueprints/automation/enet_bridge/`.
 
 **Rocker with Home Assistant lights.** A rocker can also switch and dim lights of other integrations: choose them
-as “Lamp 1/2” on the transmitter's device page (or under *Configure → Configure sender*). Left button = on /
+as “Actuator 1”, “Actuator 2” … (up to 10) on the transmitter's device page (or under *Configure → Configure sender*). Left button = on /
 brighter, right button = off / darker; hold to dim. Adding the first or removing the last HA light reprograms the
 transmitter; changing which HA lights are used takes effect immediately. The bridge acknowledges the rocker (green
 LED) only while no eNet Server is running; Home Assistant switches the lights either way.

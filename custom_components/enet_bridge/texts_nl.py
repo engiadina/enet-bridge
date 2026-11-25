@@ -153,7 +153,7 @@ TEXTS_NL: dict[str, str] = {
     "folge_esp_szenen": "- Lokale scènes van de bridge verliezen de opdracht: {liste}",
     "folge_szenen": "- Wordt uit de eNet-scènes verwijderd: {liste}",
     # --- Transmitter device page, bridge, scenes ------------------------------------------------------
-    "wippe_komplex": ("{name} wip {n} heeft meer dan twee lampen – wijzig dit alleen via “eNet → Configureren → "
+    "wippe_komplex": ("{name} wip {n} heeft meer dan tien lampen – wijzig dit alleen via “eNet → Configureren → "
                       "Zender configureren”, anders gaan koppelingen verloren."),
     "akt_vorgemerkt": "– wijziging genoteerd, druk op “Zender programmeren” om haar toe te passen",
     "lampe_keine": "Geen",
