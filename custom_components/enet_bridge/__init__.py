@@ -27,7 +27,7 @@ from .hub import Hub, sensor_action_key
 from .texts import tr
 from . import texts
 from .iex import product_ident
-from .params import load_definitions
+from .params import SPECIAL, load_definitions
 from . import layouts
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.COVER, Platform.EVENT, Platform.LIGHT, Platform.NUMBER,
@@ -87,6 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnetConfigEntry) -> bool
     await hub.params.laden()  # stored parameter values decide which settings exist (visibility.py)
     _remove_orphaned_keys(hass, hub)
     await _sensor_view(hass, hub)
+    await _dimmer_view(hass, hub)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await visibility.sync_registry(hass, hub)
     await hub.async_start()
@@ -202,6 +203,24 @@ async def _sensor_view(hass: HomeAssistant, hub: Hub) -> None:
                 if (eid := reg.async_get_entity_id(domain, DOMAIN, uid)) and reg.async_get(eid).hidden_by:
                     reg.async_update_entity(eid, hidden_by=None)
     hub.installation["ansicht_sensor"] = 1
+    await hub.save_installation()
+
+
+async def _dimmer_view(hass: HomeAssistant, hub: Hub) -> None:
+    """Once per installation (ansicht_dimmer): special function settings of dimmers (lock-out protection, forced
+    operation, wind alarm, sun protection, twilight) created enabled by older versions are disabled – rarely needed;
+    new ones are created disabled (Param.default_active)."""
+    if hub.installation.get("ansicht_dimmer", 0) >= 1:
+        return
+    reg = er.async_get(hass)
+    for grp in hub.param_groups:
+        for p in grp.params:
+            if p.kind != "dimmen" or not SPECIAL.match(p.id):
+                continue
+            eid = reg.async_get_entity_id("number", DOMAIN, f"{grp.enet_device['sn']}_p_{p.key}")
+            if eid and reg.async_get(eid).disabled_by is None:
+                reg.async_update_entity(eid, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+    hub.installation["ansicht_dimmer"] = 1
     await hub.save_installation()
 
 
