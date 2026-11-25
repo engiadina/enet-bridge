@@ -250,8 +250,8 @@ class Param:
     def default_active(self) -> bool:
         if self.kind == "sender" and CHANNEL_SETTING.match(self.id):
             return False  # acknowledgement mode / scene number of transmitter channels: not in the manuals
-        if self.kind == "dimmen" and SPECIAL.match(self.id):
-            return False  # special functions of dimmers (lock-out, sun protection …): rarely needed
+        if self.kind in ("dimmen", "schalten") and SPECIAL.match(self.id):
+            return False  # special functions of dimmers/switches (lock-out, sun protection …): rarely needed
         return bool(SPECIAL.match(self.id)) or (self._own_name() or ("", "", False))[2]
 
     def _own_name(self) -> tuple[str, str, bool] | None:
