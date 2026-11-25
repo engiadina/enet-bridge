@@ -239,7 +239,7 @@
     },
     "select": {
       "wippe_betriebsart": {
-        "name": "Betriebsart",
+        "name": "* Betriebsart *",
         "state": {
           "wippe": "Wippe",
           "tasten": "Zwei Einzeltasten"
