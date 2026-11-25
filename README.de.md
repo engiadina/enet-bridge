@@ -216,7 +216,7 @@ dafür den Blueprint **„eNet Bridge – transmitter single keys“** (kurz/lan
 `blueprints/automation/enet_bridge/` an.
 
 **Wippe mit Home-Assistant-Lampen.** Eine Wippe kann auch Lampen anderer Integrationen schalten und dimmen: auf der
-Geräteseite des Senders als „Lampe 1/2“ wählen (oder unter *Konfigurieren → Sender belegen*). Linke Taste = ein /
+Geräteseite des Senders als „Aktor 1“, „Aktor 2“ … (bis zu 10) wählen (oder unter *Konfigurieren → Sender belegen*). Linke Taste = ein /
 heller, rechte = aus / dunkler; halten dimmt. Kommt die erste HA-Lampe dazu oder fällt die letzte weg, wird der
 Sender programmiert; welche HA-Lampen es sind, gilt sofort. Die Bridge quittiert die Wippe (grüne LED) nur, solange
 kein eNet Server läuft; Home Assistant schaltet die Lampen in jedem Fall.

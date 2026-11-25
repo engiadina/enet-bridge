@@ -239,7 +239,7 @@
     },
     "select": {
       "wippe_betriebsart": {
-        "name": "Mode",
+        "name": "* Mode *",
         "state": {
           "wippe": "Rocker",
           "tasten": "Two single keys"

@@ -264,9 +264,9 @@ TEXTS: dict[str, tuple[str, str]] = {
                          "- Local scenes of the bridge lose the command: {liste}"),
     "folge_szenen": ("- Fällt aus den eNet-Szenen: {liste}", "- Removed from the eNet scenes: {liste}"),
     # --- Transmitter device page, bridge, scenes ------------------------------------------------------
-    "wippe_komplex": ("{name} Wippe {n} hat mehr als zwei Lampen – nur unter „eNet → Konfigurieren → Sender belegen“ "
+    "wippe_komplex": ("{name} Wippe {n} hat mehr als zehn Lampen – nur unter „eNet → Konfigurieren → Sender belegen“ "
                       "ändern, sonst gingen Verknüpfungen verloren.",
-                      "{name} rocker {n} has more than two lights – change it only under “eNet → Configure → "
+                      "{name} rocker {n} has more than ten lights – change it only under “eNet → Configure → "
                       "Assign transmitter”, otherwise links would be lost."),
     "akt_vorgemerkt": ("– Änderung vorgemerkt, zum Übernehmen „Sender programmieren“ drücken",
                        "– change noted, press “Program transmitter” to apply it"),

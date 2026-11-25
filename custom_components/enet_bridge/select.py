@@ -139,7 +139,7 @@ def _pending(hub, enet_device) -> None:
 
 
 class RockerLamp(EnetEntity, SelectEntity):
-    """Lamp 1/2 of a rocker – pending until "program transmitter". If the rocker has more lamps (from the dialog), it
+    """Lamp i of a rocker (up to sender.LAMP_SIDE) – pending until "program transmitter". If the rocker has more lamps (from the dialog), it
     shows "several" and cannot be changed here."""
 
     _attr_translation_key = "wippe_lampe"
@@ -208,7 +208,7 @@ class RockerLamp(EnetEntity, SelectEntity):
         sender.queue_lamps(self.enet_device, self.n, new)
         await self.hub.save_installation()
         _pending(self.hub, self.enet_device)
-        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # lamp 2 may move up
+        self.hass.config_entries.async_schedule_reload(self.hub.entry_id)  # the next lamp appears, later ones may move up
 
 
 def ha_lamps(hass: HomeAssistant) -> dict[str, str]:

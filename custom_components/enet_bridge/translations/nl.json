@@ -239,7 +239,7 @@
     },
     "select": {
       "wippe_betriebsart": {
-        "name": "Modus",
+        "name": "* Modus *",
         "state": {
           "wippe": "Wip",
           "tasten": "Twee losse toetsen"
