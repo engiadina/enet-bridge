@@ -210,17 +210,18 @@ async def _special_view(hass: HomeAssistant, hub: Hub) -> None:
     """Once per installation (ansicht_sonderfunktionen): special function settings of dimmers and switching
     actuators (lock-out protection, forced operation, wind alarm, sun protection, twilight) created enabled by older
     versions are disabled – rarely needed; new ones are created disabled (Param.default_active). Blinds keep them."""
-    if hub.installation.get("ansicht_sonderfunktionen", 0) >= 1:
+    if hub.installation.get("ansicht_sonderfunktionen", 0) >= 2:
         return
     reg = er.async_get(hass)
     for grp in hub.param_groups:
         for p in grp.params:
             if p.kind not in ("dimmen", "schalten") or not SPECIAL.match(p.id):
                 continue
-            eid = reg.async_get_entity_id("number", DOMAIN, f"{grp.enet_device['sn']}_p_{p.key}")
-            if eid and reg.async_get(eid).disabled_by is None:
-                reg.async_update_entity(eid, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
-    hub.installation["ansicht_sonderfunktionen"] = 1
+            for domain in ("number", "select", "switch"):  # dimmer: brightness, switch: on/off value
+                eid = reg.async_get_entity_id(domain, DOMAIN, f"{grp.enet_device['sn']}_p_{p.key}")
+                if eid and reg.async_get(eid).disabled_by is None:
+                    reg.async_update_entity(eid, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+    hub.installation["ansicht_sonderfunktionen"] = 2  # 1: numbers only
     await hub.save_installation()
 
 
